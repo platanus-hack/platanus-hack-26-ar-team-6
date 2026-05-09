@@ -18,7 +18,7 @@ entries:
       kind: decision
 
   - content: |
-      Auth in V1 is a per-user bearer token. Every endpoint except /health
+      Auth in V2 is a per-user bearer token. Every endpoint except /health
       requires the token. Tokens are dev-token-user1 and dev-token-user2 in
       the seeds; production-grade auth is out of scope for the hackathon.
     metadata:
@@ -35,10 +35,11 @@ entries:
       kind: decision
 
   - content: |
-      API endpoints in V1: GET /health, GET /bootstrap?user_id=…,
-      POST /context-entries, POST /request-context (stub returning a
-      deterministic placeholder). The /request-context body is the V1
-      contract; only the implementation changes in V2.
+      API endpoints in V2: GET /health, GET /bootstrap?user_id=…,
+      POST /context-entries, POST /request-context. The request-context
+      handler retrieves the target user's context, synthesizes a grounded
+      answer, writes qa_ledger, materializes a cross_user_qa context row for
+      the target user, and returns the answer.
     metadata:
       tags: [api, endpoints]
       kind: design

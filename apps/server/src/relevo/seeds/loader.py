@@ -1,12 +1,11 @@
-"""V1 seed loader.
+"""V2 seed loader.
 
-Resets the V1 tables on a target Postgres and loads:
+Resets the demo tables on a target Postgres and loads:
   - one project row from seeds/project.yaml,
   - users from seeds/users.yaml,
   - per-user context entries from seeds/context/<user_key>.yaml.
 
-Embeddings are intentionally left NULL in V1 — the embedding model is a V2
-decision (Jorf+Sarf joint).
+Embeddings are intentionally left NULL until the embedding model is locked.
 
 Usage:
     python -m relevo.seeds.loader
@@ -21,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,7 +40,22 @@ from relevo.seeds.schemas import (
 
 logger = logging.getLogger("relevo.seeds.loader")
 
-REPO_ROOT_SEEDS = Path(__file__).resolve().parents[5] / "seeds"
+def _default_seeds_dir() -> Path:
+    if os.environ.get("SEEDS_DIR"):
+        return Path(os.environ["SEEDS_DIR"])
+    candidates = [
+        Path.cwd() / "seeds",
+        Path("/app/seeds"),
+        Path(__file__).resolve().parents[5] / "seeds",
+        Path(__file__).resolve().parents[3] / "seeds",
+    ]
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
+
+
+REPO_ROOT_SEEDS = _default_seeds_dir()
 
 
 def _load_yaml(path: Path) -> Any:
@@ -87,10 +102,10 @@ def load_user_context_files(seeds_dir: Path) -> list[UserContextFile]:
 
 
 def reset_tables(conn: psycopg.Connection) -> None:
-    """V1 reset: wipe rows from all data tables. Schema is left intact."""
+    """Reset: wipe rows from all data tables. Schema is left intact."""
     with conn.cursor() as cur:
         cur.execute(
-            "TRUNCATE TABLE context_entry, project_context_entry, app_user, project RESTART IDENTITY CASCADE"
+            "TRUNCATE TABLE qa_ledger, context_entry, project_context_entry, app_user, project RESTART IDENTITY CASCADE"
         )
     conn.commit()
 
@@ -177,7 +192,7 @@ def insert_user_context(
 
 
 def run(seeds_dir: Path, database_url: str, keep_existing: bool = False) -> int:
-    logger.info("=== Relevo seed loader (V1) ===")
+    logger.info("=== Relevo seed loader (V2) ===")
     logger.info("seeds_dir=%s database_url=%s", seeds_dir, database_url)
 
     if not seeds_dir.is_dir():
@@ -215,7 +230,7 @@ def run(seeds_dir: Path, database_url: str, keep_existing: bool = False) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Relevo V1 seed loader.")
+    parser = argparse.ArgumentParser(description="Relevo V2 seed loader.")
     parser.add_argument(
         "--seeds-dir",
         default=str(REPO_ROOT_SEEDS),
