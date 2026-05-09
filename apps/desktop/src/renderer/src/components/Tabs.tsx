@@ -9,28 +9,28 @@ function Tabs({ activeTab, onTabChange }: TabsProps): React.JSX.Element {
   return (
     <nav className="tabs">
       <button
-        className={`tab ${activeTab === 'chat' ? 'tab--active' : ''}`}
+        className={`settings-form__button ${activeTab === 'chat' ? 'settings-form__button--primary' : ''}`}
         type="button"
         onClick={() => onTabChange('chat')}
       >
         chat
       </button>
       <button
-        className={`tab ${activeTab === 'pool' ? 'tab--active' : ''}`}
+        className={`settings-form__button ${activeTab === 'pool' ? 'settings-form__button--primary' : ''}`}
         type="button"
         onClick={() => onTabChange('pool')}
       >
         pool
       </button>
       <button
-        className={`tab ${activeTab === 'timeline' ? 'tab--active' : ''}`}
+        className={`settings-form__button ${activeTab === 'timeline' ? 'settings-form__button--primary' : ''}`}
         type="button"
         onClick={() => onTabChange('timeline')}
       >
         timeline
       </button>
       <button
-        className={`tab ${activeTab === 'tasks' ? 'tab--active' : ''}`}
+        className={`settings-form__button ${activeTab === 'tasks' ? 'settings-form__button--primary' : ''}`}
         type="button"
         onClick={() => onTabChange('tasks')}
       >

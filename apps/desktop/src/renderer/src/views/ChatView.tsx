@@ -328,7 +328,7 @@ function ChatView({
           disabled={isRunning}
         />
         <button
-          className="chat-send"
+          className="settings-form__button settings-form__button--primary chat-send"
           type="button"
           onClick={isAssistantConfigured ? handleSend : onConfigureAssistant}
           disabled={isRunning}
