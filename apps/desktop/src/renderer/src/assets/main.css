@@ -22,20 +22,20 @@ button {
 .app-shell {
   --app-bg: #d6d6d6;
   --surface: #e9ebf0;
-  --surface-subtle: #e2e5eb;
-  --surface-muted: #d7dbe2;
+  --surface-subtle: #d5dae2;
+  --surface-muted: #c7ced8;
   --surface-inverse: #030213;
-  --border: rgba(0, 0, 0, 0.1);
-  --border-soft: #eeeeee;
+  --border: rgba(0, 0, 0, 0.16);
+  --border-soft: #c7ccd4;
   --text-primary: #0a0a0a;
   --text-secondary: #717182;
   --text-inverse: #ffffff;
   --bubble-user: #030213;
-  --bubble-assistant: #ececf0;
+  --bubble-assistant: #d8dde6;
   --bubble-user-text: #ffffff;
   --bubble-assistant-text: #0a0a0a;
-  --input-surface: #f3f3f5;
-  --user-box-bg: #ececf0;
+  --input-surface: #dfe3ea;
+  --user-box-bg: #d8dde6;
   --user-box-avatar-bg: #030213;
   --user-box-avatar-text: #ffffff;
   --user-box-name: #0a0a0a;
@@ -839,30 +839,30 @@ button {
 }
 
 .timeline-node__eyebrow {
-  fill: #667085;
+  fill: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
 }
 
 .timeline-node__title {
-  fill: #111827;
+  fill: var(--text-primary);
   font-size: 12.5px;
   font-weight: 700;
 }
 
 .timeline-node__meta {
-  fill: #667085;
+  fill: var(--text-secondary);
   font-size: 10.5px;
 }
 
 .timeline-node__chip rect {
-  fill: #eef3f8;
-  stroke: #d9e2ee;
+  fill: var(--surface-subtle);
+  stroke: var(--border-soft);
   stroke-width: 1;
 }
 
 .timeline-node__chip text {
-  fill: #475467;
+  fill: var(--text-secondary);
   font-size: 9.5px;
   font-weight: 700;
 }
@@ -902,13 +902,13 @@ button {
 
 .timeline-detail__date {
   margin: 0 34px 4px 0;
-  color: #667085;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 
 .timeline-detail h3 {
   margin: 0;
-  color: #111827;
+  color: var(--text-primary);
   font-size: 16px;
   font-weight: 700;
   line-height: 1.35;
@@ -919,7 +919,7 @@ button {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
-  color: #475467;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
 }
@@ -933,12 +933,12 @@ button {
 .timeline-detail__section {
   margin-top: 18px;
   padding-top: 14px;
-  border-top: 1px solid #edf0f4;
+  border-top: 1px solid var(--border-soft);
 }
 
 .timeline-detail__section h4 {
   margin: 0 0 8px;
-  color: #667085;
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -946,7 +946,7 @@ button {
 
 .timeline-detail__section p {
   margin: 0;
-  color: #1f2937;
+  color: var(--text-primary);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
