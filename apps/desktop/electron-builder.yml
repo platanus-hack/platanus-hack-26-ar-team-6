@@ -29,14 +29,13 @@ mac:
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
+  executableName: electron-app
   target:
-    - AppImage
-    - snap
     - deb
   maintainer: electronjs.org
   category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
+deb:
+  artifactName: ${productName}_${version}_${arch}.${ext}
 npmRebuild: false
 publish:
   provider: generic

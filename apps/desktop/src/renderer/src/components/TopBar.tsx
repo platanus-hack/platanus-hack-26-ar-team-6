@@ -7,21 +7,15 @@ type HealthResponse = {
 
 function TopBar(): React.JSX.Element {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
   const { data, isError } = useQuery({
     queryKey: ['health', apiBaseUrl],
-    queryFn: async (): Promise<HealthResponse> => {
-      const response = await fetch(`${apiBaseUrl}/health`)
-
-      if (!response.ok) {
-        throw new Error('health request failed')
-      }
-
-      return response.json()
-    }
+    enabled: isHealthcheckEnabled,
+    queryFn: (): Promise<HealthResponse> => window.api.getHealth(apiBaseUrl)
   })
 
-  const isHealthy = data?.status === 'ok' && !isError
+  const isHealthy = isHealthcheckEnabled && data?.status === 'ok' && !isError
   const healthText = isHealthy ? 'health: ok' : 'health: offline'
 
   return (

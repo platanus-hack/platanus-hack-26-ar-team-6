@@ -3,6 +3,11 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+type HealthResponse = {
+  status?: string
+  sha?: string
+}
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -49,8 +54,16 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // IPC test
-  ipcMain.on('ping', () => console.log('pong'))
+  ipcMain.handle('health:check', async (_, apiBaseUrl: string): Promise<HealthResponse> => {
+    const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, '')
+    const response = await fetch(`${normalizedBaseUrl}/health`)
+
+    if (!response.ok) {
+      throw new Error('health request failed')
+    }
+
+    return response.json()
+  })
 
   createWindow()
 
