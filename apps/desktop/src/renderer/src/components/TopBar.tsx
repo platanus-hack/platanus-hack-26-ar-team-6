@@ -82,7 +82,7 @@ function TopBar({
       <div className="topbar-group">
         {onBack && (
           <button className="topbar-back" type="button" onClick={onBack}>
-            back
+            projects
           </button>
         )}
         <span className="topbar-subtle">workspace: {workspaceName}</span>

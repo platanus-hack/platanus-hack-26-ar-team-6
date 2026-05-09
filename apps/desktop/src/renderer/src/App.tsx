@@ -29,11 +29,9 @@ function toErrorMessage(error: unknown): string {
 }
 
 function LoginScreen({
-  settings,
   authMessage,
   onSettingsChange
 }: {
-  settings: DesktopSettings
   authMessage: string | null
   onSettingsChange: (settings: DesktopSettings) => void
 }): React.JSX.Element {
@@ -66,7 +64,6 @@ function LoginScreen({
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="auth-server-url">{settings.serverBaseUrl}</div>
           <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
           </button>
@@ -80,24 +77,31 @@ function LoginScreen({
 
 function ProjectSelection({
   settings,
+  selectedProjectId,
   onSettingsChange,
-  onLogout
+  onLogout,
+  onProjectEntered
 }: {
   settings: DesktopSettings
+  selectedProjectId: string | null
   onSettingsChange: (settings: DesktopSettings) => void
   onLogout: () => Promise<void>
+  onProjectEntered: () => void
 }): React.JSX.Element {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [domainSummary, setDomainSummary] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
 
   async function handleSelect(projectId: string): Promise<void> {
     setStatus(null)
     try {
       const nextSettings = await window.api.selectProject(projectId)
       onSettingsChange(nextSettings)
+      onProjectEntered()
     } catch (error) {
       setStatus(`Project selection failed: ${toErrorMessage(error)}`)
     }
@@ -110,6 +114,29 @@ function ProjectSelection({
       onSettingsChange(nextSettings)
     } catch (error) {
       setStatus(`Refresh failed: ${toErrorMessage(error)}`)
+    }
+  }
+
+  async function handleDelete(project: DesktopProject): Promise<void> {
+    if (project.role !== 'leader') {
+      setStatus('Only project leaders can delete projects')
+      return
+    }
+    const confirmed = window.confirm(`Delete "${project.project_name}"? This cannot be undone.`)
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingProjectId(project.project_id)
+    setStatus(null)
+    try {
+      const nextSettings = await window.api.deleteProject(project.project_id)
+      onSettingsChange(nextSettings)
+      setStatus(`Deleted ${project.project_name}`)
+    } catch (error) {
+      setStatus(`Delete failed: ${toErrorMessage(error)}`)
+    } finally {
+      setDeletingProjectId(null)
     }
   }
 
@@ -132,6 +159,8 @@ function ProjectSelection({
       setName('')
       setDescription('')
       setDomainSummary('')
+      setIsCreateOpen(false)
+      onProjectEntered()
     } catch (error) {
       setStatus(`Create failed: ${toErrorMessage(error)}`)
     } finally {
@@ -148,6 +177,13 @@ function ProjectSelection({
             <p>{settings.account?.email}</p>
           </div>
           <div className="project-panel__actions">
+            <button
+              className={`settings-form__button ${isCreateOpen ? '' : 'settings-form__button--primary'}`}
+              type="button"
+              onClick={() => setIsCreateOpen((isOpen) => !isOpen)}
+            >
+              {isCreateOpen ? 'cancel' : 'new project'}
+            </button>
             <button className="settings-form__button" type="button" onClick={handleRefresh}>
               refresh
             </button>
@@ -157,50 +193,69 @@ function ProjectSelection({
           </div>
         </div>
 
-        {settings.projects.length > 0 && (
+        {settings.projects.length > 0 ? (
           <div className="project-list">
             {settings.projects.map((project) => (
-              <button
-                className="project-list__item"
+              <div
+                className={`project-list__item ${
+                  project.project_id === selectedProjectId ? 'project-list__item--selected' : ''
+                }`}
                 key={project.project_id}
-                type="button"
-                onClick={() => void handleSelect(project.project_id)}
               >
-                <span className="project-list__name">{project.project_name}</span>
-                <span className="project-list__meta">{project.role}</span>
-              </button>
+                <button className="project-list__select" type="button" onClick={() => void handleSelect(project.project_id)}>
+                  <span className="project-list__name">{project.project_name}</span>
+                  <span className="project-list__meta">{project.role}</span>
+                </button>
+                {project.role === 'leader' && (
+                  <button
+                    className="project-list__delete"
+                    type="button"
+                    onClick={() => void handleDelete(project)}
+                    disabled={deletingProjectId === project.project_id}
+                  >
+                    {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                  </button>
+                )}
+              </div>
             ))}
+          </div>
+        ) : (
+          <div className="project-empty">
+            <h2>No projects yet</h2>
+            <p>Create a project when you are ready.</p>
           </div>
         )}
 
-        <form className="project-create-form" onSubmit={handleCreate}>
-          <label className="settings-form__label" htmlFor="project-name">
-            New project
-          </label>
-          <input
-            id="project-name"
-            className="settings-form__input"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Project name"
-          />
-          <input
-            className="settings-form__input"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Description"
-          />
-          <textarea
-            className="settings-form__input"
-            rows={3}
-            value={domainSummary}
-            onChange={(event) => setDomainSummary(event.target.value)}
-            placeholder="Your role in this project"
-          />
-          <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSaving}>
-            {isSaving ? 'creating...' : 'create project'}
-          </button>
-        </form>
+        {isCreateOpen && (
+          <form className="project-create-form" onSubmit={handleCreate}>
+            <label className="settings-form__label" htmlFor="project-name">
+              New project
+            </label>
+            <input
+              id="project-name"
+              className="settings-form__input"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Project name"
+            />
+            <input
+              className="settings-form__input"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Description"
+            />
+            <textarea
+              className="settings-form__input"
+              rows={3}
+              value={domainSummary}
+              onChange={(event) => setDomainSummary(event.target.value)}
+              placeholder="Your role in this project"
+            />
+            <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'creating...' : 'create project'}
+            </button>
+          </form>
+        )}
 
         {status && <div className="auth-status">{status}</div>}
       </section>
@@ -279,6 +334,7 @@ function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
   const [isDark, setIsDark] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
 
   const settingsQuery = useQuery({
@@ -305,6 +361,9 @@ function App(): React.JSX.Element {
         setAuthMessage(event.message)
       } else if (event.type === 'login:succeeded') {
         setAuthMessage(null)
+        setIsProjectSelectorOpen(true)
+      } else if (event.type === 'logout:succeeded') {
+        setIsProjectSelectorOpen(false)
       }
     })
   }, [queryClient])
@@ -318,12 +377,19 @@ function App(): React.JSX.Element {
     queryClient.setQueryData(['desktop-settings'], nextSettings)
     queryClient.removeQueries({ queryKey: ['bootstrap'] })
     setActiveTab('chat')
+    setIsProjectSelectorOpen(false)
   }
 
   async function handleProjectSelect(projectId: string): Promise<void> {
     const nextSettings = await window.api.selectProject(projectId)
     queryClient.setQueryData(['desktop-settings'], nextSettings)
     setActiveTab('chat')
+    setIsProjectSelectorOpen(false)
+  }
+
+  function handleProjectEntered(): void {
+    setActiveTab('chat')
+    setIsProjectSelectorOpen(false)
   }
 
   if (settingsQuery.isError) {
@@ -337,7 +403,7 @@ function App(): React.JSX.Element {
   if (!desktopSettings.isLoggedIn) {
     return (
       <>
-        <LoginScreen settings={desktopSettings} authMessage={authMessage} onSettingsChange={handleSettingsChange} />
+        <LoginScreen authMessage={authMessage} onSettingsChange={handleSettingsChange} />
         {isSettingsOpen && (
           <SettingsPanel
             settings={desktopSettings}
@@ -349,14 +415,21 @@ function App(): React.JSX.Element {
     )
   }
 
-  if (!selectedProjectId) {
+  const selectedProject = desktopSettings.projects.find((project) => project.project_id === selectedProjectId) ?? null
+
+  if (!selectedProjectId || !selectedProject || isProjectSelectorOpen) {
     return (
-      <ProjectSelection settings={desktopSettings} onSettingsChange={handleSettingsChange} onLogout={handleLogout} />
+      <ProjectSelection
+        settings={desktopSettings}
+        selectedProjectId={selectedProjectId}
+        onSettingsChange={handleSettingsChange}
+        onLogout={handleLogout}
+        onProjectEntered={handleProjectEntered}
+      />
     )
   }
 
-  const selectedProject = desktopSettings.projects.find((project) => project.project_id === selectedProjectId)
-  const workspaceName = selectedProject?.project_name ?? 'selected project'
+  const workspaceName = selectedProject.project_name
   const bootstrapStatus: 'live' | 'loading' | 'error' = bootstrapQuery.isError
     ? 'error'
     : bootstrapQuery.data
@@ -370,7 +443,7 @@ function App(): React.JSX.Element {
       domain_summary: user.domain_summary
     })) ?? []
   const hasAnthropicApiKey = Boolean(desktopSettings.hasAnthropicApiKey)
-  const activeUserId = bootstrapQuery.data?.user.id ?? selectedProject?.user_id ?? ''
+  const activeUserId = bootstrapQuery.data?.user.id ?? selectedProject.user_id
 
   const runnerBootstrap: RunnerBootstrapPayload | null = bootstrapQuery.data
     ? {
@@ -420,6 +493,7 @@ function App(): React.JSX.Element {
         isDark={isDark}
         onToggleTheme={() => setIsDark((value) => !value)}
         anthropicKeyConfigured={hasAnthropicApiKey}
+        onBack={() => setIsProjectSelectorOpen(true)}
         onProjectSelect={(projectId) => void handleProjectSelect(projectId)}
         onSettings={() => setIsSettingsOpen(true)}
         onLogout={() => void handleLogout()}

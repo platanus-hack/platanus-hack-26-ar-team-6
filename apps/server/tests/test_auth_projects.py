@@ -195,6 +195,31 @@ class AuthProjectsTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_leader_can_delete_project(self) -> None:
+        self.app.dependency_overrides[auth_api.require_account] = account
+        delete_project = Mock(return_value=True)
+        with (
+            patch.object(auth_api, "require_project_leader", Mock(return_value=membership())),
+            patch.object(auth_api, "delete_project_by_id", delete_project),
+            patch.object(auth_api, "get_project_memberships_for_account", Mock(return_value=[])),
+        ):
+            response = self.client.delete(f"/projects/{PROJECT_ID}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["projects"], [])
+        delete_project.assert_called_once()
+
+    def test_member_cannot_delete_project(self) -> None:
+        self.app.dependency_overrides[auth_api.require_account] = account
+        with patch.object(
+            auth_api,
+            "require_project_leader",
+            Mock(side_effect=HTTPException(status_code=403, detail="Project leader role is required")),
+        ):
+            response = self.client.delete(f"/projects/{PROJECT_ID}")
+
+        self.assertEqual(response.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,10 +64,13 @@ Account/project routes:
 ```txt
 GET  /me/projects
 POST /projects
+DELETE /projects/{project_id}
 POST /projects/{project_id}/members
 ```
 
 `POST /projects` creates the project and the caller's `leader` membership.
+`DELETE /projects/{project_id}` requires caller role `leader` and removes the
+project for every member.
 `POST /projects/{project_id}/members` requires caller role `leader`; the target
 email must already belong to an account that logged in at least once.
 

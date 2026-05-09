@@ -13,6 +13,7 @@ const api = {
   selectProject: (projectId: string) => ipcRenderer.invoke('project:select', projectId),
   createProject: (request: { name: string; description?: string | null; domainSummary?: string | null }) =>
     ipcRenderer.invoke('project:create', request),
+  deleteProject: (projectId: string) => ipcRenderer.invoke('project:delete', projectId),
   addProjectMember: (request: { projectId: string; email: string; domainSummary: string }) =>
     ipcRenderer.invoke('project:member:add', request),
   getBootstrap: () => ipcRenderer.invoke('bootstrap:load'),

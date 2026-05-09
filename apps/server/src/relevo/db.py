@@ -100,6 +100,14 @@ def get_project(conn: psycopg.Connection, project_id: UUID) -> dict[str, Any] | 
     return dict(row) if row else None
 
 
+def delete_project_by_id(conn: psycopg.Connection, project_id: UUID) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM project WHERE id = %s", (project_id,))
+        deleted = cur.rowcount > 0
+        conn.commit()
+    return deleted
+
+
 def normalize_email(email: str) -> str:
     return email.strip().lower()
 

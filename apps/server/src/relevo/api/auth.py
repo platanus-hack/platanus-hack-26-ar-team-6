@@ -22,6 +22,7 @@ from relevo.db import (
     create_desktop_login_exchange,
     create_oauth_login_state,
     create_project_for_account,
+    delete_project_by_id,
     get_account,
     get_account_by_email,
     get_account_by_session_token,
@@ -422,3 +423,15 @@ def add_project_member(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return ProjectMembershipOut(**membership)
+
+
+@router.delete("/projects/{project_id}", response_model=AuthStateResponse)
+def delete_project(
+    project_id: UUID,
+    conn: Annotated[psycopg.Connection, Depends(get_db)],
+    account: Annotated[dict[str, Any], Depends(require_account)],
+) -> AuthStateResponse:
+    require_project_leader(conn, account, project_id)
+    if not delete_project_by_id(conn, project_id):
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _auth_state(conn, account)
