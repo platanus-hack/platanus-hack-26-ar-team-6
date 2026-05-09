@@ -478,9 +478,9 @@ button {
 
 .chat-save-status {
   padding: 4px 16px;
-  border-top: 1px solid #eeeeee;
-  background: #ffffff;
-  color: #555555;
+  border-top: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
