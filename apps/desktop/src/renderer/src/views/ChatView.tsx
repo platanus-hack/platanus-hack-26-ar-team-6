@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { parseMentions } from '../../../mentionParser.js'
 import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
 
@@ -110,6 +111,8 @@ function ChatView({
   const clearMessages = useChatStore((state) => state.clearMessages)
   const [input, setInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
+  const [mentionSuggestions, setMentionSuggestions] = useState<typeof bootstrap.project_context.roster>([])
+  const [mentionQuery, setMentionQuery] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
   const hasAssistantTextRef = useRef(false)
@@ -275,6 +278,9 @@ function ChatView({
     const userMessageId = Date.now().toString()
     const assistantMessageId = `${userMessageId}-assistant`
 
+    const mentions = parseMentions(text, bootstrap.project_context.roster)
+    const mentionedAgentIds = mentions.map((m) => m.userId)
+
     addMessage(workspaceId, { id: userMessageId, role: 'user', text })
     startAssistantMessage(workspaceId, assistantMessageId)
     setMessageText(workspaceId, assistantMessageId, 'thinking...')
@@ -285,6 +291,7 @@ function ChatView({
     setRunStatus(workspaceId, null)
     setIsRunning(true)
     setInput('')
+    setMentionSuggestions([])
 
     void window.api
       .startAssistantRun({
@@ -292,6 +299,7 @@ function ChatView({
         bootstrap,
         userId,
         chatSessionId: workspaceId,
+        mentionedAgentIds,
         conversationMessages: [
           ...messages.map((message) => ({ role: message.role, text: message.text })),
           { role: 'user' as const, text }
@@ -317,7 +325,34 @@ function ChatView({
     void window.api.clearConversation(workspaceId)
   }
 
+  function handleInputChange(value: string): void {
+    setInput(value)
+    const match = value.match(/@(\w*)$/)
+    if (match) {
+      const query = match[1].toLowerCase()
+      setMentionQuery(query)
+      const suggestions = bootstrap.project_context.roster.filter((u) =>
+        u.display_name.split(' ')[0].toLowerCase().startsWith(query)
+      )
+      setMentionSuggestions(suggestions)
+    } else {
+      setMentionSuggestions([])
+      setMentionQuery('')
+    }
+  }
+
+  function handleMentionSelect(user: (typeof bootstrap.project_context.roster)[0]): void {
+    const newInput = input.replace(/@\w*$/, `@${user.display_name} `)
+    setInput(newInput)
+    setMentionSuggestions([])
+    setMentionQuery('')
+  }
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.key === 'Escape' && mentionSuggestions.length > 0) {
+      setMentionSuggestions([])
+      return
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       handleSend()
@@ -372,12 +407,33 @@ function ChatView({
       )}
       {saveStatus && <div className="chat-save-status">{saveStatus}</div>}
       <div className="chat-input-row">
+        {mentionSuggestions.length > 0 && (
+          <ul className="mention-suggestions">
+            {mentionSuggestions.map((user) => (
+              <li key={user.id}>
+                <button
+                  type="button"
+                  className="mention-suggestion-item"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    handleMentionSelect(user)
+                  }}
+                >
+                  <span className="mention-suggestion-name">{user.display_name}</span>
+                  {user.domain_summary && (
+                    <span className="mention-suggestion-domain">{user.domain_summary}</span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <textarea
           className="chat-input"
           rows={2}
           placeholder={inputPlaceholder}
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => handleInputChange(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isRunning || !hasProjectFolder}
         />

@@ -707,6 +707,7 @@ export async function* runLocalAssistant(
       prompt: options.prompt,
       chatSessionId,
       conversationMessages: initialConversation(options),
+      mentionedAgentIds: options.mentionedAgentIds ?? [],
     },
     {
       retrieve,

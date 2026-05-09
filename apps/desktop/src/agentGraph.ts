@@ -58,6 +58,10 @@ function logAgentNetwork(event: string, details: Record<string, unknown>): void 
 const AgentNetworkAnnotation = Annotation.Root({
   prompt: Annotation<string>(),
   chatSessionId: Annotation<string>(),
+  mentionedAgentIds: Annotation<string[]>({
+    reducer: (_previous, next) => next,
+    default: () => [],
+  }),
   conversationMessages: Annotation<ConversationMessage[]>({
     reducer: (_previous, next) => next,
     default: () => [],
@@ -106,14 +110,21 @@ function shouldRunUpdater(messages: ConversationMessage[]): boolean {
 export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies) {
   return new StateGraph(AgentNetworkAnnotation)
     .addNode("preflightRetriever", async (state): Promise<AgentNetworkUpdate> => {
+      const targetAgentId = state.mentionedAgentIds[0] ?? undefined;
+      const cleanedQuery = targetAgentId
+        ? state.prompt.replace(/@\w+/g, "").replace(/\s{2,}/g, " ").trim()
+        : state.prompt;
       logAgentNetwork("preflightRetriever:start", {
         chatSessionId: state.chatSessionId,
         promptPreview: previewText(state.prompt),
         messageCount: state.conversationMessages.length,
+        targetAgentId,
+        hasMention: Boolean(targetAgentId),
       });
       return {
         preflightRequest: {
-          query: state.prompt,
+          query: cleanedQuery || state.prompt,
+          target_agent_id: targetAgentId,
           reason: "preflight before user-agent turn",
         },
       };
@@ -266,6 +277,7 @@ export async function* runAgentNetwork(
     prompt: string;
     chatSessionId: string;
     conversationMessages: ConversationMessage[];
+    mentionedAgentIds?: string[];
   },
   dependencies: AgentNetworkDependencies,
 ): AsyncGenerator<LocalAssistantEvent> {
@@ -273,9 +285,13 @@ export async function* runAgentNetwork(
     chatSessionId: input.chatSessionId,
     messageCount: input.conversationMessages.length,
     promptPreview: previewText(input.prompt),
+    mentionedAgentIds: input.mentionedAgentIds ?? [],
   });
   const graph = createAgentNetworkGraph(dependencies);
-  const stream = await graph.stream(input, { streamMode: "updates" });
+  const stream = await graph.stream(
+    { ...input, mentionedAgentIds: input.mentionedAgentIds ?? [] },
+    { streamMode: "updates" },
+  );
 
   for await (const chunk of stream) {
     logAgentNetwork("graph:update", {
