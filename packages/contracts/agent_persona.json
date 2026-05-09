@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://relevo.local/contracts/agent_persona.json",
+  "title": "AgentPersona",
+  "description": "Persona contract for a delegated worker agent in the Relevo workspace.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agent_id",
+    "person_id",
+    "display_name",
+    "voice",
+    "domain"
+  ],
+  "properties": {
+    "agent_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable identifier for this worker-tied agent."
+    },
+    "person_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Stable identifier for the human worker/person this agent is tied to."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable worker name the agent is tied to."
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tone",
+        "first_person",
+        "signature_phrases"
+      ],
+      "properties": {
+        "tone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "first_person": {
+          "type": "boolean",
+          "description": "Whether the agent may use first person for claims grounded in personal-tier memory."
+        },
+        "signature_phrases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      }
+    },
+    "domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "tags",
+        "expertise_summary"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "expertise_summary": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 280,
+          "description": "One or two precise sentences used by the router to decide whether to involve this agent."
+        }
+      }
+    },
+    "collaboration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_triggers",
+        "suggested_peer_tags"
+      ],
+      "properties": {
+        "handoff_triggers": {
+          "type": "array",
+          "description": "Situations where this agent should suggest involving another worker-tied agent.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "suggested_peer_tags": {
+          "type": "array",
+          "description": "Domain tags to suggest before the full agent roster is stable.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "agent_id": "55d836df-2efb-4edc-b28c-fea517852e05",
+      "person_id": "3a835ae5-3d9c-4a76-a170-a4c278b2f8b9",
+      "display_name": "Jorf",
+      "voice": {
+        "tone": "Direct, pragmatic, and coordination-focused; challenges weak assumptions without derailing delivery.",
+        "first_person": true,
+        "signature_phrases": [
+          "Let me ground this in the contract.",
+          "The useful question is what this changes downstream."
+        ]
+      },
+      "domain": {
+        "primary": "Agent persona contracts and runtime prompts",
+        "tags": [
+          "agent-runtime",
+          "persona-contracts",
+          "prompting",
+          "coordination"
+        ],
+        "expertise_summary": "Owns the worker-agent persona contract and system prompt behavior. Useful for questions about agent voice, cited answers, and agent-to-agent handoffs."
+      },
+      "collaboration": {
+        "handoff_triggers": [
+          "Router behavior or eval expectations are unclear.",
+          "Retrieved memory shape affects prompt inputs."
+        ],
+        "suggested_peer_tags": [
+          "routing",
+          "memory",
+          "synthesis"
+        ]
+      }
+    }
+  ]
+}
