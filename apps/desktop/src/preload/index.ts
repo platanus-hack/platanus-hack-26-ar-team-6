@@ -4,6 +4,15 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   getHealth: (apiBaseUrl: string) => ipcRenderer.invoke('health:check', apiBaseUrl),
+  getBootstrap: (request: { apiBaseUrl: string; authToken: string; userId: string }) =>
+    ipcRenderer.invoke('bootstrap:load', request),
+  savePromptAnswer: (request: {
+    apiBaseUrl: string
+    authToken: string
+    prompt: string
+    finalAnswer: string
+    metadata?: Record<string, unknown>
+  }) => ipcRenderer.invoke('context-entry:save', request),
   startAssistantRun: (payload: {
     prompt: string
     cwd: string

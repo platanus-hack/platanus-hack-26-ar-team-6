@@ -5,7 +5,7 @@ import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import { buildLocalAssistantSystemPrompt } from "./prompt.js";
 import { createRequestContextMcpServer } from "./requestContextTool.js";
-import type { LocalAssistantEvent, RunLocalAssistantOptions } from "./types.js";
+import type { LocalAssistantEvent, RequestContextResponse, RunLocalAssistantOptions } from "./types.js";
 
 async function resolveWorkingDirectory(cwd: string): Promise<string> {
   const resolved = resolve(cwd);
@@ -61,6 +61,60 @@ function textFromPartialMessage(message: SDKMessage): LocalAssistantEvent[] {
   return [];
 }
 
+function parseToolUseResult(toolUseResult: unknown): RequestContextResponse | { error: string } | null {
+  if (!toolUseResult || typeof toolUseResult !== "object") {
+    return null;
+  }
+
+  const data = toolUseResult as Record<string, unknown>;
+  if (typeof data.error === "string") {
+    return { error: data.error };
+  }
+
+  if (typeof data.answer !== "string") {
+    return null;
+  }
+
+  return {
+    answer: data.answer,
+    source_user_ids: Array.isArray(data.source_user_ids)
+      ? data.source_user_ids.filter((item): item is string => typeof item === "string")
+      : [],
+    citations: Array.isArray(data.citations)
+      ? data.citations.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      : [],
+  };
+}
+
+function toolResultFromUserMessage(message: SDKMessage): LocalAssistantEvent[] {
+  if (message.type !== "user" || !message.parent_tool_use_id || !message.tool_use_result) {
+    return [];
+  }
+
+  const parsedResult = parseToolUseResult(message.tool_use_result);
+  if (!parsedResult) {
+    return [];
+  }
+
+  if ("error" in parsedResult) {
+    return [
+      {
+        type: "tool_result",
+        toolUseId: message.parent_tool_use_id,
+        errorMessage: parsedResult.error,
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "tool_result",
+      toolUseId: message.parent_tool_use_id,
+      result: parsedResult,
+    },
+  ];
+}
+
 function normalizeSdkMessage(message: SDKMessage): LocalAssistantEvent[] {
   const partialEvents = textFromPartialMessage(message);
   if (partialEvents.length > 0) {
@@ -70,6 +124,11 @@ function normalizeSdkMessage(message: SDKMessage): LocalAssistantEvent[] {
   const assistantEvents = textFromAssistantMessage(message);
   if (assistantEvents.length > 0) {
     return assistantEvents;
+  }
+
+  const toolResultEvents = toolResultFromUserMessage(message);
+  if (toolResultEvents.length > 0) {
+    return toolResultEvents;
   }
 
   if (message.type === "tool_progress") {

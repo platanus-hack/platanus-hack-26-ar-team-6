@@ -15,6 +15,69 @@ type HealthResponse = {
   sha?: string
 }
 
+type BootstrapUser = {
+  id: string
+  display_name: string
+  domain_summary: string
+  profile: Record<string, unknown>
+}
+
+type BootstrapProject = {
+  id: string
+  name: string
+  description?: string | null
+}
+
+type BootstrapContextEntry = {
+  id: string
+  kind: string
+  content: string
+  metadata: Record<string, unknown>
+  created_at: unknown
+}
+
+type BootstrapResponse = {
+  user: BootstrapUser
+  project: BootstrapProject
+  roster: BootstrapUser[]
+  recent_entries: BootstrapContextEntry[]
+  project_context: BootstrapContextEntry[]
+}
+
+type BootstrapRequest = {
+  apiBaseUrl: string
+  authToken: string
+  userId: string
+}
+
+type SavePromptAnswerRequest = {
+  apiBaseUrl: string
+  authToken: string
+  prompt: string
+  finalAnswer: string
+  metadata?: Record<string, unknown>
+}
+
+type SavePromptAnswerResponse = {
+  id: string
+  kind: string
+}
+
+function normalizeBaseUrl(apiBaseUrl: string): string {
+  return apiBaseUrl.replace(/\/+$/, '')
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init)
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`${response.status} ${response.statusText}: ${text}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -62,7 +125,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('health:check', async (_, apiBaseUrl: string): Promise<HealthResponse> => {
-    const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, '')
+    const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl)
     const response = await fetch(`${normalizedBaseUrl}/health`)
 
     if (!response.ok) {
@@ -71,6 +134,37 @@ app.whenReady().then(() => {
 
     return response.json()
   })
+
+  ipcMain.handle('bootstrap:load', async (_, request: BootstrapRequest): Promise<BootstrapResponse> => {
+    const normalizedBaseUrl = normalizeBaseUrl(request.apiBaseUrl)
+    const bootstrapUrl = new URL(`${normalizedBaseUrl}/bootstrap`)
+    bootstrapUrl.searchParams.set('user_id', request.userId)
+
+    return fetchJson<BootstrapResponse>(bootstrapUrl.toString(), {
+      headers: {
+        Authorization: `Bearer ${request.authToken}`
+      }
+    })
+  })
+
+  ipcMain.handle(
+    'context-entry:save',
+    async (_, request: SavePromptAnswerRequest): Promise<SavePromptAnswerResponse> => {
+      const normalizedBaseUrl = normalizeBaseUrl(request.apiBaseUrl)
+      return fetchJson<SavePromptAnswerResponse>(`${normalizedBaseUrl}/context-entries`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${request.authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt: request.prompt,
+          final_answer: request.finalAnswer,
+          metadata: request.metadata ?? {}
+        })
+      })
+    }
+  )
 
   ipcMain.handle('assistant:run:start', async (event, payload: RunLocalAssistantOptions): Promise<void> => {
     for await (const assistantEvent of runLocalAssistant(payload)) {

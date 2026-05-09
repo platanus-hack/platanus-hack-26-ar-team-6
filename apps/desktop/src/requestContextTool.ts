@@ -15,10 +15,10 @@ export type RequestContextClientOptions = {
   fetchImpl?: FetchLike;
 };
 
-const targetSchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]);
+const targetSchema = z.string().min(1);
 
 export const requestContextInputSchema = z.object({
-  target: targetSchema.describe('User id, "project", or an array containing either.'),
+  target: targetSchema.describe("Target teammate user_id (UUID)."),
   question: z.string().min(1).describe("Specific natural-language question for the target context."),
 });
 
@@ -95,7 +95,7 @@ export function createRequestContextMcpServer(options: RequestContextClientOptio
     tools: [
       tool(
         "request_context",
-        "Request missing teammate or project context from the shared Relevo server.",
+        "Request missing teammate context from the shared Relevo server.",
         {
           target: targetSchema,
           question: z.string().min(1),
