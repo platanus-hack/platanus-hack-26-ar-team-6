@@ -28,6 +28,8 @@ const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const DEFAULT_API_BASE_URL = viteEnv['VITE_API_BASE_URL'] || process.env['VITE_API_BASE_URL'] || ''
 const DESKTOP_REDIRECT_URI = 'relevo://auth/callback'
 
+const _runningAssistantSenders = new Set<number>()
+
 type HealthResponse = {
   status?: string
   sha?: string
@@ -550,58 +552,81 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
-    const anthropicApiKey = await readAnthropicApiKey()
-    if (!anthropicApiKey) {
-      throw new Error('Anthropic API key is not configured. Open settings and save a key.')
+    const senderId = event.sender.id
+    if (_runningAssistantSenders.has(senderId)) {
+      event.sender.send('assistant:event', {
+        type: 'error',
+        message: 'A run is already in progress',
+      })
+      return
     }
+    _runningAssistantSenders.add(senderId)
 
-    const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
-    const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
-    const runOptions: RunLocalAssistantOptions = {
-      ...payload,
-      cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
-      anthropicApiKey,
-      serverUrl: serverBaseUrl,
-      authToken: sessionToken,
-      projectId: selectedProjectId
-    }
+    try {
+      const anthropicApiKey = await readAnthropicApiKey()
+      if (!anthropicApiKey) {
+        throw new Error('Anthropic API key is not configured. Open settings and save a key.')
+      }
 
-    const runToolTrace: ActivityToolEntry[] = []
-    let finalSessionId: string | undefined
-    let finalAnswer = ''
-    let activityTitle: string | undefined
+      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+      const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
+      const runOptions: RunLocalAssistantOptions = {
+        ...payload,
+        cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
+        anthropicApiKey,
+        serverUrl: serverBaseUrl,
+        authToken: sessionToken,
+        projectId: selectedProjectId
+      }
 
-    for await (const assistantEvent of runLocalAssistant(runOptions)) {
-      event.sender.send('assistant:event', assistantEvent)
-      if (assistantEvent.type === 'tool_call') {
-        runToolTrace.push({
-          toolName: assistantEvent.toolName,
-          toolUseId: assistantEvent.toolUseId,
-          input: assistantEvent.input
+      const runToolTrace: ActivityToolEntry[] = []
+      let finalSessionId: string | undefined
+      let finalAnswer = ''
+      let activityTitle: string | undefined
+
+      for await (const assistantEvent of runLocalAssistant(runOptions)) {
+        if (event.sender.isDestroyed()) break
+        event.sender.send('assistant:event', assistantEvent)
+        if (assistantEvent.type === 'tool_call') {
+          runToolTrace.push({
+            toolName: assistantEvent.toolName,
+            toolUseId: assistantEvent.toolUseId,
+            input: assistantEvent.input
+          })
+        } else if (assistantEvent.type === 'result') {
+          finalSessionId = assistantEvent.sessionId
+          finalAnswer = assistantEvent.result
+        } else if (assistantEvent.type === 'activity_title') {
+          activityTitle = assistantEvent.title
+        }
+      }
+
+      if (settings.activityGraphEnabled && settings.account && settings.selectedProjectFolderPath) {
+        const project = settings.projects.find((p) => p.project_id === selectedProjectId)
+        if (project) {
+          void saveActivityNote({
+            sessionId: finalSessionId ?? `${Date.now()}`,
+            prompt: payload.prompt,
+            finalAnswer,
+            activityTitle,
+            toolTrace: runToolTrace,
+            displayName: settings.account.display_name,
+            email: settings.account.email,
+            projectName: project.project_name,
+            projectFolderPath: settings.selectedProjectFolderPath
+          }).catch((err) => console.error('[activity-graph]', err))
+        }
+      }
+    } catch (error) {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('assistant:event', {
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error),
         })
-      } else if (assistantEvent.type === 'result') {
-        finalSessionId = assistantEvent.sessionId
-        finalAnswer = assistantEvent.result
-      } else if (assistantEvent.type === 'activity_title') {
-        activityTitle = assistantEvent.title
       }
-    }
-
-    if (settings.activityGraphEnabled && settings.account && settings.selectedProjectFolderPath) {
-      const project = settings.projects.find((p) => p.project_id === selectedProjectId)
-      if (project) {
-        void saveActivityNote({
-          sessionId: finalSessionId ?? `${Date.now()}`,
-          prompt: payload.prompt,
-          finalAnswer,
-          activityTitle,
-          toolTrace: runToolTrace,
-          displayName: settings.account.display_name,
-          email: settings.account.email,
-          projectName: project.project_name,
-          projectFolderPath: settings.selectedProjectFolderPath
-        }).catch((err) => console.error('[activity-graph]', err))
-      }
+      throw error
+    } finally {
+      _runningAssistantSenders.delete(senderId)
     }
   })
 
