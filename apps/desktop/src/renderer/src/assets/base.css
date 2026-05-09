@@ -1,5 +1,5 @@
 :root {
-  --color-background: #efeff1;
+  --color-background: #d6d6d6;
   --color-text: #171717;
   --tier-personal: #e8a87c;
   --tier-pool: #9ca3af;
@@ -30,11 +30,11 @@ body {
 }
 
 body.app-theme-light {
-  --color-background: #efeff1;
+  --color-background: #d6d6d6;
   --color-text: #171717;
 }
 
 body.app-theme-dark {
-  --color-background: #252525;
+  --color-background: #141414;
   --color-text: #f3f3f3;
 }

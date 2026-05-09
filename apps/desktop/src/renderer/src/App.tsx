@@ -216,58 +216,96 @@ function ProjectSelection({
   return (
     <main className="project-page">
       <section className="project-panel">
-        {settings.projects.length > 0 ? (
+        {isCreateOpen ? (
+          <form className="project-create-form" onSubmit={handleCreate}>
+            <div className="project-create-form__title">New project</div>
+            <label className="project-create-form__field" htmlFor="project-name">
+              <span className="settings-form__label">Project name</span>
+              <input
+                id="project-name"
+                className="settings-form__input"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Project name"
+              />
+            </label>
+            <label className="project-create-form__field" htmlFor="project-description">
+              <span className="settings-form__label">Description</span>
+              <input
+                id="project-description"
+                className="settings-form__input"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Description"
+              />
+            </label>
+            <label className="project-create-form__field" htmlFor="project-role-summary">
+              <span className="settings-form__label">Your role in this project</span>
+              <textarea
+                id="project-role-summary"
+                className="settings-form__input"
+                rows={3}
+                value={domainSummary}
+                onChange={(event) => setDomainSummary(event.target.value)}
+                placeholder="Your role in this project"
+              />
+            </label>
+            <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'creating...' : 'create project'}
+            </button>
+          </form>
+        ) : settings.projects.length > 0 ? (
           <div className="project-list">
             {settings.projects.map((project) => {
               const projectFolder = settings.projectFolders[project.project_id] ?? null
               const isConnectingFolder = connectingProjectId === project.project_id
               return (
-              <div
-                className={`project-list__item ${
-                  project.project_id === selectedProjectId ? 'project-list__item--selected' : ''
-                }`}
-                key={project.project_id}
-              >
-                <button className="project-list__select" type="button" onClick={() => void handleSelect(project.project_id)}>
-                  <span className="project-list__name-block">
-                    <span className="project-list__name">{project.project_name}</span>
-                    <span className="project-list__folder" title={projectFolder ?? undefined}>
-                      folder: {projectFolder ? getProjectFolderDisplayName(projectFolder) : 'not connected'}
+                <div
+                  className={`project-list__item ${
+                    project.project_id === selectedProjectId ? 'project-list__item--selected' : ''
+                  }`}
+                  key={project.project_id}
+                >
+                  <button className="project-list__select" type="button" onClick={() => void handleSelect(project.project_id)}>
+                    <span className="project-list__name-block">
+                      <span className="project-list__name">{project.project_name}</span>
+                      <span className="project-list__folder" title={projectFolder ?? undefined}>
+                        folder: {projectFolder ? getProjectFolderDisplayName(projectFolder) : 'not connected'}
+                      </span>
                     </span>
-                  </span>
-                </button>
-                <div className="project-list__actions">
-                  <span className="project-list__meta">{project.role}</span>
-                  <button
-                    className="project-list__folder-button"
-                    type="button"
-                    onClick={() => void connectProjectFolder(project.project_id)}
-                    disabled={isConnectingFolder}
-                  >
-                    {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
                   </button>
-                  {project.role === 'leader' && (
+                  <div className="project-list__actions">
+                    <span className="project-list__meta">{project.role}</span>
                     <button
-                      className="project-list__delete"
+                      className="project-list__folder-button"
                       type="button"
-                      onClick={() => void handleDelete(project)}
-                      disabled={deletingProjectId === project.project_id}
+                      onClick={() => void connectProjectFolder(project.project_id)}
+                      disabled={isConnectingFolder}
                     >
-                      {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                      {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
                     </button>
-                  )}
-                  {project.role !== 'leader' && (
-                    <button
-                      className="project-list__delete"
-                      type="button"
-                      onClick={() => void handleLeave(project)}
-                      disabled={leavingProjectId === project.project_id}
-                    >
-                      {leavingProjectId === project.project_id ? 'leaving...' : 'leave'}
-                    </button>
-                  )}
+                    {project.role === 'leader' && (
+                      <button
+                        className="project-list__delete"
+                        type="button"
+                        onClick={() => void handleDelete(project)}
+                        disabled={deletingProjectId === project.project_id}
+                      >
+                        {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                      </button>
+                    )}
+                    {project.role !== 'leader' && (
+                      <button
+                        className="project-list__delete"
+                        type="button"
+                        onClick={() => void handleLeave(project)}
+                        disabled={leavingProjectId === project.project_id}
+                      >
+                        {leavingProjectId === project.project_id ? 'leaving...' : 'leave'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
               )
             })}
           </div>
@@ -276,37 +314,6 @@ function ProjectSelection({
             <h2>No projects yet</h2>
             <p>Create a project when you are ready.</p>
           </div>
-        )}
-
-        {isCreateOpen && (
-          <form className="project-create-form" onSubmit={handleCreate}>
-            <label className="settings-form__label" htmlFor="project-name">
-              New project
-            </label>
-            <input
-              id="project-name"
-              className="settings-form__input"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Project name"
-            />
-            <input
-              className="settings-form__input"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Description"
-            />
-            <textarea
-              className="settings-form__input"
-              rows={3}
-              value={domainSummary}
-              onChange={(event) => setDomainSummary(event.target.value)}
-              placeholder="Your role in this project"
-            />
-            <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSaving}>
-              {isSaving ? 'creating...' : 'create project'}
-            </button>
-          </form>
         )}
 
         {status && <div className="auth-status">{status}</div>}
