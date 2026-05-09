@@ -1,7 +1,7 @@
 import { tool, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 
-import type { ServerClient } from '../server_client'
+import type { RequestContextResponse, ServerClient } from '../server_client'
 
 export const REQUEST_CONTEXT_SERVER_NAME = 'relevo'
 export const REQUEST_CONTEXT_TOOL_NAME = 'request_context'
@@ -43,6 +43,16 @@ export type RequestContextInput = {
   question: string
 }
 
+function createMinimalToolResult(response: RequestContextResponse): Pick<
+  RequestContextResponse,
+  'answer' | 'source_user_ids'
+> {
+  return {
+    answer: response.answer,
+    source_user_ids: response.source_user_ids
+  }
+}
+
 export function createRequestContextSdkTool(
   client: ServerClient
 ): SdkMcpToolDefinition<typeof requestContextInputSchema> {
@@ -56,7 +66,7 @@ export function createRequestContextSdkTool(
           target_user_id: input.target,
           question: input.question
         })
-        const text = JSON.stringify(response)
+        const text = JSON.stringify(createMinimalToolResult(response))
         return {
           content: [{ type: 'text' as const, text }],
           structuredContent: response
@@ -90,7 +100,7 @@ export function createRequestContextHandler(
         target_user_id: input.target,
         question: input.question
       })
-      return JSON.stringify(response)
+      return JSON.stringify(createMinimalToolResult(response))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return JSON.stringify({ error: message })

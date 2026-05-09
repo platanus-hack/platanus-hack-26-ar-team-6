@@ -3,9 +3,22 @@ export type RequestContextRequest = {
   question: string
 }
 
+export type RetrievedContextEntry = {
+  id: string
+  kind: string
+  content: string
+  metadata: Record<string, unknown>
+  created_at: unknown
+  user_id?: string
+}
+
 export type RequestContextResponse = {
   answer: string
   source_user_ids: string[]
+  source_context_entry_ids?: string[]
+  target_user_id?: string
+  context_entry_id?: string
+  retrieved_context_entries?: RetrievedContextEntry[]
 }
 
 export type ServerClientConfig = {

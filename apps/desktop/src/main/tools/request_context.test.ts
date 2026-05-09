@@ -14,10 +14,22 @@ describe('request_context SDK tool', () => {
         calls.push(req)
         return {
           answer: 'Ask User2 before changing the deploy healthcheck.',
-          source_user_ids: ['user-2']
+          source_user_ids: ['user-2'],
+          source_context_entry_ids: ['entry-source-1'],
+          target_user_id: 'user-2',
+          context_entry_id: 'entry-closure-1',
+          retrieved_context_entries: [
+            {
+              id: 'entry-source-1',
+              kind: 'prompt_answer',
+              content: 'Deploy healthcheck should be changed with User2.',
+              metadata: { source: 'seed' },
+              created_at: '2026-05-09T12:00:00Z'
+            }
+          ]
         }
       }
-    } as ServerClient
+    } as unknown as ServerClient
 
     const sdkTool = createRequestContextSdkTool(client)
     const result = await sdkTool.handler(
@@ -37,7 +49,19 @@ describe('request_context SDK tool', () => {
     ])
     expect(result.structuredContent).toEqual({
       answer: 'Ask User2 before changing the deploy healthcheck.',
-      source_user_ids: ['user-2']
+      source_user_ids: ['user-2'],
+      source_context_entry_ids: ['entry-source-1'],
+      target_user_id: 'user-2',
+      context_entry_id: 'entry-closure-1',
+      retrieved_context_entries: [
+        {
+          id: 'entry-source-1',
+          kind: 'prompt_answer',
+          content: 'Deploy healthcheck should be changed with User2.',
+          metadata: { source: 'seed' },
+          created_at: '2026-05-09T12:00:00Z'
+        }
+      ]
     })
     expect(result.content).toEqual([
       {

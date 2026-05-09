@@ -285,15 +285,16 @@ def write_cross_user_qa_entry(
         raise ValueError("asking user and target user must belong to the same project")
 
     project_id = target_user["project_id"]
-    metadata: dict[str, Any] = {
-        "source": "request_context",
-        "asker_user_id": str(asker_user_id),
-        "target_user_id": str(target_user_id),
-        "question": question,
-        "answer": answer,
-    }
-    if extra_metadata:
-        metadata.update(extra_metadata)
+    metadata: dict[str, Any] = dict(extra_metadata or {})
+    metadata.update(
+        {
+            "source": "request_context",
+            "asker_user_id": str(asker_user_id),
+            "target_user_id": str(target_user_id),
+            "question": question,
+            "answer": answer,
+        }
+    )
     content = f"QUESTION (from {asker_user_id}):\n{question}\n\nANSWER:\n{answer}"
     with conn.cursor() as cur:
         cur.execute(

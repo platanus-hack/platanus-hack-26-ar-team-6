@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any, Iterator
 from uuid import UUID
 
@@ -8,6 +9,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, ConfigDict, Field
 
 from relevo.agent import answer_from_context
+from relevo.agents import (
+    ContextSliceEntry,
+    ContextSliceTarget,
+    OnDemandContextSlice,
+    answer_on_demand,
+)
 from relevo.db import (
     connect,
     get_bootstrap,
@@ -80,6 +87,7 @@ class RetrievedContextEntry(BaseModel):
 class RequestContextResponse(BaseModel):
     answer: str
     source_user_ids: list[UUID]
+    source_context_entry_ids: list[UUID]
     target_user_id: UUID
     context_entry_id: UUID
     retrieved_context_entries: list[RetrievedContextEntry]
@@ -88,18 +96,17 @@ class RequestContextResponse(BaseModel):
 router = APIRouter()
 
 
-def _extract_token(
-    authorization: str | None,
-    x_user_token: str | None,
-    x_auth_token: str | None,
-) -> str | None:
+def _extract_token(authorization: str | None) -> str | None:
     if authorization:
         scheme, _, value = authorization.partition(" ")
         if scheme.lower() == "bearer" and value.strip():
             return value.strip()
-        if authorization.strip():
-            return authorization.strip()
-    return x_user_token or x_auth_token
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Malformed bearer token",
+        )
+    return None
+
 
 def get_db() -> Iterator[psycopg.Connection]:
     with connect() as conn:
@@ -109,10 +116,8 @@ def get_db() -> Iterator[psycopg.Connection]:
 def require_user(
     conn: Annotated[psycopg.Connection, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
-    x_user_token: Annotated[str | None, Header(alias="X-User-Token")] = None,
-    x_auth_token: Annotated[str | None, Header(alias="X-Auth-Token")] = None,
 ) -> dict[str, Any]:
-    token = _extract_token(authorization, x_user_token, x_auth_token)
+    token = _extract_token(authorization)
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -179,6 +184,12 @@ def request_context(
     current_user: Annotated[dict[str, Any], Depends(require_user)],
 ) -> RequestContextResponse:
     target_user_id = _resolve_target_user_id(body)
+    if target_user_id == current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="self-target rejected",
+        )
+
     target_user = get_user(conn, target_user_id)
     if target_user is None:
         raise HTTPException(status_code=404, detail=f"Target user not found: {target_user_id}")
@@ -188,13 +199,20 @@ def request_context(
             detail="Target user is not in the authenticated user's project",
         )
 
-    retrieved = retrieve_user_context(conn, target_user_id, body.question, limit=6)
-    answer = answer_from_context(
+    retrieval_limit = request.app.state.config.on_demand_agent.retrieval_top_k
+    retrieved = retrieve_user_context(
+        conn,
+        target_user_id,
+        body.question,
+        limit=retrieval_limit,
+    )
+    answer, source_user_ids = _answer_request_context(
         question=body.question,
         target_user=target_user,
         context_entries=retrieved,
-        config=request.app.state.config,
+        request=request,
     )
+    source_context_entry_ids = [row["id"] for row in retrieved]
     context_entry_id = write_cross_user_qa_entry(
         conn,
         target_user_id=target_user_id,
@@ -203,12 +221,18 @@ def request_context(
         answer=answer,
         extra_metadata={
             **body.metadata,
-            "retrieved_context_entry_ids": [str(row["id"]) for row in retrieved],
+            "source_context_entry_ids": [
+                str(entry_id) for entry_id in source_context_entry_ids
+            ],
+            "retrieved_context_entry_ids": [
+                str(entry_id) for entry_id in source_context_entry_ids
+            ],
         },
     )
     return RequestContextResponse(
         answer=answer,
-        source_user_ids=[target_user_id],
+        source_user_ids=source_user_ids,
+        source_context_entry_ids=source_context_entry_ids,
         target_user_id=target_user_id,
         context_entry_id=context_entry_id,
         retrieved_context_entries=[RetrievedContextEntry(**row) for row in retrieved],
@@ -216,13 +240,103 @@ def request_context(
 
 
 def _resolve_target_user_id(body: RequestContextRequest) -> UUID:
+    target_user_id = body.target_user_id
+    target_alias_id: UUID | None = None
+    if body.target is not None:
+        target = body.target.strip()
+        if target.lower() == "project":
+            raise HTTPException(status_code=400, detail='target="project" is V3/stretch')
+        try:
+            target_alias_id = UUID(target)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="target must be a user UUID") from exc
+
+    if target_user_id is not None and target_alias_id is not None:
+        if target_user_id != target_alias_id:
+            raise HTTPException(
+                status_code=422,
+                detail="target and target_user_id must refer to the same user",
+            )
+        return target_user_id
     if body.target_user_id is not None:
-        return body.target_user_id
-    if body.target is None:
-        raise HTTPException(status_code=422, detail="target or target_user_id is required")
-    if body.target == "project":
-        raise HTTPException(status_code=400, detail='target="project" is V3/stretch')
-    try:
-        return UUID(body.target)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail="target must be a user UUID") from exc
+        return target_user_id
+    if target_alias_id is not None:
+        return target_alias_id
+    raise HTTPException(status_code=422, detail="target or target_user_id is required")
+
+
+def _answer_request_context(
+    *,
+    question: str,
+    target_user: dict[str, Any],
+    context_entries: list[dict[str, Any]],
+    request: Request,
+) -> tuple[str, list[UUID]]:
+    has_live_model_credentials = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if has_live_model_credentials:
+        try:
+            answer = answer_on_demand(
+                _build_context_slice(target_user, context_entries),
+                question,
+                config=request.app.state.config.on_demand_agent,
+            )
+            source_user_ids = [UUID(source_id) for source_id in answer.source_user_ids]
+            return answer.answer, source_user_ids
+        except Exception:  # pragma: no cover - live model fallback
+            pass
+
+        answer = _fallback_answer_from_context(question, target_user, context_entries)
+    else:
+        answer = answer_from_context(
+            question=question,
+            target_user=target_user,
+            context_entries=context_entries,
+            config=request.app.state.config,
+        )
+
+    return answer, [target_user["id"]]
+
+
+def _build_context_slice(
+    target_user: dict[str, Any],
+    context_entries: list[dict[str, Any]],
+) -> OnDemandContextSlice:
+    return OnDemandContextSlice(
+        target=ContextSliceTarget(
+            id=target_user["id"],
+            display_name=target_user["display_name"],
+            domain_summary=target_user.get("domain_summary"),
+            profile=target_user.get("profile") or {},
+        ),
+        entries=[
+            ContextSliceEntry(
+                id=row["id"],
+                user_id=target_user["id"],
+                kind=row["kind"],
+                content=row["content"],
+                metadata=row.get("metadata") or {},
+                created_at=row.get("created_at"),
+            )
+            for row in context_entries
+        ],
+    )
+
+
+def _fallback_answer_from_context(
+    question: str,
+    target_user: dict[str, Any],
+    context_entries: list[dict[str, Any]],
+) -> str:
+    if not context_entries:
+        return (
+            f"I do not have stored context for {target_user['display_name']} "
+            f"that answers: {question}"
+        )
+
+    lines = [
+        f"{target_user['display_name']}'s stored context has these relevant facts:",
+    ]
+    for row in context_entries[:4]:
+        content = " ".join(str(row["content"]).split())
+        lines.append(f"- {content}")
+    return "\n".join(lines)
