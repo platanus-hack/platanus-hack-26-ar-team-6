@@ -192,6 +192,10 @@ button {
   gap: 8px;
 }
 
+.chat-msg--user .chat-msg__header {
+  justify-content: flex-end;
+}
+
 .chat-msg--user {
   align-self: flex-end;
 }
@@ -224,6 +228,14 @@ button {
 .chat-msg--user .chat-msg__text {
   background: #f0f0f0;
   color: #111111;
+}
+
+.chat-msg__paragraph {
+  margin: 0;
+}
+
+.chat-msg__paragraph + .chat-msg__paragraph {
+  margin-top: 10px;
 }
 
 .chat-input-row {

@@ -12,6 +12,31 @@ const fixtureBootstrap = {
   }
 }
 
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  return text.split(/(\*\*.*?\*\*)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>
+    }
+
+    return <span key={index}>{part}</span>
+  })
+}
+
+function renderMessageText(text: string): React.ReactNode {
+  const paragraphs = text.split(/\n{2,}/)
+
+  return paragraphs.map((paragraph, paragraphIndex) => (
+    <p className="chat-msg__paragraph" key={paragraphIndex}>
+      {paragraph.split('\n').map((line, lineIndex) => (
+        <span key={lineIndex}>
+          {lineIndex > 0 && <br />}
+          {renderInlineMarkdown(line)}
+        </span>
+      ))}
+    </p>
+  ))
+}
+
 function ChatView(): React.JSX.Element {
   const { messages, toolStatus, addMessage, startAssistantMessage, appendMessageText, setMessageText, setToolStatus } =
     useChatStore()
@@ -131,7 +156,7 @@ function ChatView(): React.JSX.Element {
             <div className="chat-msg__header">
               <span className="chat-msg__role">{msg.role === 'user' ? 'you' : 'obni'}</span>
             </div>
-            <span className="chat-msg__text">{msg.text}</span>
+            <div className="chat-msg__text">{renderMessageText(msg.text)}</div>
           </div>
         ))}
         <div ref={bottomRef} />
