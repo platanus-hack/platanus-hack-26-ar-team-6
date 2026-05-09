@@ -11,6 +11,7 @@ type TopBarProps = {
   projects?: Array<{ project_id: string; project_name: string }>
   selectedProjectId?: string | null
   accountEmail?: string | null
+  projectFolderPath?: string | null
   onBack?: () => void
   showProjectsButton?: boolean
   bootstrapStatus?: 'live' | 'loading' | 'error'
@@ -19,6 +20,7 @@ type TopBarProps = {
   anthropicKeyConfigured?: boolean
   onSettings?: () => void
   onProjectSelect?: (projectId: string) => void
+  onChangeFolder?: () => void
   onLogout?: () => void
   onNewProject?: () => void
   isProjectCreateOpen?: boolean
@@ -59,6 +61,7 @@ function TopBar({
   projects = [],
   selectedProjectId,
   accountEmail,
+  projectFolderPath: _projectFolderPath,
   onBack,
   showProjectsButton = false,
   bootstrapStatus,
@@ -67,6 +70,7 @@ function TopBar({
   anthropicKeyConfigured,
   onSettings,
   onProjectSelect,
+  onChangeFolder,
   onLogout,
   onNewProject,
   isProjectCreateOpen,
@@ -119,6 +123,11 @@ function TopBar({
         {onRefresh && (
           <button className="settings-form__button" type="button" onClick={onRefresh}>
             refresh
+          </button>
+        )}
+        {onChangeFolder && (
+          <button className="topbar-button" type="button" onClick={onChangeFolder}>
+            change folder
           </button>
         )}
       </div>

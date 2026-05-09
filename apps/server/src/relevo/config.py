@@ -6,15 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class ModelVersions(BaseModel):
-    agent: str = "sonnet-4-6"
-    router: str = "haiku-4-5-20251001"
-
-
-class OnDemandAgentConfig(BaseModel):
-    model: str = "claude-sonnet-4-6"
-    max_tokens: int = 1200
-    timeout_seconds: float = 20
-    retrieval_top_k: int = 6
+    user_agent: str = "claude-code-sdk-session"
+    retriever: str = "claude-code-sdk-session"
+    updater: str = "claude-code-sdk-session"
 
 
 class GoogleOAuthConfig(BaseModel):
@@ -32,7 +26,6 @@ class GoogleOAuthConfig(BaseModel):
 class AppConfig(BaseModel):
     sha: str
     models: ModelVersions = Field(default_factory=ModelVersions)
-    on_demand_agent: OnDemandAgentConfig = Field(default_factory=OnDemandAgentConfig)
     google_oauth: GoogleOAuthConfig = Field(default_factory=GoogleOAuthConfig)
 
 
@@ -46,22 +39,12 @@ def load_app_config() -> AppConfig:
         sha=os.environ.get("GIT_SHA")
         or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
         or "dev",
-        on_demand_agent=load_on_demand_agent_config(),
         google_oauth=load_google_oauth_config(),
     )
 
 
 def load_server_config() -> ServerConfig:
     return ServerConfig(port=int(os.environ["PORT"]))
-
-
-def load_on_demand_agent_config() -> OnDemandAgentConfig:
-    return OnDemandAgentConfig(
-        model=os.environ.get("ON_DEMAND_AGENT_MODEL", "claude-sonnet-4-6"),
-        max_tokens=int(os.environ.get("ON_DEMAND_AGENT_MAX_TOKENS", "1200")),
-        timeout_seconds=float(os.environ.get("ON_DEMAND_AGENT_TIMEOUT_SECONDS", "20")),
-        retrieval_top_k=int(os.environ.get("ON_DEMAND_RETRIEVAL_TOP_K", "6")),
-    )
 
 
 def load_google_oauth_config() -> GoogleOAuthConfig:
@@ -80,5 +63,7 @@ def load_google_oauth_config() -> GoogleOAuthConfig:
         exchange_code_ttl_seconds=int(
             os.environ.get("DESKTOP_LOGIN_EXCHANGE_TTL_SECONDS", "120")
         ),
-        session_ttl_seconds=int(os.environ.get("ACCOUNT_SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30))),
+        session_ttl_seconds=int(
+            os.environ.get("ACCOUNT_SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30))
+        ),
     )

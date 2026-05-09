@@ -27,7 +27,7 @@
     "id": "agent-jerf-004",
     "display_name": "Jerf",
     "full_name": "Jeremias Figueiredo",
-    "domain": { "primary": "Routing & Eval", "tags": ["router", "eval", "precision", "recall"] },
+    "domain": { "primary": "Retriever & Eval", "tags": ["retriever", "eval", "precision", "recall"] },
     "status": "online",
     "avatar_hue": 270
   },

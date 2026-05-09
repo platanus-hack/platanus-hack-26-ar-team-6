@@ -27,7 +27,7 @@ def valid_user_profile() -> dict[str, Any]:
     return {
         "key": "jorf",
         "display_name": "Jorf",
-        "domain_summary": "Owns local assistant prompts and request-context contracts.",
+        "domain_summary": "Owns local assistant prompts and retriever contracts.",
         "auth_token": "dev-token-jorf",
         "voice": {
             "tone": "Direct, pragmatic, and coordination-focused.",
@@ -40,8 +40,8 @@ def valid_user_profile() -> dict[str, Any]:
             "primary": "Agent runtime prompts",
             "tags": ["agent-runtime", "prompting"],
             "expertise_summary": (
-                "Owns the local assistant prompt, request-context tool contract, "
-                "and on-demand agent answer template."
+                "Owns the local assistant prompt, retriever tool contract, "
+                "and updater memory checkpoint template."
             ),
         },
     }

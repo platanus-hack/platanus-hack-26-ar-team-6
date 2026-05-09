@@ -43,9 +43,11 @@ type BootstrapPayload = {
 
 type StartAssistantRunPayload = {
   prompt: string
-  cwd: string
+  cwd?: string
   bootstrap: BootstrapPayload
   userId: string
+  chatSessionId?: string
+  conversationMessages?: Array<{ role: 'user' | 'assistant'; text: string }>
   model?: string
   maxTurns?: number
 }
@@ -68,9 +70,29 @@ type LocalAssistantEvent =
       type: 'tool_result'
       toolUseId: string
       result?: {
-        answer: string
-        source_user_ids: string[]
-        citations: Record<string, unknown>[]
+        query: string
+        scope: 'agent' | 'global'
+        target_agent_id?: string
+        context_exchange_id?: string
+        results: Array<{
+          id: string
+          kind: string
+          content: string
+          metadata: Record<string, unknown>
+          created_at: unknown
+        }>
+        insufficient_context: boolean
+        summary: string
+      }
+      errorMessage?: string
+    }
+  | {
+      type: 'memory_update'
+      status: 'skipped' | 'succeeded' | 'failed'
+      checkpointIndex?: number
+      response?: {
+        event_ids: string[]
+        document_ids: string[]
       }
       errorMessage?: string
     }
@@ -91,11 +113,6 @@ type LocalAssistantEvent =
     }
 ;
 
-type SavePromptAnswerResponse = {
-  id: string
-  kind: string
-}
-
 type DesktopSettingsResponse = {
   hasAnthropicApiKey: boolean
   encryptionAvailable: boolean
@@ -104,6 +121,8 @@ type DesktopSettingsResponse = {
   account: DesktopAccountSummary | null
   projects: DesktopProjectMembership[]
   selectedProjectId: string | null
+  projectFolders: Record<string, string>
+  selectedProjectFolderPath: string | null
 }
 
 type DesktopAccountSummary = {
@@ -131,6 +150,7 @@ type AuthEvent =
   | { type: 'logout:succeeded'; settings: DesktopSettingsResponse }
   | { type: 'projects:updated'; settings: DesktopSettingsResponse }
   | { type: 'project:selected'; settings: DesktopSettingsResponse }
+  | { type: 'project:folder:updated'; settings: DesktopSettingsResponse }
 
 type CreateProjectRequest = {
   name: string
@@ -153,15 +173,12 @@ interface DesktopApi {
   logout: () => Promise<DesktopSettingsResponse>
   refreshProjects: () => Promise<DesktopSettingsResponse>
   selectProject: (projectId: string) => Promise<DesktopSettingsResponse>
+  chooseProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
+  clearProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
   createProject: (request: CreateProjectRequest) => Promise<DesktopSettingsResponse>
   deleteProject: (projectId: string) => Promise<DesktopSettingsResponse>
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
   getBootstrap: () => Promise<BootstrapResponse>
-  savePromptAnswer: (request: {
-    prompt: string
-    finalAnswer: string
-    metadata?: Record<string, unknown>
-  }) => Promise<SavePromptAnswerResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
   onAuthEvent: (callback: (event: AuthEvent) => void) => () => void
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void

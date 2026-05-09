@@ -1,5 +1,5 @@
-import { Send } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
@@ -20,11 +20,13 @@ type ChatViewProps = {
   bootstrap: RunnerBootstrapPayload
   isAssistantConfigured: boolean
   onConfigureAssistant: () => void
+  projectFolderPath: string | null
+  onReconnectFolder: () => void
 }
 
 type ToolCallInput = {
-  target?: string
-  question?: string
+  target_agent_id?: string
+  query?: string
 }
 
 function isToolCallInput(value: unknown): value is ToolCallInput {
@@ -48,7 +50,7 @@ function toRunStatusMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
 
   if (message.includes('cwd must be a directory')) {
-    return 'invalid repo path'
+    return 'project folder unavailable; reconnect it'
   }
 
   return `runner error: ${message}`
@@ -87,7 +89,9 @@ function ChatView({
   userId,
   bootstrap,
   isAssistantConfigured,
-  onConfigureAssistant
+  onConfigureAssistant,
+  projectFolderPath,
+  onReconnectFolder
 }: ChatViewProps): React.JSX.Element {
   const messagesByWorkspace = useChatStore((state) => state.messagesByWorkspace)
   const toolTraceByWorkspace = useChatStore((state) => state.toolTraceByWorkspace)
@@ -102,20 +106,48 @@ function ChatView({
   const updateToolTraceEntry = useChatStore((state) => state.updateToolTraceEntry)
   const setSaveStatus = useChatStore((state) => state.setSaveStatus)
   const setRunStatus = useChatStore((state) => state.setRunStatus)
+  const loadMessages = useChatStore((state) => state.loadMessages)
+  const clearMessages = useChatStore((state) => state.clearMessages)
   const [input, setInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
-  const activePromptRef = useRef('')
   const hasAssistantTextRef = useRef(false)
+  const currentSessionIdRef = useRef<string | null>(null)
   const messages = messagesByWorkspace[workspaceId] ?? []
   const toolTrace = toolTraceByWorkspace[workspaceId] ?? []
   const saveStatus = saveStatusByWorkspace[workspaceId] ?? null
   const runStatus = runStatusByWorkspace[workspaceId] ?? null
   const rosterById = Object.fromEntries(bootstrap.project_context.roster.map((user) => [user.id, user.display_name]))
+  const hasProjectFolder = hasConnectedProjectFolder(projectFolderPath)
+  const inputPlaceholder = !hasProjectFolder
+    ? 'connect project folder before chatting'
+    : isAssistantConfigured
+      ? 'type a message...'
+      : 'configure Anthropic API key in settings'
+  const sendButtonLabel = isRunning ? 'running...' : !hasProjectFolder ? 'folder' : isAssistantConfigured ? 'send' : 'settings'
+
+  useEffect(() => {
+    currentSessionIdRef.current = null
+    void window.api.loadConversation(workspaceId).then((persisted) => {
+      if (persisted.messages.length > 0) {
+        loadMessages(workspaceId, persisted.messages)
+      }
+      currentSessionIdRef.current = persisted.sessionId
+    })
+  }, [workspaceId, loadMessages])
 
   useEffect(() => {
     return window.api.onAssistantEvent((event) => {
+      if (event.type === 'memory_update') {
+        if (event.status === 'succeeded') {
+          setSaveStatus(workspaceId, `memory checkpoint ${event.checkpointIndex ?? ''} saved`.trim())
+        } else if (event.status === 'failed') {
+          setSaveStatus(workspaceId, `memory update failed: ${event.errorMessage ?? 'unknown error'}`)
+        }
+        return
+      }
+
       const activeAssistantId = activeAssistantIdRef.current
 
       if (!activeAssistantId) {
@@ -134,14 +166,14 @@ function ChatView({
 
       if (event.type === 'tool_call') {
         const input = isToolCallInput(event.input) ? event.input : {}
-        const targetUserId = typeof input.target === 'string' ? input.target : undefined
+        const targetUserId = typeof input.target_agent_id === 'string' ? input.target_agent_id : undefined
         addToolTraceEntry(workspaceId, {
           id: event.toolUseId ?? `${event.toolName}-${Date.now()}`,
           toolName: event.toolName,
           toolUseId: event.toolUseId,
           targetUserId,
           targetDisplayName: targetUserId ? rosterById[targetUserId] : undefined,
-          question: typeof input.question === 'string' ? input.question : undefined,
+          question: typeof input.query === 'string' ? input.query : undefined,
           status: 'running'
         })
         return
@@ -159,37 +191,33 @@ function ChatView({
       if (event.type === 'tool_result') {
         updateToolTraceEntry(workspaceId, event.toolUseId, {
           status: event.errorMessage ? 'failed' : 'succeeded',
-          answerPreview: event.result?.answer ? answerPreview(event.result.answer) : undefined,
+          answerPreview: event.result?.summary ? answerPreview(event.result.summary) : undefined,
           errorMessage: event.errorMessage
         })
         return
       }
 
       if (event.type === 'result') {
+        const typedEvent = event as { type: 'result'; result: string; sessionId?: string }
         if (!hasAssistantTextRef.current) {
-          setMessageText(workspaceId, activeAssistantId, event.result)
+          setMessageText(workspaceId, activeAssistantId, typedEvent.result)
         }
         setIsRunning(false)
         setRunStatus(workspaceId, null)
 
-        void window.api
-          .savePromptAnswer({
-            prompt: activePromptRef.current,
-            finalAnswer: event.result,
-            metadata: {
-              source: 'desktop-app'
-            }
-          })
-          .then(() => {
-            setSaveStatus(workspaceId, 'saved')
-          })
-          .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : 'save failed'
-            setSaveStatus(workspaceId, `save failed: ${message}`)
-          })
+        if (typedEvent.sessionId) {
+          currentSessionIdRef.current = typedEvent.sessionId
+        }
+
+        const currentMessages = useChatStore.getState().messagesByWorkspace[workspaceId] ?? []
+        void window.api.saveConversation(workspaceId, {
+          sessionId: currentSessionIdRef.current,
+          messages: currentMessages.map((m) => ({ id: m.id, role: m.role, text: m.text }))
+        })
+
+        setSaveStatus(workspaceId, 'memory checkpoint pending')
 
         activeAssistantIdRef.current = null
-        activePromptRef.current = ''
         hasAssistantTextRef.current = false
         return
       }
@@ -207,7 +235,6 @@ function ChatView({
         setRunStatus(workspaceId, toRunStatusMessage(event.message))
         setIsRunning(false)
         activeAssistantIdRef.current = null
-        activePromptRef.current = ''
         hasAssistantTextRef.current = false
       }
     })
@@ -228,8 +255,16 @@ function ChatView({
   }, [messages, runStatus, saveStatus, toolTrace])
 
   function handleSend(): void {
+    if (isRunning) return
+
+    if (!hasProjectFolder) {
+      setRunStatus(workspaceId, 'connect project folder before running assistant')
+      onReconnectFolder()
+      return
+    }
+
     const text = input.trim()
-    if (!text || isRunning) return
+    if (!text) return
 
     if (!isAssistantConfigured) {
       setRunStatus(workspaceId, 'configure Anthropic API key in settings')
@@ -239,13 +274,11 @@ function ChatView({
 
     const userMessageId = Date.now().toString()
     const assistantMessageId = `${userMessageId}-assistant`
-    const repoPath = import.meta.env.VITE_LOCAL_REPO_PATH || '.'
 
     addMessage(workspaceId, { id: userMessageId, role: 'user', text })
     startAssistantMessage(workspaceId, assistantMessageId)
     setMessageText(workspaceId, assistantMessageId, 'thinking...')
     activeAssistantIdRef.current = assistantMessageId
-    activePromptRef.current = text
     hasAssistantTextRef.current = false
     resetToolTrace(workspaceId)
     setSaveStatus(workspaceId, null)
@@ -256,9 +289,13 @@ function ChatView({
     void window.api
       .startAssistantRun({
         prompt: text,
-        cwd: repoPath,
         bootstrap,
-        userId
+        userId,
+        chatSessionId: workspaceId,
+        conversationMessages: [
+          ...messages.map((message) => ({ role: message.role, text: message.text })),
+          { role: 'user' as const, text }
+        ]
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'unknown runner error'
@@ -267,9 +304,17 @@ function ChatView({
         setRunStatus(workspaceId, toRunStatusMessage(error))
         setIsRunning(false)
         activeAssistantIdRef.current = null
-        activePromptRef.current = ''
         hasAssistantTextRef.current = false
       })
+  }
+
+  function handleNewChat(): void {
+    if (isRunning) return
+    clearMessages(workspaceId)
+    currentSessionIdRef.current = null
+    setSaveStatus(workspaceId, null)
+    setRunStatus(workspaceId, null)
+    void window.api.clearConversation(workspaceId)
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
@@ -315,26 +360,42 @@ function ChatView({
           ))}
         </div>
       )}
-      {runStatus && <div className="chat-run-status">{runStatus}</div>}
+      {runStatus && (
+        <div className="chat-run-status">
+          <span>{runStatus}</span>
+          {runStatus.includes('folder') && (
+            <button className="chat-run-status__button" type="button" onClick={onReconnectFolder}>
+              reconnect
+            </button>
+          )}
+        </div>
+      )}
       {saveStatus && <div className="chat-save-status">{saveStatus}</div>}
       <div className="chat-input-row">
         <textarea
           className="chat-input"
-          rows={1}
-          placeholder={isAssistantConfigured ? 'type a message...' : 'configure Anthropic API key in settings'}
+          rows={2}
+          placeholder={inputPlaceholder}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isRunning}
+          disabled={isRunning || !hasProjectFolder}
         />
-        <button
-          className="settings-form__button settings-form__button--primary chat-send"
-          type="button"
-          onClick={isAssistantConfigured ? handleSend : onConfigureAssistant}
-          disabled={isRunning}
-        >
-          {isRunning ? 'running...' : <Send size={16} strokeWidth={2} />}
-        </button>
+        <div className="chat-actions">
+          <button
+            className="settings-form__button settings-form__button--primary chat-send"
+            type="button"
+            onClick={isAssistantConfigured && hasProjectFolder ? handleSend : !hasProjectFolder ? onReconnectFolder : onConfigureAssistant}
+            disabled={isRunning}
+          >
+            {sendButtonLabel}
+          </button>
+          {messages.length > 0 && (
+            <button className="settings-form__button chat-new" type="button" onClick={handleNewChat} disabled={isRunning} title="Start a new chat">
+              new chat
+            </button>
+          )}
+        </div>
       </div>
     </section>
   )

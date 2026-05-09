@@ -5,6 +5,7 @@ import Sidebar, { type SidebarAgent } from './components/Sidebar'
 import SettingsPanel from './components/SettingsPanel'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
+import { getProjectFolderDisplayName } from './projectFolders'
 import ChatView from './views/ChatView'
 import PoolView from './views/PoolView'
 import TasksView from './views/TasksView'
@@ -91,10 +92,31 @@ function ProjectSelection({
   const [status, setStatus] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
+  const [connectingProjectId, setConnectingProjectId] = useState<string | null>(null)
+
+  async function connectProjectFolder(projectId: string): Promise<DesktopSettings> {
+    setConnectingProjectId(projectId)
+    try {
+      const nextSettings = await window.api.chooseProjectFolder(projectId)
+      onSettingsChange(nextSettings)
+      return nextSettings
+    } finally {
+      setConnectingProjectId(null)
+    }
+  }
 
   async function handleSelect(projectId: string): Promise<void> {
     setStatus(null)
     try {
+      let settingsWithFolder = settings
+      if (!settingsWithFolder.projectFolders[projectId]) {
+        settingsWithFolder = await connectProjectFolder(projectId)
+        if (!settingsWithFolder.projectFolders[projectId]) {
+          setStatus('Connect a local folder before entering this project')
+          return
+        }
+      }
+
       const nextSettings = await window.api.selectProject(projectId)
       onSettingsChange(nextSettings)
       onProjectEntered()
@@ -141,12 +163,21 @@ function ProjectSelection({
         description: description || null,
         domainSummary: domainSummary || null
       })
-      onSettingsChange(nextSettings)
+      const projectId = nextSettings.selectedProjectId
+      let settingsWithFolder = nextSettings
+      if (projectId) {
+        settingsWithFolder = await connectProjectFolder(projectId)
+      }
+      onSettingsChange(settingsWithFolder)
       setName('')
       setDescription('')
       setDomainSummary('')
       onCreateOpenChange(false)
-      onProjectEntered()
+      if (projectId && settingsWithFolder.projectFolders[projectId]) {
+        onProjectEntered()
+      } else {
+        setStatus('Project created. Connect a local folder before entering it')
+      }
     } catch (error) {
       setStatus(`Create failed: ${toErrorMessage(error)}`)
     } finally {
@@ -159,7 +190,10 @@ function ProjectSelection({
       <section className="project-panel">
         {settings.projects.length > 0 ? (
           <div className="project-list">
-            {settings.projects.map((project) => (
+            {settings.projects.map((project) => {
+              const projectFolder = settings.projectFolders[project.project_id] ?? null
+              const isConnectingFolder = connectingProjectId === project.project_id
+              return (
               <div
                 className={`project-list__item ${
                   project.project_id === selectedProjectId ? 'project-list__item--selected' : ''
@@ -167,8 +201,21 @@ function ProjectSelection({
                 key={project.project_id}
               >
                 <button className="project-list__select" type="button" onClick={() => void handleSelect(project.project_id)}>
-                  <span className="project-list__name">{project.project_name}</span>
+                  <span className="project-list__name-block">
+                    <span className="project-list__name">{project.project_name}</span>
+                    <span className="project-list__folder" title={projectFolder ?? undefined}>
+                      folder: {projectFolder ? getProjectFolderDisplayName(projectFolder) : 'not connected'}
+                    </span>
+                  </span>
                   <span className="project-list__meta">{project.role}</span>
+                </button>
+                <button
+                  className="project-list__folder-button"
+                  type="button"
+                  onClick={() => void connectProjectFolder(project.project_id)}
+                  disabled={isConnectingFolder}
+                >
+                  {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
                 </button>
                 {project.role === 'leader' && (
                   <button
@@ -181,7 +228,8 @@ function ProjectSelection({
                   </button>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="project-empty">
@@ -301,6 +349,7 @@ function App(): React.JSX.Element {
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false)
+  const [folderMessage, setFolderMessage] = useState<string | null>(null)
 
   const settingsQuery = useQuery({
     queryKey: ['desktop-settings'],
@@ -351,10 +400,23 @@ function App(): React.JSX.Element {
     queryClient.setQueryData(['desktop-settings'], nextSettings)
     queryClient.removeQueries({ queryKey: ['bootstrap'] })
     setActiveTab('chat')
+    setFolderMessage(null)
     setIsProjectSelectorOpen(false)
   }
 
   async function handleProjectSelect(projectId: string): Promise<void> {
+    setFolderMessage(null)
+    let settingsWithFolder = desktopSettings
+
+    if (!settingsWithFolder?.projectFolders[projectId]) {
+      settingsWithFolder = await window.api.chooseProjectFolder(projectId)
+      queryClient.setQueryData(['desktop-settings'], settingsWithFolder)
+      if (!settingsWithFolder.projectFolders[projectId]) {
+        setFolderMessage('Connect a local folder before entering this project')
+        return
+      }
+    }
+
     const nextSettings = await window.api.selectProject(projectId)
     queryClient.setQueryData(['desktop-settings'], nextSettings)
     setActiveTab('chat')
@@ -363,7 +425,21 @@ function App(): React.JSX.Element {
 
   function handleProjectEntered(): void {
     setActiveTab('chat')
+    setFolderMessage(null)
     setIsProjectSelectorOpen(false)
+  }
+
+  async function handleChooseProjectFolder(projectId: string): Promise<void> {
+    setFolderMessage(null)
+    try {
+      const nextSettings = await window.api.chooseProjectFolder(projectId)
+      queryClient.setQueryData(['desktop-settings'], nextSettings)
+      if (!nextSettings.projectFolders[projectId]) {
+        setFolderMessage('Project folder was not changed')
+      }
+    } catch (error) {
+      setFolderMessage(`Folder selection failed: ${toErrorMessage(error)}`)
+    }
   }
 
   if (settingsQuery.isError) {
@@ -442,6 +518,7 @@ function App(): React.JSX.Element {
     })) ?? []
   const hasAnthropicApiKey = Boolean(desktopSettings.hasAnthropicApiKey)
   const activeUserId = bootstrapQuery.data?.user.id ?? selectedProject.user_id
+  const selectedProjectFolderPath = desktopSettings.selectedProjectFolderPath
 
   const runnerBootstrap: RunnerBootstrapPayload | null = bootstrapQuery.data
     ? {
@@ -466,6 +543,8 @@ function App(): React.JSX.Element {
         bootstrap={runnerBootstrap}
         isAssistantConfigured={hasAnthropicApiKey}
         onConfigureAssistant={() => setIsSettingsOpen(true)}
+        projectFolderPath={selectedProjectFolderPath}
+        onReconnectFolder={() => void handleChooseProjectFolder(selectedProjectId)}
       />
     )
   } else if (activeTab === 'pool') {
@@ -484,12 +563,14 @@ function App(): React.JSX.Element {
         projects={desktopSettings.projects}
         selectedProjectId={selectedProjectId}
         accountEmail={desktopSettings.account?.email}
+        projectFolderPath={selectedProjectFolderPath}
         bootstrapStatus={bootstrapStatus}
         isDark={isDark}
         onToggleTheme={() => setIsDark((value) => !value)}
         anthropicKeyConfigured={hasAnthropicApiKey}
         onBack={() => setIsProjectSelectorOpen(true)}
         onProjectSelect={(projectId) => void handleProjectSelect(projectId)}
+        onChangeFolder={() => void handleChooseProjectFolder(selectedProjectId)}
         onSettings={() => setIsSettingsOpen(true)}
         onLogout={() => void handleLogout()}
       />
@@ -499,6 +580,7 @@ function App(): React.JSX.Element {
 
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
+          {folderMessage && <div className="content-status">{folderMessage}</div>}
           {selectedProject && (
             <MemberManagement project={selectedProject} onMemberAdded={() => bootstrapQuery.refetch().then(() => undefined)} />
           )}

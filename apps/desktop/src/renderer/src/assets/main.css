@@ -149,6 +149,15 @@ button {
   font: inherit;
 }
 
+.topbar-folder {
+  max-width: 220px;
+  min-width: 0;
+  overflow: hidden;
+  color: #555555;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .topbar-account {
   margin-left: auto;
   min-width: 0;
@@ -517,9 +526,43 @@ button {
   white-space: nowrap;
 }
 
+.project-list__name-block {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.project-list__folder {
+  min-width: 0;
+  overflow: hidden;
+  color: #666666;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-list__meta {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.project-list__folder-button {
+  border: 0;
+  border-left: 1px solid #e5e5e5;
+  background: transparent;
+  color: #111111;
+  cursor: pointer;
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.project-list__folder-button:hover {
+  background: #eeeeee;
+}
+
+.project-list__folder-button:disabled {
+  color: #777777;
+  cursor: default;
 }
 
 .project-list__delete {
@@ -766,11 +809,28 @@ button {
 }
 
 .chat-run-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 16px;
   border-top: 1px solid var(--border-soft);
   background: var(--surface);
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.chat-run-status__button {
+  border: 1px solid #d8d8d8;
+  background: #f3f3f3;
+  color: #111111;
+  cursor: pointer;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.chat-run-status__button:hover {
+  background: #ebebeb;
 }
 
 .chat-input {
@@ -818,6 +878,31 @@ button {
 .chat-input:disabled {
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+.chat-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-new {
+  padding: 0 16px;
+  background: transparent;
+  color: #888888;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.chat-new:hover {
+  background: #f5f5f5;
+  color: #444444;
+}
+
+.chat-new:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .settings-overlay {

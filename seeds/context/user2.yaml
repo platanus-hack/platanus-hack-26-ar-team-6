@@ -1,8 +1,7 @@
 # User2's per-user seed context. Deployment / server / infra domain.
 #
-# Deliberately disjoint from user1's frontend context. A V2 cross-user
-# query about deployment from user1's session must escalate to user2's
-# on-demand agent — there is no overlap to fall back to.
+# Deliberately disjoint from user1's frontend context. A cross-user query about
+# deployment from user1's session must ask the retriever for user2's memory.
 
 user_key: user2
 
@@ -35,11 +34,11 @@ entries:
       kind: decision
 
   - content: |
-      API endpoints in V2: GET /health, GET /bootstrap?user_id=…,
-      POST /context-entries, POST /request-context. The request-context
-      handler retrieves the target user's context, synthesizes a grounded
-      answer, writes qa_ledger, materializes a cross_user_qa context row for
-      the target user, and returns the answer.
+      Current memory API endpoints: GET /health, GET /bootstrap?user_id=...,
+      POST /agent-ctx, POST /global-ctx, and POST /memory-updates. The
+      retriever calls agent_ctx/global_ctx for reads; the updater calls
+      commit_memory_update through /memory-updates for append-plus-canonical
+      writes.
     metadata:
       tags: [api, endpoints]
       kind: design

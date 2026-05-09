@@ -8,7 +8,7 @@ Storage recap (see migrations/0001_init.sql):
   - app_user rows hold per-user identity, auth token, and a domain_summary.
   - context_entry holds per-user content, partitioned by user_id; the seed
     file contributes kind='seed' rows.
-  - project_context_entry holds shared project-scoped content (read by V3).
+  - project_context_entry holds shared project-scoped seed content.
 """
 from __future__ import annotations
 
@@ -24,9 +24,7 @@ class StrictModel(BaseModel):
 
 
 class UserProfileVoice(StrictModel):
-    """Optional voice fields. Carried over from the old persona contract so the
-    on-demand agent (V2) can read them; nothing in V1 enforces their use.
-    """
+    """Optional voice fields carried into app_user.profile JSONB."""
 
     tone: str | None = None
     first_person: bool = True
@@ -43,7 +41,7 @@ class UserEntry(StrictModel):
     """One row in seeds/users.yaml.
 
     Maps to: an app_user row. The voice + domain blocks are denormalized into
-    app_user.profile JSONB for the on-demand agent to consume.
+    app_user.profile JSONB for bootstrap roster context.
     """
 
     key: str = Field(

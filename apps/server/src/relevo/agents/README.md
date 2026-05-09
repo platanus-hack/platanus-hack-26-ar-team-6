@@ -1,23 +1,13 @@
-# On-demand agent contract
+# Server Agent Boundary
 
-Jorf owns `answer_on_demand(context_slice, question)`. Narf owns HTTP routing
-and retrieval; Sarf owns the schema and embedding migration.
+The server no longer hosts an on-demand answering agent.
 
-V2 call pattern:
+The desktop LangGraph runtime owns the user-facing agent, retriever agent, and
+updater agent. The server exposes only memory primitives for those agents:
 
-1. Resolve the asking user and target user in the route layer.
-2. Retrieve up to `ON_DEMAND_RETRIEVAL_TOP_K` rows from `context_entry`
-   filtered to the target user's id.
-3. Rank by vector cosine once embeddings are populated. Until then, use a
-   deterministic fallback while keeping the same `OnDemandContextSlice` shape.
-4. Pass the slice and question to `answer_on_demand`.
-5. Write the returned answer through the closure path before returning HTTP
-   success.
+- `agent_ctx(agent_id, query)`
+- `global_ctx(query)`
+- `commit_memory_update(...)`
 
-Defaults:
-
-- On-demand model: `claude-sonnet-4-6`
-- Embedding model for retrieval: `text-embedding-3-small`
-- Vector dimension: 1536
-- Retrieval depth: 6
-- Included context kinds: `seed`, `prompt_answer`, `cross_user_qa`
+This package remains as a placeholder for server-owned agent-adjacent helpers
+that may appear later, but live agent sessions should not be added here.

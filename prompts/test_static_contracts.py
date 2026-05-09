@@ -9,7 +9,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 JORF_CONTRACT_FILES = [
     REPO_ROOT / "prompts" / "agent_system.md",
     REPO_ROOT / "prompts" / "local_assistant_system.md",
-    REPO_ROOT / "apps" / "server" / "src" / "relevo" / "agents" / "prompts" / "agent_system.md",
     REPO_ROOT / "packages" / "contracts" / "agent_persona.json",
     REPO_ROOT / "prompts" / "validate_personas.py",
 ]
@@ -24,7 +23,6 @@ class StaticContractTest(unittest.TestCase):
         banned_patterns = [
             re.compile(r"\bhandoff\b", re.IGNORECASE),
             re.compile(r"\bpeer agent\b", re.IGNORECASE),
-            re.compile(r"\bagent_id\b", re.IGNORECASE),
             re.compile(r"\bperson_id\b", re.IGNORECASE),
             re.compile(r"\bpersonal\s*\|\s*pool\s*\|\s*timeline\b", re.IGNORECASE),
             re.compile(r"\bpersonal-tier\b", re.IGNORECASE),
@@ -42,16 +40,26 @@ class StaticContractTest(unittest.TestCase):
 
         self.assertEqual([], violations)
 
-    def test_on_demand_prompts_stay_in_sync(self) -> None:
+    def test_retriever_prompt_declares_current_tool_contract(self) -> None:
         root_prompt = (REPO_ROOT / "prompts" / "agent_system.md").read_text(encoding="utf-8")
-        packaged_prompt = (
-            REPO_ROOT / "apps" / "server" / "src" / "relevo" / "agents" / "prompts" / "agent_system.md"
-        ).read_text(encoding="utf-8")
 
-        self.assertEqual(root_prompt.strip(), packaged_prompt.strip())
-        self.assertIn("retrieved_context_entries", root_prompt)
-        self.assertIn("source_user_ids", root_prompt)
-        self.assertIn("insufficient_context", root_prompt)
+        self.assertIn("retriever agent", root_prompt)
+        self.assertIn("agent_ctx(agent_id, query)", root_prompt)
+        self.assertIn("global_ctx(query)", root_prompt)
+        self.assertIn("commit_memory_update", root_prompt)
+        self.assertIn("context_exchange_id", root_prompt)
+        self.assertIsNone(re.search(r"\bglobal_ct\b", root_prompt))
+        self.assertNotIn("request_context", root_prompt)
+        self.assertNotIn("on-demand", root_prompt.lower())
+
+    def test_local_assistant_uses_retriever_not_request_context(self) -> None:
+        local_prompt = (REPO_ROOT / "prompts" / "local_assistant_system.md").read_text(encoding="utf-8")
+
+        self.assertIn("ask_retriever", local_prompt)
+        self.assertIn("retriever agent", local_prompt)
+        self.assertIn("global_ctx", local_prompt)
+        self.assertIsNone(re.search(r"\bglobal_ct\b", local_prompt))
+        self.assertNotIn("request_context", local_prompt)
 
 
 if __name__ == "__main__":

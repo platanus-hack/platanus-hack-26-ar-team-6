@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://relevo.local/contracts/user_context_profile.json",
   "title": "UserContextProfile",
-  "description": "Seed profile contract for a Relevo user whose stored context can be bootstrapped locally or queried by request_context.",
+  "description": "Seed profile contract for a Relevo user whose stored context can be bootstrapped locally or queried by the retriever.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -89,7 +89,7 @@
           "type": "string",
           "minLength": 20,
           "maxLength": 280,
-          "description": "One or two precise sentences used in bootstrap roster entries and on-demand context answering."
+          "description": "One or two precise sentences used in bootstrap roster entries and retriever targeting."
         }
       }
     }
@@ -98,7 +98,7 @@
     {
       "key": "jorf",
       "display_name": "Jorf",
-      "domain_summary": "Owns local assistant prompts, request-context tool contracts, and on-demand answer behavior.",
+      "domain_summary": "Owns local assistant prompts, retriever tool contracts, and updater memory behavior.",
       "auth_token": "dev-token-jorf",
       "voice": {
         "tone": "Direct, pragmatic, and coordination-focused; challenges weak assumptions without derailing delivery.",
@@ -115,7 +115,7 @@
           "profile-contracts",
           "prompting"
         ],
-        "expertise_summary": "Owns the local assistant prompt, request-context tool contract, and on-demand context answer template."
+        "expertise_summary": "Owns the local assistant prompt, retriever tool contract, and updater memory checkpoint template."
       }
     }
   ]

@@ -1,16 +1,19 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join, resolve } from 'node:path'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runLocalAssistant } from '../runner.js'
-import type { BootstrapContext, RunLocalAssistantOptions } from '../types.js'
+import type { BootstrapContext, ConversationMessage, PersistedConversation, RunLocalAssistantOptions } from '../types.js'
 import {
   clearAnthropicApiKey,
+  clearProjectFolder,
   clearRelevoSession,
   getDesktopSettings,
   readAnthropicApiKey,
   readRelevoSessionToken,
   saveAnthropicApiKey,
+  saveProjectFolder,
   saveRelevoAuthState,
   saveRelevoSession,
   saveSelectedProjectId,
@@ -59,17 +62,6 @@ type BootstrapResponse = {
   project_context: BootstrapContextEntry[]
 }
 
-type SavePromptAnswerRequest = {
-  prompt: string
-  finalAnswer: string
-  metadata?: Record<string, unknown>
-}
-
-type SavePromptAnswerResponse = {
-  id: string
-  kind: string
-}
-
 type AuthStateResponse = {
   account: DesktopAccountSummary
   projects: DesktopProjectMembership[]
@@ -81,9 +73,11 @@ type DesktopExchangeResponse = AuthStateResponse & {
 
 type StartAssistantRunPayload = {
   prompt: string
-  cwd: string
+  cwd?: string
   bootstrap: BootstrapContext
   userId: string
+  chatSessionId?: string
+  conversationMessages?: ConversationMessage[]
   model?: string
   maxTurns?: number
 }
@@ -107,6 +101,7 @@ type AuthEvent =
   | { type: 'logout:succeeded'; settings: DesktopSettingsResponse }
   | { type: 'projects:updated'; settings: DesktopSettingsResponse }
   | { type: 'project:selected'; settings: DesktopSettingsResponse }
+  | { type: 'project:folder:updated'; settings: DesktopSettingsResponse }
 
 type SessionContext = {
   serverBaseUrl: string
@@ -140,6 +135,52 @@ function notifyAuthEvent(event: AuthEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('auth:event', event)
   }
+}
+
+function fallbackRunnerCwd(payloadCwd?: string): string {
+  return payloadCwd ?? viteEnv['VITE_LOCAL_REPO_PATH'] ?? process.env['VITE_LOCAL_REPO_PATH'] ?? '.'
+}
+
+function conversationFilePath(workspaceId: string): string {
+  return join(app.getPath('userData'), 'conversations', `${workspaceId}.json`)
+}
+
+async function loadConversationFromDisk(workspaceId: string): Promise<PersistedConversation> {
+  try {
+    const raw = await readFile(conversationFilePath(workspaceId), 'utf-8')
+    return JSON.parse(raw) as PersistedConversation
+  } catch {
+    return { sessionId: null, messages: [] }
+  }
+}
+
+async function saveConversationToDisk(workspaceId: string, data: PersistedConversation): Promise<void> {
+  const dir = join(app.getPath('userData'), 'conversations')
+  await mkdir(dir, { recursive: true })
+  await writeFile(conversationFilePath(workspaceId), JSON.stringify(data), 'utf-8')
+}
+
+async function clearConversationFromDisk(workspaceId: string): Promise<void> {
+  try {
+    await unlink(conversationFilePath(workspaceId))
+  } catch {
+    // file may not exist
+  }
+}
+
+async function selectDirectory(parentWindow: BrowserWindow | null): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    properties: ['openDirectory']
+  }
+  const result = parentWindow
+    ? await dialog.showOpenDialog(parentWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  if (result.canceled) {
+    return null
+  }
+
+  return result.filePaths[0] ?? null
 }
 
 function focusMainWindow(): void {
@@ -386,6 +427,24 @@ app.whenReady().then(() => {
     return settings
   })
 
+  ipcMain.handle('project:folder:choose', async (event, projectId: string): Promise<DesktopSettingsResponse> => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow
+    const folderPath = await selectDirectory(parentWindow)
+    if (!folderPath) {
+      return getDesktopSettings(DEFAULT_API_BASE_URL)
+    }
+
+    const settings = await saveProjectFolder(projectId, folderPath, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'project:folder:updated', settings })
+    return settings
+  })
+
+  ipcMain.handle('project:folder:clear', async (_, projectId: string): Promise<DesktopSettingsResponse> => {
+    const settings = await clearProjectFolder(projectId, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'project:folder:updated', settings })
+    return settings
+  })
+
   ipcMain.handle('project:create', async (_, request: CreateProjectPayload): Promise<DesktopSettingsResponse> => {
     const { serverBaseUrl, sessionToken } = await getSessionContext(false)
     const createUrl = new URL('/projects', serverBaseUrl)
@@ -452,25 +511,18 @@ app.whenReady().then(() => {
     })
   })
 
-  ipcMain.handle(
-    'context-entry:save',
-    async (_, request: SavePromptAnswerRequest): Promise<SavePromptAnswerResponse> => {
-      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
-      return fetchJson<SavePromptAnswerResponse>(`${serverBaseUrl}/context-entries`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sessionToken}`,
-          'Content-Type': 'application/json',
-          'X-Project-Id': selectedProjectId
-        },
-        body: JSON.stringify({
-          prompt: request.prompt,
-          final_answer: request.finalAnswer,
-          metadata: request.metadata ?? {}
-        })
-      })
-    }
-  )
+  ipcMain.handle('conversation:load', async (_, workspaceId: string): Promise<PersistedConversation> => {
+    return loadConversationFromDisk(workspaceId)
+  })
+
+  ipcMain.handle('conversation:save', async (_, workspaceId: string, data: PersistedConversation): Promise<void> => {
+    await saveConversationToDisk(workspaceId, data)
+  })
+
+  ipcMain.handle('conversation:clear', async (_, workspaceId: string): Promise<void> => {
+    await clearConversationFromDisk(workspaceId)
+  })
+
 
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
     const anthropicApiKey = await readAnthropicApiKey()
@@ -479,8 +531,10 @@ app.whenReady().then(() => {
     }
 
     const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+    const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
     const runOptions: RunLocalAssistantOptions = {
       ...payload,
+      cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
       anthropicApiKey,
       serverUrl: serverBaseUrl,
       authToken: sessionToken,
