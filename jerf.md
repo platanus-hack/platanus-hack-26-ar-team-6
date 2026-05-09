@@ -14,27 +14,41 @@ You do not own retrieval (Jorf/Narf), the agent prompt internals
 (Jorf), the schema (Sarf), or the desktop UI (Marf). You own the
 contract between the AI's tool call and the server's write.
 
-## V2 polish to land first
+## V2 polish status
 
-Cheap, no design debate. Do these before any V3 stretch:
+Audited against main as of `f76470b`:
 
-1. **`OnDemandAgentError` → 502.** Wrap the `answer_from_context` call
-   in `apps/server/src/relevo/api/context.py` with try/except. On
-   error: HTTP 502, no `qa_ledger` row, no `cross_user_qa` row.
-   Failure ≠ context.
-2. **Empty-target-user smoke.** Add a case to
-   `apps/server/scripts/smoke_closure.py`: target user with zero
-   `context_entry` rows. Expect: response with
-   `insufficient_context=true` flag in metadata, Q&A row still
-   written, no exception.
-3. **`source_context_entry_ids` field.** Plan §6 says the response
-   carries `source_context_entry_ids`. Current code returns
-   `retrieved_context_entries` (full rows). Either rename to a
-   separate ID-only field or update the plan. Pair with Jorf — pick
-   whichever stays on main.
-4. **Delete `apps/server/src/relevo/api/request_context.py`.**
-   Orphaned after Sarf's V2 consolidation into `context.py`. Verify
-   nothing imports it, then remove.
+1. ~~`OnDemandAgentError` → 502.~~ **N/A** — `apps/server/src/relevo/agent.py`
+   wraps the Anthropic call in `try/except Exception` and falls back to
+   an extractive answer (`_fallback_answer`). The agent never raises.
+   Promoting failures to 502 would mean changing the fallback
+   philosophy; that is a Jorf design decision, not a Jerf polish item.
+2. **Empty-target-user smoke.** Deferred. Requires a third seeded user
+   with zero `context_entry` rows. Cross-lane with Sarf (seeds). Open
+   when Sarf has bandwidth.
+3. ~~`source_context_entry_ids` field.~~ **Done.** `POST
+   /request-context` returns `source_context_entry_ids` alongside
+   `source_user_ids`. Verified live against the deployed server.
+4. **Delete `apps/server/src/relevo/api/request_context.py`.** Done in
+   this PR. Verified zero imports under `apps/server/` before removal.
+
+## Cap stored Q&A length (new polish item)
+
+V2 demo on the deployed server shows that cross-user retrieval boosts
+prior `cross_user_qa` rows in `apps/server/src/relevo/db.py:220`
+(`kind_boost = 1 if row.get("kind") == "cross_user_qa" else 0`).
+Repeat queries produce answers that quote previous answers verbatim,
+so the materialized row keeps growing each round.
+
+Two cheap mitigations live in Jerf's lane:
+
+- Truncate the answer string written into the `cross_user_qa` row's
+  content + metadata to ~1.5KB at write time.
+- Strip nested `QUESTION (from ...) ANSWER:` blocks from the answer
+  before persisting, so a Q&A round never embeds prior rounds.
+
+Bigger fix (drop or invert `kind_boost`) is Narf/Jorf retrieval lane,
+not yours.
 
 ## V3 stretch (only after polish)
 
