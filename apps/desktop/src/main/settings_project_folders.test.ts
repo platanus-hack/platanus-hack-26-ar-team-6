@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -27,6 +27,7 @@ import {
   saveRelevoAuthState,
   saveRelevoSession,
   saveSelectedProjectId,
+  setClaudeCodeHooksEnabled,
   type DesktopAccountSummary,
   type DesktopProjectMembership
 } from './settings'
@@ -66,6 +67,10 @@ async function seedSession(projects = [membership()]): Promise<void> {
   await saveSelectedProjectId(projects[0].project_id, DEFAULT_SERVER_BASE_URL)
 }
 
+async function readJson<T>(path: string): Promise<T> {
+  return JSON.parse(await readFile(path, 'utf-8')) as T
+}
+
 describe('desktop project folder settings', () => {
   let tempRoot: string
 
@@ -86,6 +91,110 @@ describe('desktop project folder settings', () => {
 
     expect(settings.projectFolders).toEqual({ [PROJECT_ID]: projectFolder })
     expect(settings.selectedProjectFolderPath).toBe(projectFolder)
+    expect(settings.claudeCodeHooksEnabled).toBe(true)
+    expect(settings.selectedProjectClaudeHook.active).toBe(true)
+  })
+
+  it('installs the Claude Code hook and stores hook credentials outside the project folder', async () => {
+    await seedSession()
+    const projectFolder = await mkdtemp(join(tempRoot, 'project-folder-'))
+
+    await saveProjectFolder(PROJECT_ID, projectFolder, DEFAULT_SERVER_BASE_URL)
+
+    const claudeSettingsRaw = await readFile(join(projectFolder, '.claude', 'settings.json'), 'utf-8')
+    const claudeSettings = JSON.parse(claudeSettingsRaw) as {
+      hooks: Record<string, Array<{ hooks: Array<{ type: string; command: string }> }>>
+    }
+    const promptCommand = claudeSettings.hooks.UserPromptSubmit.at(-1)?.hooks[0]?.command
+    const stopCommand = claudeSettings.hooks.Stop.at(-1)?.hooks[0]?.command
+    expect(promptCommand).toContain('.claude/hooks/relevo_activity.py')
+    expect(stopCommand).toBe(promptCommand)
+    expect(claudeSettingsRaw).not.toContain('rlv_test')
+
+    const hookScript = await readFile(join(projectFolder, '.claude', 'hooks', 'relevo_activity.py'), 'utf-8')
+    expect(hookScript).toContain('def handle_prompt_submit')
+    expect(hookScript).toContain('def handle_stop')
+
+    const hookConfig = await readJson<{ serverUrl: string; authToken: string; projectId: string }>(
+      join(electronMock.userDataPath, 'claude-hooks', `${PROJECT_ID}.json`)
+    )
+    expect(hookConfig).toEqual({
+      serverUrl: DEFAULT_SERVER_BASE_URL,
+      authToken: 'rlv_test',
+      projectId: PROJECT_ID
+    })
+  })
+
+  it('disables Claude Code hooks and removes Relevo commands from the selected project folder', async () => {
+    await seedSession()
+    const projectFolder = await mkdtemp(join(tempRoot, 'project-folder-'))
+    await saveProjectFolder(PROJECT_ID, projectFolder, DEFAULT_SERVER_BASE_URL)
+
+    const settings = await setClaudeCodeHooksEnabled(false, DEFAULT_SERVER_BASE_URL)
+
+    expect(settings.claudeCodeHooksEnabled).toBe(false)
+    expect(settings.selectedProjectClaudeHook.active).toBe(false)
+    expect(settings.selectedProjectClaudeHook.installed).toBe(false)
+    const claudeSettings = await readJson<{
+      hooks: Record<string, Array<{ hooks: Array<{ type: string; command: string }> }>>
+    }>(join(projectFolder, '.claude', 'settings.json'))
+    const allCommands = Object.values(claudeSettings.hooks ?? {})
+      .flat()
+      .flatMap((matcher) => matcher.hooks.map((hook) => hook.command))
+    expect(allCommands.some((command) => command.includes('relevo_activity.py'))).toBe(false)
+    await expect(readFile(join(electronMock.userDataPath, 'claude-hooks', `${PROJECT_ID}.json`), 'utf-8')).rejects.toThrow()
+  })
+
+  it('leaves newly connected folders without Claude Code hooks when hook tracking is disabled', async () => {
+    await seedSession()
+    await setClaudeCodeHooksEnabled(false, DEFAULT_SERVER_BASE_URL)
+    const projectFolder = await mkdtemp(join(tempRoot, 'project-folder-'))
+
+    const settings = await saveProjectFolder(PROJECT_ID, projectFolder, DEFAULT_SERVER_BASE_URL)
+
+    expect(settings.claudeCodeHooksEnabled).toBe(false)
+    expect(settings.selectedProjectClaudeHook.active).toBe(false)
+    await expect(readFile(join(projectFolder, '.claude', 'settings.json'), 'utf-8')).rejects.toThrow()
+  })
+
+  it('preserves existing Claude settings while adding one Relevo hook per event', async () => {
+    await seedSession()
+    const projectFolder = await mkdtemp(join(tempRoot, 'project-folder-'))
+    await mkdir(join(projectFolder, '.claude'), { recursive: true })
+    await writeFile(
+      join(projectFolder, '.claude', 'settings.json'),
+      JSON.stringify(
+        {
+          permissions: { allow: ['Bash(npm test)'] },
+          hooks: {
+            Stop: [
+              {
+                matcher: 'Write',
+                hooks: [{ type: 'command', command: 'echo keep-me' }]
+              }
+            ]
+          }
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    )
+
+    await saveProjectFolder(PROJECT_ID, projectFolder, DEFAULT_SERVER_BASE_URL)
+    await saveProjectFolder(PROJECT_ID, projectFolder, DEFAULT_SERVER_BASE_URL)
+
+    const claudeSettings = await readJson<{
+      permissions: { allow: string[] }
+      hooks: Record<string, Array<{ hooks: Array<{ type: string; command: string }> }>>
+    }>(join(projectFolder, '.claude', 'settings.json'))
+    const allCommands = Object.values(claudeSettings.hooks)
+      .flat()
+      .flatMap((matcher) => matcher.hooks.map((hook) => hook.command))
+
+    expect(claudeSettings.permissions.allow).toEqual(['Bash(npm test)'])
+    expect(allCommands).toContain('echo keep-me')
+    expect(allCommands.filter((command) => command.includes('relevo_activity.py'))).toHaveLength(2)
   })
 
   it('rejects folder saves for projects outside the current account project list', async () => {

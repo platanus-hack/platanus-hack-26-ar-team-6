@@ -140,6 +140,18 @@ type DesktopSettingsResponse = {
   projectFolders: Record<string, string>
   selectedProjectFolderPath: string | null
   activityGraphEnabled: boolean
+  claudeCodeHooksEnabled: boolean
+  selectedProjectClaudeHook: ClaudeCodeHookStatus
+}
+
+type ClaudeCodeHookStatus = {
+  enabled: boolean
+  active: boolean
+  installed: boolean
+  hasSettings: boolean
+  hasHookScript: boolean
+  hasConfig: boolean
+  message: string
 }
 
 type ActivityNote = {
@@ -230,6 +242,7 @@ interface DesktopApi {
   onAuthEvent: (callback: (event: AuthEvent) => void) => () => void
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
   toggleActivityGraph: (enabled: boolean) => Promise<DesktopSettingsResponse>
+  setClaudeCodeHooksEnabled: (enabled: boolean) => Promise<DesktopSettingsResponse>
   getActivityNotes: (projectFolderPath: string) => Promise<ActivityNote[]>
 }
 

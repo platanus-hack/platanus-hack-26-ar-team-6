@@ -17,6 +17,7 @@ import {
   saveRelevoAuthState,
   saveRelevoSession,
   saveSelectedProjectId,
+  setClaudeCodeHooksEnabled,
   toggleActivityGraph,
   type DesktopAccountSummary,
   type DesktopProjectMembership,
@@ -545,6 +546,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('settings:activity-graph:toggle', async (_, enabled: boolean): Promise<DesktopSettingsResponse> => {
     return toggleActivityGraph(enabled, DEFAULT_API_BASE_URL)
+  })
+
+  ipcMain.handle('settings:claude-hooks:set-enabled', async (_, enabled: boolean): Promise<DesktopSettingsResponse> => {
+    return setClaudeCodeHooksEnabled(enabled, DEFAULT_API_BASE_URL)
   })
 
   ipcMain.handle('activity-graph:get-notes', async (_, projectFolderPath: string): Promise<ActivityNote[]> => {

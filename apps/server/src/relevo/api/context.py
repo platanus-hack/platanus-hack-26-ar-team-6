@@ -22,6 +22,9 @@ from relevo.db import (
 logger = logging.getLogger("relevo.api.context")
 
 
+MAX_ACTIVITY_TEXT_CHARS = 120_000
+
+
 def _preview(text: str, max_length: int = 160) -> str:
     normalized = " ".join(text.split())
     if len(normalized) <= max_length:
@@ -44,6 +47,67 @@ def _operation_summary(operation: "MemoryUpdateOperation") -> dict[str, Any]:
         else None,
         "metadata_keys": _metadata_keys(operation.metadata),
     }
+
+
+def _truncate_text(text: str, max_length: int = MAX_ACTIVITY_TEXT_CHARS) -> str:
+    if len(text) <= max_length:
+        return text
+    return f"{text[: max_length - 34].rstrip()}\n...[truncated by Relevo ingest]"
+
+
+def _format_changed_files(changed_files: list[str]) -> str:
+    if not changed_files:
+        return "No changed files reported."
+    return "\n".join(f"- {file_path}" for file_path in changed_files)
+
+
+def _activity_event_content(body: "ClaudeCodeActivityRequest") -> str:
+    sections = [
+        "Claude Code activity",
+        f"Session: {body.session_id}",
+    ]
+    if body.cwd:
+        sections.append(f"Working directory: {body.cwd}")
+
+    sections.extend(
+        [
+            f"Prompt:\n{body.prompt.strip() or 'No prompt captured.'}",
+            f"Final answer:\n{body.final_answer.strip() or 'No final answer captured.'}",
+            f"Changed files:\n{_format_changed_files(body.changed_files)}",
+        ]
+    )
+    if body.diff.strip():
+        sections.append(f"Diff:\n```diff\n{body.diff.strip()}\n```")
+
+    return _truncate_text("\n\n".join(sections))
+
+
+def _activity_canonical_content(body: "ClaudeCodeActivityRequest") -> str:
+    sections = [
+        "Latest Claude Code activity summary",
+        f"Prompt: {_preview(body.prompt, 600) or 'No prompt captured.'}",
+        f"Final answer: {_preview(body.final_answer, 900) or 'No final answer captured.'}",
+        f"Changed files:\n{_format_changed_files(body.changed_files)}",
+    ]
+    return _truncate_text("\n\n".join(sections), max_length=8_000)
+
+
+def _activity_metadata(body: "ClaudeCodeActivityRequest") -> dict[str, Any]:
+    metadata = dict(body.metadata)
+    metadata.update(
+        {
+            "source": "claude_code_hook",
+            "session_id": body.session_id,
+            "cwd": body.cwd,
+            "transcript_path": body.transcript_path,
+            "hook_event_name": body.hook_event_name,
+            "changed_files": body.changed_files,
+            "prompt_chars": len(body.prompt),
+            "final_answer_chars": len(body.final_answer),
+            "diff_chars": len(body.diff),
+        }
+    )
+    return metadata
 
 
 class ContextEntryOut(BaseModel):
@@ -129,6 +193,19 @@ class CommitMemoryUpdateRequest(BaseModel):
 class CommitMemoryUpdateResponse(BaseModel):
     event_ids: list[str]
     document_ids: list[str]
+
+
+class ClaudeCodeActivityRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    checkpoint_index: int = Field(default=1, ge=1)
+    cwd: str = Field(default="")
+    prompt: str = Field(default="")
+    final_answer: str = Field(default="")
+    diff: str = Field(default="")
+    changed_files: list[str] = Field(default_factory=list)
+    transcript_path: str | None = None
+    hook_event_name: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 router = APIRouter()
@@ -366,5 +443,67 @@ def memory_updates(
         len(response.document_ids),
         response.event_ids,
         response.document_ids,
+    )
+    return response
+
+
+@router.post("/claude-code/activity", response_model=CommitMemoryUpdateResponse)
+@router.post("/claude_code/activity", response_model=CommitMemoryUpdateResponse)
+def claude_code_activity(
+    body: ClaudeCodeActivityRequest,
+    conn: Annotated[psycopg.Connection, Depends(get_db)],
+    current_auth: Annotated[dict[str, Any], Depends(require_auth)],
+    x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
+) -> CommitMemoryUpdateResponse:
+    current_user = require_project_membership(conn, current_auth, x_project_id)
+    project_id = current_user["project_id"]
+    logger.info(
+        "claude_code_activity:start auth_kind=%s author_agent_id=%s project_id=%s session_id=%s checkpoint_index=%s changed_file_count=%s prompt_chars=%s answer_chars=%s diff_chars=%s metadata_keys=%s",
+        current_auth.get("kind"),
+        current_user["id"],
+        project_id,
+        body.session_id,
+        body.checkpoint_index,
+        len(body.changed_files),
+        len(body.prompt),
+        len(body.final_answer),
+        len(body.diff),
+        _metadata_keys(body.metadata),
+    )
+    operations = [
+        {
+            "author_agent_id": current_user["id"],
+            "importance": "local",
+            "document_key": f"claude-code:{body.session_id}",
+            "event_content": _activity_event_content(body),
+            "canonical_content": _activity_canonical_content(body),
+            "metadata": _activity_metadata(body),
+            "chat_session_id": f"claude-code:{body.session_id}",
+            "checkpoint_index": body.checkpoint_index,
+        }
+    ]
+    try:
+        result = commit_memory_update(
+            conn,
+            project_id=project_id,
+            operations=operations,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "claude_code_activity:invalid author_agent_id=%s project_id=%s session_id=%s error=%s",
+            current_user["id"],
+            project_id,
+            body.session_id,
+            exc,
+        )
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    response = CommitMemoryUpdateResponse(**result)
+    logger.info(
+        "claude_code_activity:success author_agent_id=%s project_id=%s session_id=%s event_count=%s document_count=%s",
+        current_user["id"],
+        project_id,
+        body.session_id,
+        len(response.event_ids),
+        len(response.document_ids),
     )
     return response

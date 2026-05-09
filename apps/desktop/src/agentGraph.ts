@@ -22,6 +22,8 @@ const CHECKPOINT_MIN_ELAPSED_MS = 3 * 60 * 1000;
 const CHECKPOINT_MIN_NEW_MESSAGES = 2;
 const CHECKPOINT_HARD_CAP_MESSAGES = 10;
 
+export const MEMORY_UPDATE_MESSAGE_THRESHOLD = CHECKPOINT_MIN_NEW_MESSAGES;
+
 export type UserAgentInput = {
   prompt: string;
   preflightContext: ContextPacket | null;
