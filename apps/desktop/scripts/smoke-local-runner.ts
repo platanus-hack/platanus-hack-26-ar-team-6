@@ -1,10 +1,10 @@
 import { runLocalAssistant } from "../src/index.js";
 
 async function main(): Promise<void> {
-  const hasClaudeAuth = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
-  if (!hasClaudeAuth) {
-    console.log("SKIP: ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is required for the live local runner smoke.");
+  if (!anthropicApiKey) {
+    console.log("SKIP: ANTHROPIC_API_KEY is required for the live local runner smoke.");
     return;
   }
 
@@ -18,6 +18,7 @@ async function main(): Promise<void> {
     userId,
     serverUrl,
     authToken: process.env.RELEVO_AUTH_TOKEN,
+    anthropicApiKey,
     maxTurns: 1,
     bootstrap: {
       user_summary: {

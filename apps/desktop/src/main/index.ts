@@ -4,6 +4,13 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runLocalAssistant } from '../runner.js'
 import type { RunLocalAssistantOptions } from '../types.js'
+import {
+  clearAnthropicApiKey,
+  getDesktopSettings,
+  readAnthropicApiKey,
+  saveAnthropicApiKey,
+  type DesktopSettingsResponse
+} from './settings.js'
 
 type HealthResponse = {
   status?: string
@@ -57,6 +64,8 @@ type SavePromptAnswerResponse = {
   id: string
   kind: string
 }
+
+type StartAssistantRunPayload = Omit<RunLocalAssistantOptions, 'anthropicApiKey'>
 
 function normalizeBaseUrl(apiBaseUrl: string): string {
   return apiBaseUrl.replace(/\/+$/, '')
@@ -130,6 +139,18 @@ app.whenReady().then(() => {
     return response.json()
   })
 
+  ipcMain.handle('settings:get', async (): Promise<DesktopSettingsResponse> => {
+    return getDesktopSettings()
+  })
+
+  ipcMain.handle('settings:anthropic-key:save', async (_, apiKey: string): Promise<DesktopSettingsResponse> => {
+    return saveAnthropicApiKey(apiKey)
+  })
+
+  ipcMain.handle('settings:anthropic-key:clear', async (): Promise<DesktopSettingsResponse> => {
+    return clearAnthropicApiKey()
+  })
+
   ipcMain.handle('bootstrap:load', async (_, request: BootstrapRequest): Promise<BootstrapResponse> => {
     const normalizedBaseUrl = normalizeBaseUrl(request.apiBaseUrl)
     const bootstrapUrl = new URL(`${normalizedBaseUrl}/bootstrap`)
@@ -161,8 +182,13 @@ app.whenReady().then(() => {
     }
   )
 
-  ipcMain.handle('assistant:run:start', async (event, payload: RunLocalAssistantOptions): Promise<void> => {
-    for await (const assistantEvent of runLocalAssistant(payload)) {
+  ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
+    const anthropicApiKey = await readAnthropicApiKey()
+    if (!anthropicApiKey) {
+      throw new Error('Anthropic API key is not configured. Open settings and save a key.')
+    }
+
+    for await (const assistantEvent of runLocalAssistant({ ...payload, anthropicApiKey })) {
       event.sender.send('assistant:event', assistantEvent)
     }
   })

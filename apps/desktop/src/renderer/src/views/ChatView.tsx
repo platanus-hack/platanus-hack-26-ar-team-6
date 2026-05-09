@@ -18,6 +18,8 @@ type ChatViewProps = {
   apiBaseUrl: string
   authToken: string
   bootstrap: RunnerBootstrapPayload
+  isAssistantConfigured: boolean
+  onConfigureAssistant: () => void
 }
 
 type ToolCallInput = {
@@ -80,7 +82,13 @@ function renderMessageText(text: string): React.ReactNode {
   ))
 }
 
-function ChatView({ apiBaseUrl, authToken, bootstrap }: ChatViewProps): React.JSX.Element {
+function ChatView({
+  apiBaseUrl,
+  authToken,
+  bootstrap,
+  isAssistantConfigured,
+  onConfigureAssistant
+}: ChatViewProps): React.JSX.Element {
   const currentWorkspaceId = useWorkspaceStore((state) => state.currentWorkspaceId)
   const messagesByWorkspace = useChatStore((state) => state.messagesByWorkspace)
   const toolTraceByWorkspace = useChatStore((state) => state.toolTraceByWorkspace)
@@ -233,6 +241,12 @@ function ChatView({ apiBaseUrl, authToken, bootstrap }: ChatViewProps): React.JS
     const text = input.trim()
     if (!text || isRunning) return
 
+    if (!isAssistantConfigured) {
+      setRunStatus(workspaceId, 'configure Anthropic API key in settings')
+      onConfigureAssistant()
+      return
+    }
+
     const userMessageId = Date.now().toString()
     const assistantMessageId = `${userMessageId}-assistant`
     const repoPath = import.meta.env.VITE_LOCAL_REPO_PATH || '.'
@@ -320,14 +334,14 @@ function ChatView({ apiBaseUrl, authToken, bootstrap }: ChatViewProps): React.JS
         <textarea
           className="chat-input"
           rows={2}
-          placeholder="type a message..."
+          placeholder={isAssistantConfigured ? 'type a message...' : 'configure Anthropic API key in settings'}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isRunning}
         />
         <button className="chat-send" type="button" onClick={handleSend} disabled={isRunning}>
-          {isRunning ? 'running...' : 'send'}
+          {isRunning ? 'running...' : isAssistantConfigured ? 'send' : 'settings'}
         </button>
       </div>
     </section>
