@@ -24,8 +24,9 @@ VITE_ENABLE_HEALTHCHECK=true
 VITE_LOCAL_REPO_PATH=/absolute/path/to/your/repo
 ```
 
-`VITE_API_BASE_URL` is only the default server URL shown by the app. Users can
-edit and persist the server URL from the login screen or settings panel.
+`VITE_API_BASE_URL` is the fixed Relevo server URL. The app does not allow
+users to edit it at runtime; rebuild/relaunch with a different env value to
+point at another server.
 
 Relevo login no longer uses `VITE_AUTH_TOKEN` or `VITE_USER_ID`. The app opens
 Google login in the system browser, receives `relevo://auth/callback`, exchanges
@@ -37,20 +38,20 @@ with Electron `safeStorage` when the OS supports it.
 
 notes:
 
-- logged-out state shows server URL and Google sign-in
+- logged-out state shows the configured server URL and Google sign-in
 - logged-in state shows projects; selecting or creating one enters the chat
 - chat saves `{prompt, final_answer}` through `/context-entries` with the
   selected project id
 - the local assistant's `request_context` tool sends the selected project id as
   `X-Project-Id`
 - the runner uses `VITE_LOCAL_REPO_PATH` as its working directory
-- the health indicator checks the persisted server URL
+- the health indicator checks `VITE_API_BASE_URL`
 
 manual smoke:
 
 1. start the server with Google OAuth configured
 2. launch the desktop app
-3. enter the server URL and sign in through the browser
+3. sign in through the browser
 4. select or create a project
 5. configure the Anthropic key in settings
 6. send a chat message and confirm the answer saves

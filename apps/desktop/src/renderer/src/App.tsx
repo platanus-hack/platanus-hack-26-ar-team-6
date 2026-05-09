@@ -37,7 +37,6 @@ function LoginScreen({
   authMessage: string | null
   onSettingsChange: (settings: DesktopSettings) => void
 }): React.JSX.Element {
-  const [serverBaseUrl, setServerBaseUrl] = useState(settings.serverBaseUrl)
   const [status, setStatus] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const displayStatus = authMessage ?? status
@@ -48,7 +47,7 @@ function LoginScreen({
     setStatus(null)
 
     try {
-      const nextSettings = await window.api.startGoogleLogin({ serverBaseUrl })
+      const nextSettings = await window.api.startGoogleLogin()
       onSettingsChange(nextSettings)
       setStatus('Browser sign-in opened')
     } catch (error) {
@@ -67,17 +66,7 @@ function LoginScreen({
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="settings-form__label" htmlFor="login-server-url">
-            Server URL
-          </label>
-          <input
-            id="login-server-url"
-            className="settings-form__input"
-            type="url"
-            value={serverBaseUrl}
-            onChange={(event) => setServerBaseUrl(event.target.value)}
-            placeholder="https://example.com"
-          />
+          <div className="auth-server-url">{settings.serverBaseUrl}</div>
           <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
           </button>

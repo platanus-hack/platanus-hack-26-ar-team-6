@@ -147,10 +147,9 @@ type AddProjectMemberRequest = {
 interface DesktopApi {
   getHealth: (apiBaseUrl: string) => Promise<HealthResponse>
   getSettings: () => Promise<DesktopSettingsResponse>
-  saveServerBaseUrl: (serverBaseUrl: string) => Promise<DesktopSettingsResponse>
   saveAnthropicApiKey: (apiKey: string) => Promise<DesktopSettingsResponse>
   clearAnthropicApiKey: () => Promise<DesktopSettingsResponse>
-  startGoogleLogin: (request: { serverBaseUrl?: string }) => Promise<DesktopSettingsResponse>
+  startGoogleLogin: () => Promise<DesktopSettingsResponse>
   logout: () => Promise<DesktopSettingsResponse>
   refreshProjects: () => Promise<DesktopSettingsResponse>
   selectProject: (projectId: string) => Promise<DesktopSettingsResponse>

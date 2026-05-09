@@ -5,10 +5,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   getHealth: (apiBaseUrl: string) => ipcRenderer.invoke('health:check', apiBaseUrl),
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  saveServerBaseUrl: (serverBaseUrl: string) => ipcRenderer.invoke('settings:server-url:save', serverBaseUrl),
   saveAnthropicApiKey: (apiKey: string) => ipcRenderer.invoke('settings:anthropic-key:save', apiKey),
   clearAnthropicApiKey: () => ipcRenderer.invoke('settings:anthropic-key:clear'),
-  startGoogleLogin: (request: { serverBaseUrl?: string }) => ipcRenderer.invoke('auth:login:start', request),
+  startGoogleLogin: () => ipcRenderer.invoke('auth:login:start'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   refreshProjects: () => ipcRenderer.invoke('auth:projects:refresh'),
   selectProject: (projectId: string) => ipcRenderer.invoke('project:select', projectId),

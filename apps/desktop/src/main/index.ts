@@ -14,14 +14,13 @@ import {
   saveRelevoAuthState,
   saveRelevoSession,
   saveSelectedProjectId,
-  saveServerBaseUrl,
   type DesktopAccountSummary,
   type DesktopProjectMembership,
   type DesktopSettingsResponse
 } from './settings.js'
 
-const DEFAULT_API_BASE_URL =
-  process.env['VITE_API_BASE_URL'] || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
+const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
+const DEFAULT_API_BASE_URL = viteEnv['VITE_API_BASE_URL'] || process.env['VITE_API_BASE_URL'] || ''
 const DESKTOP_REDIRECT_URI = 'relevo://auth/callback'
 
 type HealthResponse = {
@@ -119,7 +118,11 @@ let mainWindow: BrowserWindow | null = null
 let pendingProtocolUrls: string[] = []
 
 function normalizeBaseUrl(apiBaseUrl: string): string {
-  return apiBaseUrl.trim().replace(/\/+$/, '')
+  const trimmed = apiBaseUrl.trim()
+  if (!trimmed) {
+    throw new Error('VITE_API_BASE_URL is required for the desktop app.')
+  }
+  return trimmed.replace(/\/+$/, '')
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -336,10 +339,6 @@ app.whenReady().then(() => {
     return getDesktopSettings(DEFAULT_API_BASE_URL)
   })
 
-  ipcMain.handle('settings:server-url:save', async (_, serverBaseUrl: string): Promise<DesktopSettingsResponse> => {
-    return saveServerBaseUrl(serverBaseUrl, DEFAULT_API_BASE_URL)
-  })
-
   ipcMain.handle('settings:anthropic-key:save', async (_, apiKey: string): Promise<DesktopSettingsResponse> => {
     return saveAnthropicApiKey(apiKey, DEFAULT_API_BASE_URL)
   })
@@ -348,18 +347,13 @@ app.whenReady().then(() => {
     return clearAnthropicApiKey(DEFAULT_API_BASE_URL)
   })
 
-  ipcMain.handle(
-    'auth:login:start',
-    async (_, request: { serverBaseUrl?: string } = {}): Promise<DesktopSettingsResponse> => {
-      const baseUrl = request.serverBaseUrl
-        ? (await saveServerBaseUrl(request.serverBaseUrl, DEFAULT_API_BASE_URL)).serverBaseUrl
-        : (await getDesktopSettings(DEFAULT_API_BASE_URL)).serverBaseUrl
-      const loginUrl = new URL('/auth/google/start', baseUrl)
-      loginUrl.searchParams.set('desktop_redirect_uri', DESKTOP_REDIRECT_URI)
-      await shell.openExternal(loginUrl.toString())
-      return getDesktopSettings(DEFAULT_API_BASE_URL)
-    }
-  )
+  ipcMain.handle('auth:login:start', async (): Promise<DesktopSettingsResponse> => {
+    const baseUrl = (await getDesktopSettings(DEFAULT_API_BASE_URL)).serverBaseUrl
+    const loginUrl = new URL('/auth/google/start', baseUrl)
+    loginUrl.searchParams.set('desktop_redirect_uri', DESKTOP_REDIRECT_URI)
+    await shell.openExternal(loginUrl.toString())
+    return getDesktopSettings(DEFAULT_API_BASE_URL)
+  })
 
   ipcMain.handle('auth:logout', async (): Promise<DesktopSettingsResponse> => {
     const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)

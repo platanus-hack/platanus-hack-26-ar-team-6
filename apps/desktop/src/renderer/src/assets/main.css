@@ -246,6 +246,16 @@ button {
   font-size: 12px;
 }
 
+.auth-server-url {
+  overflow: hidden;
+  border: 1px solid #e5e5e5;
+  background: #fafafa;
+  color: #555555;
+  padding: 8px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-panel__actions {
   display: flex;
   align-items: flex-start;

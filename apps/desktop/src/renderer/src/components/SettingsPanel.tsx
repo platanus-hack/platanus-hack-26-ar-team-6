@@ -14,34 +14,10 @@ function toErrorMessage(error: unknown): string {
 
 function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelProps): React.JSX.Element {
   const [apiKey, setApiKey] = useState('')
-  const [serverBaseUrl, setServerBaseUrl] = useState(settings?.serverBaseUrl ?? '')
   const [status, setStatus] = useState<string | null>(null)
   const [isSavingKey, setIsSavingKey] = useState(false)
-  const [isSavingServer, setIsSavingServer] = useState(false)
   const hasAnthropicApiKey = Boolean(settings?.hasAnthropicApiKey)
   const displayStatus = status ?? (hasAnthropicApiKey ? 'Anthropic API key saved' : null)
-
-  async function handleSaveServer(event: React.FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-
-    if (!serverBaseUrl.trim()) {
-      setStatus('Enter a server URL')
-      return
-    }
-
-    setIsSavingServer(true)
-    setStatus(null)
-
-    try {
-      const nextSettings = await window.api.saveServerBaseUrl(serverBaseUrl)
-      onSettingsChange(nextSettings)
-      setStatus('Server URL saved')
-    } catch (error) {
-      setStatus(`Save failed: ${toErrorMessage(error)}`)
-    } finally {
-      setIsSavingServer(false)
-    }
-  }
 
   async function handleSaveKey(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -95,31 +71,7 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
           </button>
         </div>
 
-        <form className="settings-form" onSubmit={handleSaveServer}>
-          <label className="settings-form__label" htmlFor="server-url">
-            Server URL
-          </label>
-          <input
-            id="server-url"
-            className="settings-form__input"
-            type="url"
-            value={serverBaseUrl}
-            onChange={(event) => setServerBaseUrl(event.target.value)}
-            placeholder="https://example.com"
-          />
-
-          <div className="settings-form__actions">
-            <button
-              className="settings-form__button settings-form__button--primary"
-              type="submit"
-              disabled={isSavingServer}
-            >
-              {isSavingServer ? 'saving...' : 'save server'}
-            </button>
-          </div>
-        </form>
-
-        <form className="settings-form settings-form--stacked" onSubmit={handleSaveKey}>
+        <form className="settings-form" onSubmit={handleSaveKey}>
           <label className="settings-form__label" htmlFor="anthropic-api-key">
             Anthropic API key
           </label>

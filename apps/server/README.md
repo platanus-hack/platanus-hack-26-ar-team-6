@@ -274,6 +274,25 @@ Google OAuth defaults:
 | `DESKTOP_LOGIN_EXCHANGE_TTL_SECONDS` | `120` |
 | `ACCOUNT_SESSION_TTL_SECONDS` | `2592000` |
 
+For Railway, create a Google OAuth Client ID with application type **Web
+application**. Add this authorized redirect URI exactly:
+
+```txt
+https://<railway-domain>/auth/google/callback
+```
+
+Then set these Railway variables on the server service:
+
+```txt
+GOOGLE_CLIENT_ID=<client id from Google Cloud>
+GOOGLE_CLIENT_SECRET=<client secret from Google Cloud>
+GOOGLE_REDIRECT_URI=https://<railway-domain>/auth/google/callback
+```
+
+The desktop redirect remains `relevo://auth/callback`; it is passed to the
+server as `desktop_redirect_uri` and is not registered as the Google OAuth
+redirect URI.
+
 ## Docker
 
 ```sh

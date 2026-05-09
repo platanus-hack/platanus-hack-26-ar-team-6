@@ -31,7 +31,6 @@ type StoredSettings = {
   account?: DesktopAccountSummary | null
   projects?: DesktopProjectMembership[]
   selectedProjectId?: string | null
-  serverBaseUrl?: string
 }
 
 export type DesktopSettingsResponse = {
@@ -116,7 +115,7 @@ export async function readRelevoSessionToken(): Promise<string | null> {
 function normalizeServerBaseUrl(serverBaseUrl: string): string {
   const trimmed = serverBaseUrl.trim()
   if (!trimmed) {
-    throw new Error('Server URL cannot be empty.')
+    throw new Error('VITE_API_BASE_URL is required for the desktop app.')
   }
   return trimmed.replace(/\/+$/, '')
 }
@@ -139,7 +138,7 @@ export async function getDesktopSettings(defaultServerBaseUrl: string): Promise<
   return {
     hasAnthropicApiKey: Boolean(await readAnthropicApiKey()),
     encryptionAvailable: safeStorage.isEncryptionAvailable(),
-    serverBaseUrl: settings.serverBaseUrl ?? normalizeServerBaseUrl(defaultServerBaseUrl),
+    serverBaseUrl: normalizeServerBaseUrl(defaultServerBaseUrl),
     isLoggedIn: Boolean(sessionToken && settings.account),
     account: settings.account ?? null,
     projects,
@@ -165,16 +164,6 @@ export async function saveAnthropicApiKey(
 export async function clearAnthropicApiKey(defaultServerBaseUrl: string): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
   delete settings.anthropicApiKey
-  await writeStoredSettings(settings)
-  return getDesktopSettings(defaultServerBaseUrl)
-}
-
-export async function saveServerBaseUrl(
-  serverBaseUrl: string,
-  defaultServerBaseUrl: string
-): Promise<DesktopSettingsResponse> {
-  const settings = await readStoredSettings()
-  settings.serverBaseUrl = normalizeServerBaseUrl(serverBaseUrl)
   await writeStoredSettings(settings)
   return getDesktopSettings(defaultServerBaseUrl)
 }
