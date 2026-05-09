@@ -1,7 +1,31 @@
 import { stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+
+const requireFromRunner = createRequire(import.meta.url);
+
+function resolveClaudeBinary(): string | undefined {
+  if (process.env.RELEVO_CLAUDE_PATH) {
+    return process.env.RELEVO_CLAUDE_PATH;
+  }
+  if (process.platform !== "linux") {
+    return undefined;
+  }
+  try {
+    const pkgJson = requireFromRunner.resolve(
+      "@anthropic-ai/claude-agent-sdk-linux-x64/package.json",
+    );
+    return resolve(pkgJson, "..", "claude");
+  } catch {
+    return undefined;
+  }
+}
+
+const CLAUDE_BINARY_OVERRIDE = resolveClaudeBinary();
+const CLAUDE_BINARY_OPTIONS: { pathToClaudeCodeExecutable?: string } =
+  CLAUDE_BINARY_OVERRIDE ? { pathToClaudeCodeExecutable: CLAUDE_BINARY_OVERRIDE } : {};
 
 import { runAgentNetwork, type UpdaterInput, type UserAgentInput } from "./agentGraph.js";
 import {
@@ -431,6 +455,7 @@ async function runRetrieverAgent(
   const sdkMessages = query({
     prompt: buildRetrieverPrompt(options.userId, request),
     options: {
+      ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
@@ -517,6 +542,7 @@ async function runUserAgentTurn(
   const sdkMessages = query({
     prompt: buildUserPrompt(input.prompt, input.preflightContext),
     options: {
+      ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
@@ -608,6 +634,7 @@ async function runUpdaterAgent(
   const sdkMessages = query({
     prompt: buildUpdaterPrompt(input, operations),
     options: {
+      ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
