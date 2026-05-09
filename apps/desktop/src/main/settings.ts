@@ -103,8 +103,12 @@ export async function readAnthropicApiKey(): Promise<string | null> {
     return null
   }
 
-  const apiKey = decryptSecret(settings.anthropicApiKey, 'Anthropic API key').trim()
-  return apiKey || null
+  try {
+    const apiKey = decryptSecret(settings.anthropicApiKey, 'Anthropic API key').trim()
+    return apiKey || null
+  } catch {
+    return null
+  }
 }
 
 export async function readRelevoSessionToken(): Promise<string | null> {
@@ -113,8 +117,12 @@ export async function readRelevoSessionToken(): Promise<string | null> {
     return null
   }
 
-  const sessionToken = decryptSecret(settings.relevoSessionToken, 'Relevo session').trim()
-  return sessionToken || null
+  try {
+    const sessionToken = decryptSecret(settings.relevoSessionToken, 'Relevo session').trim()
+    return sessionToken || null
+  } catch {
+    return null
+  }
 }
 
 function normalizeServerBaseUrl(serverBaseUrl: string): string {
