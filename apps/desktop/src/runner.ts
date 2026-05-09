@@ -48,12 +48,25 @@ export const UPDATER_ALLOWED_TOOLS = [
   "mcp__relevo-updater__commit_memory_update",
 ] as const;
 
+function previewText(text: string, maxLength = 120): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function logRunner(event: string, details: Record<string, unknown>): void {
+  console.info("[relevo.runner]", event, details);
+}
+
 async function resolveWorkingDirectory(cwd: string): Promise<string> {
   const resolved = resolve(cwd);
   const stats = await stat(resolved);
   if (!stats.isDirectory()) {
     throw new Error(`cwd must be a directory: ${resolved}`);
   }
+  logRunner("cwd:resolved", { cwd: resolved });
   return resolved;
 }
 
@@ -373,6 +386,19 @@ function buildMemoryOperations(userId: string, input: UpdaterInput): MemoryUpdat
     });
   }
 
+  logRunner("updater:operations-built", {
+    userId,
+    chatSessionId: input.chatSessionId,
+    checkpointIndex: input.checkpointIndex,
+    operationCount: operations.length,
+    operations: operations.map((operation) => ({
+      authorAgentId: operation.author_agent_id,
+      importance: operation.importance,
+      documentKey: operation.document_key,
+      contextExchangeId: operation.context_exchange_id,
+      metadataKeys: Object.keys(operation.metadata ?? {}),
+    })),
+  });
   return operations;
 }
 
@@ -382,6 +408,15 @@ async function runRetrieverAgent(
   anthropicApiKey: string,
   request: RetrieverRequest,
 ): Promise<ContextPacket> {
+  logRunner("retriever-agent:start", {
+    userId: options.userId,
+    projectId: options.projectId,
+    scope: request.target_agent_id ? "agent" : "global",
+    targetAgentId: request.target_agent_id,
+    queryPreview: previewText(request.query),
+    reason: request.reason,
+    model: options.model,
+  });
   const observedPackets: ContextPacket[] = [];
   const retrieverServer = createRetrieverMcpServer(
     {
@@ -418,7 +453,7 @@ async function runRetrieverAgent(
     }
   }
 
-  return packetFromText(finalText) ?? observedPackets.at(-1) ?? {
+  const packet = packetFromText(finalText) ?? observedPackets.at(-1) ?? {
     query: request.query,
     scope: request.target_agent_id ? "agent" : "global",
     target_agent_id: request.target_agent_id,
@@ -426,6 +461,17 @@ async function runRetrieverAgent(
     insufficient_context: true,
     summary: "The retriever did not return context.",
   };
+  logRunner("retriever-agent:done", {
+    userId: options.userId,
+    scope: packet.scope,
+    targetAgentId: packet.target_agent_id,
+    resultCount: packet.results.length,
+    insufficientContext: packet.insufficient_context,
+    contextExchangeId: packet.context_exchange_id,
+    observedPacketCount: observedPackets.length,
+    finalTextLength: finalText.length,
+  });
+  return packet;
 }
 
 async function runUserAgentTurn(
@@ -436,10 +482,35 @@ async function runUserAgentTurn(
   retrieve: (request: RetrieverRequest) => Promise<ContextPacket>,
   input: UserAgentInput,
 ): Promise<{ events: LocalAssistantEvent[]; finalAnswer: string; contextPackets: ContextPacket[] }> {
+  logRunner("user-agent:start", {
+    userId: options.userId,
+    projectId: options.projectId,
+    promptPreview: previewText(input.prompt),
+    preflightScope: input.preflightContext?.scope,
+    preflightResults: input.preflightContext?.results.length ?? 0,
+    conversationMessageCount: input.conversationMessages.length,
+    model: options.model,
+    maxTurns: options.maxTurns,
+  });
   const contextPackets: ContextPacket[] = [];
   const userRetrieverServer = createUserRetrieverMcpServer(async (request) => {
+    logRunner("user-agent:ask-retriever:start", {
+      userId: options.userId,
+      scope: request.target_agent_id ? "agent" : "global",
+      targetAgentId: request.target_agent_id,
+      queryPreview: previewText(request.query),
+      reason: request.reason,
+    });
     const packet = await retrieve(request);
     contextPackets.push(packet);
+    logRunner("user-agent:ask-retriever:done", {
+      userId: options.userId,
+      scope: packet.scope,
+      targetAgentId: packet.target_agent_id,
+      resultCount: packet.results.length,
+      insufficientContext: packet.insufficient_context,
+      contextExchangeId: packet.context_exchange_id,
+    });
     return packet;
   });
 
@@ -487,10 +558,22 @@ async function runUserAgentTurn(
       if (event.type === "result") {
         finalAnswer = event.result;
       }
+      logRunner("user-agent:event", {
+        userId: options.userId,
+        eventType: event.type,
+        toolName: "toolName" in event ? event.toolName : undefined,
+        toolUseId: "toolUseId" in event ? event.toolUseId : undefined,
+      });
       events.push(event);
     }
   }
 
+  logRunner("user-agent:done", {
+    userId: options.userId,
+    eventCount: events.length,
+    finalAnswerLength: finalAnswer.length,
+    contextPacketCount: contextPackets.length,
+  });
   return { events, finalAnswer, contextPackets };
 }
 
@@ -500,6 +583,16 @@ async function runUpdaterAgent(
   anthropicApiKey: string,
   input: UpdaterInput,
 ): Promise<MemoryUpdateResponse> {
+  logRunner("updater-agent:start", {
+    userId: options.userId,
+    projectId: options.projectId,
+    chatSessionId: input.chatSessionId,
+    checkpointIndex: input.checkpointIndex,
+    finalizedMessageCount: input.finalizedMessages.length,
+    contextPacketCount: input.contextPackets.length,
+    finalAnswerLength: input.finalAnswer.length,
+    model: options.model,
+  });
   const operations = buildMemoryOperations(options.userId, input);
   const observedCommits: MemoryUpdateResponse[] = [];
   const updaterServer = createUpdaterMcpServer(
@@ -535,14 +628,28 @@ async function runUpdaterAgent(
   }
 
   if (observedCommits.length > 0) {
-    return observedCommits.at(-1)!;
+    const response = observedCommits.at(-1)!;
+    logRunner("updater-agent:done", {
+      userId: options.userId,
+      source: "mcp",
+      observedCommitCount: observedCommits.length,
+      eventIds: response.event_ids,
+      documentIds: response.document_ids,
+    });
+    return response;
   }
 
-  return commitMemoryUpdate(
+  logRunner("updater-agent:fallback-commit:start", {
+    userId: options.userId,
+    projectId: options.projectId,
+    operationCount: operations.length,
+  });
+  const response = await commitMemoryUpdate(
     {
       serverUrl: options.serverUrl,
       userId: options.userId,
       authToken: options.authToken,
+      projectId: options.projectId,
     },
     {
       chat_session_id: input.chatSessionId,
@@ -550,6 +657,13 @@ async function runUpdaterAgent(
       operations,
     },
   );
+  logRunner("updater-agent:done", {
+    userId: options.userId,
+    source: "fallback",
+    eventIds: response.event_ids,
+    documentIds: response.document_ids,
+  });
+  return response;
 }
 
 function initialConversation(options: RunLocalAssistantOptions): ConversationMessage[] {
@@ -559,6 +673,16 @@ function initialConversation(options: RunLocalAssistantOptions): ConversationMes
 export async function* runLocalAssistant(
   options: RunLocalAssistantOptions,
 ): AsyncGenerator<LocalAssistantEvent> {
+  logRunner("local-assistant:start", {
+    userId: options.userId,
+    projectId: options.projectId,
+    serverUrl: options.serverUrl,
+    hasAuthToken: Boolean(options.authToken),
+    promptPreview: previewText(options.prompt),
+    model: options.model,
+    maxTurns: options.maxTurns,
+    providedConversationMessages: options.conversationMessages?.length ?? 0,
+  });
   const cwd = await resolveWorkingDirectory(options.cwd);
   const anthropicApiKey = options.anthropicApiKey?.trim();
   if (!anthropicApiKey) {
@@ -567,11 +691,18 @@ export async function* runLocalAssistant(
 
   const systemPrompt = await buildLocalAssistantSystemPrompt(options.bootstrap);
   const chatSessionId = options.chatSessionId ?? `session-${options.userId}`;
+  logRunner("local-assistant:ready", {
+    userId: options.userId,
+    projectId: options.projectId,
+    chatSessionId,
+    cwd,
+    systemPromptLength: systemPrompt.length,
+  });
 
   const retrieve = (request: RetrieverRequest): Promise<ContextPacket> =>
     runRetrieverAgent(options, cwd, anthropicApiKey, request);
 
-  yield* runAgentNetwork(
+  const stream = runAgentNetwork(
     {
       prompt: options.prompt,
       chatSessionId,
@@ -584,4 +715,18 @@ export async function* runLocalAssistant(
       runUpdater: (input) => runUpdaterAgent(options, cwd, anthropicApiKey, input),
     },
   );
+  for await (const event of stream) {
+    logRunner("local-assistant:event", {
+      userId: options.userId,
+      chatSessionId,
+      eventType: event.type,
+      toolName: "toolName" in event ? event.toolName : undefined,
+      status: "status" in event ? event.status : undefined,
+    });
+    yield event;
+  }
+  logRunner("local-assistant:done", {
+    userId: options.userId,
+    chatSessionId,
+  });
 }

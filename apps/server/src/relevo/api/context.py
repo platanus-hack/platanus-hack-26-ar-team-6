@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any, Iterator
 from uuid import UUID
 
@@ -17,6 +18,32 @@ from relevo.db import (
     retrieve_agent_memory,
     retrieve_global_memory,
 )
+
+logger = logging.getLogger("relevo.api.context")
+
+
+def _preview(text: str, max_length: int = 160) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return f"{normalized[: max_length - 1]}..."
+
+
+def _metadata_keys(metadata: dict[str, Any]) -> list[str]:
+    return sorted(metadata.keys())
+
+
+def _operation_summary(operation: "MemoryUpdateOperation") -> dict[str, Any]:
+    return {
+        "author_agent_id": str(operation.author_agent_id),
+        "importance": operation.importance,
+        "document_key": operation.document_key,
+        "has_canonical_content": bool(operation.canonical_content),
+        "context_exchange_id": str(operation.context_exchange_id)
+        if operation.context_exchange_id
+        else None,
+        "metadata_keys": _metadata_keys(operation.metadata),
+    }
 
 
 class ContextEntryOut(BaseModel):
@@ -147,12 +174,35 @@ def bootstrap(
     user_id: Annotated[UUID | None, Query()] = None,
     project_id: Annotated[UUID | None, Query()] = None,
 ) -> dict[str, Any]:
+    logger.info(
+        "bootstrap:start auth_kind=%s requested_user_id=%s requested_project_id=%s",
+        current_auth.get("kind"),
+        user_id,
+        project_id,
+    )
     current_user = require_project_membership(conn, current_auth, project_id)
     resolved_user_id = _ensure_user_matches_auth(user_id, current_user)
     try:
-        return get_bootstrap(conn, resolved_user_id)
+        response = get_bootstrap(conn, resolved_user_id)
     except ValueError as exc:
+        logger.warning(
+            "bootstrap:not_found auth_kind=%s resolved_user_id=%s project_id=%s error=%s",
+            current_auth.get("kind"),
+            resolved_user_id,
+            current_user.get("project_id"),
+            exc,
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    logger.info(
+        "bootstrap:success auth_kind=%s user_id=%s project_id=%s roster_count=%s recent_count=%s project_context_count=%s",
+        current_auth.get("kind"),
+        response["user"]["id"],
+        response["project"]["id"],
+        len(response["roster"]),
+        len(response["recent_entries"]),
+        len(response["project_context"]),
+    )
+    return response
 
 
 @router.post("/agent-ctx", response_model=AgentContextResponse)
@@ -165,6 +215,16 @@ def agent_ctx(
 ) -> AgentContextResponse:
     current_user = require_project_membership(conn, current_auth, x_project_id)
     project_id = current_user["project_id"]
+    logger.info(
+        "agent_ctx:start auth_kind=%s asking_agent_id=%s project_id=%s target_agent_id=%s limit=%s query=%r metadata_keys=%s",
+        current_auth.get("kind"),
+        current_user["id"],
+        project_id,
+        body.agent_id,
+        body.limit,
+        _preview(body.query),
+        _metadata_keys(body.metadata),
+    )
     _ensure_agent_in_project(conn, body.agent_id, project_id)
     results = retrieve_agent_memory(
         conn,
@@ -183,11 +243,21 @@ def agent_ctx(
         results=results,
         metadata=body.metadata,
     )
-    return AgentContextResponse(
+    response = AgentContextResponse(
         results=[MemoryResultOut(**row) for row in results],
         context_exchange_id=exchange_id,
         insufficient_context=len(results) == 0,
     )
+    logger.info(
+        "agent_ctx:success asking_agent_id=%s project_id=%s target_agent_id=%s exchange_id=%s result_count=%s insufficient_context=%s",
+        current_user["id"],
+        project_id,
+        body.agent_id,
+        exchange_id,
+        len(results),
+        response.insufficient_context,
+    )
+    return response
 
 
 @router.post("/global-ctx", response_model=GlobalContextResponse)
@@ -200,6 +270,15 @@ def global_ctx(
 ) -> GlobalContextResponse:
     current_user = require_project_membership(conn, current_auth, x_project_id)
     project_id = current_user["project_id"]
+    logger.info(
+        "global_ctx:start auth_kind=%s asking_agent_id=%s project_id=%s limit=%s query=%r metadata_keys=%s",
+        current_auth.get("kind"),
+        current_user["id"],
+        project_id,
+        body.limit,
+        _preview(body.query),
+        _metadata_keys(body.metadata),
+    )
     results = retrieve_global_memory(
         conn,
         project_id,
@@ -216,11 +295,20 @@ def global_ctx(
         results=results,
         metadata=body.metadata,
     )
-    return GlobalContextResponse(
+    response = GlobalContextResponse(
         results=[MemoryResultOut(**row) for row in results],
         context_exchange_id=exchange_id,
         insufficient_context=len(results) == 0,
     )
+    logger.info(
+        "global_ctx:success asking_agent_id=%s project_id=%s exchange_id=%s result_count=%s insufficient_context=%s",
+        current_user["id"],
+        project_id,
+        exchange_id,
+        len(results),
+        response.insufficient_context,
+    )
+    return response
 
 
 @router.post("/memory-updates", response_model=CommitMemoryUpdateResponse)
@@ -233,6 +321,16 @@ def memory_updates(
 ) -> CommitMemoryUpdateResponse:
     current_user = require_project_membership(conn, current_auth, x_project_id)
     project_id = current_user["project_id"]
+    logger.info(
+        "memory_updates:start auth_kind=%s asking_agent_id=%s project_id=%s chat_session_id=%s checkpoint_index=%s operation_count=%s operations=%s",
+        current_auth.get("kind"),
+        current_user["id"],
+        project_id,
+        body.chat_session_id,
+        body.checkpoint_index,
+        len(body.operations),
+        [_operation_summary(operation) for operation in body.operations],
+    )
     operations = [
         {
             **operation.model_dump(),
@@ -248,5 +346,25 @@ def memory_updates(
             operations=operations,
         )
     except ValueError as exc:
+        logger.warning(
+            "memory_updates:invalid asking_agent_id=%s project_id=%s chat_session_id=%s checkpoint_index=%s error=%s",
+            current_user["id"],
+            project_id,
+            body.chat_session_id,
+            body.checkpoint_index,
+            exc,
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return CommitMemoryUpdateResponse(**result)
+    response = CommitMemoryUpdateResponse(**result)
+    logger.info(
+        "memory_updates:success asking_agent_id=%s project_id=%s chat_session_id=%s checkpoint_index=%s event_count=%s document_count=%s event_ids=%s document_ids=%s",
+        current_user["id"],
+        project_id,
+        body.chat_session_id,
+        body.checkpoint_index,
+        len(response.event_ids),
+        len(response.document_ids),
+        response.event_ids,
+        response.document_ids,
+    )
+    return response

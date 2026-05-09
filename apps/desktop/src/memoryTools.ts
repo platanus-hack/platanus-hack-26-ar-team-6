@@ -76,6 +76,27 @@ const commitMemoryUpdateSchema = z.object({
   operations: z.array(memoryUpdateOperationSchema).min(1),
 });
 
+function previewText(text: string, maxLength = 120): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function logMemoryTool(event: string, details: Record<string, unknown>): void {
+  console.info("[relevo.memory-tools]", event, details);
+}
+
+function clientSummary(options: MemoryClientOptions): Record<string, unknown> {
+  return {
+    serverUrl: options.serverUrl,
+    userId: options.userId,
+    projectId: options.projectId,
+    hasAuthToken: Boolean(options.authToken),
+  };
+}
+
 function endpointUrl(serverUrl: string, path: string): string {
   return new URL(path, serverUrl).toString();
 }
@@ -101,9 +122,17 @@ async function postJson<T>(
   path: string,
   body: unknown,
   errorLabel: string,
+  summary: Record<string, unknown>,
 ): Promise<T> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const response = await fetchImpl(endpointUrl(options.serverUrl, path), {
+  const url = endpointUrl(options.serverUrl, path);
+  logMemoryTool("http:request", {
+    ...clientSummary(options),
+    path,
+    url,
+    summary,
+  });
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: headersFor(options),
     body: JSON.stringify(body),
@@ -111,9 +140,22 @@ async function postJson<T>(
 
   const responseText = await response.text();
   if (!response.ok) {
+    logMemoryTool("http:failed", {
+      ...clientSummary(options),
+      path,
+      status: response.status,
+      statusText: response.statusText,
+      responsePreview: previewText(responseText, 240),
+    });
     throw new Error(`${errorLabel} failed: ${response.status} ${response.statusText}: ${responseText}`);
   }
 
+  logMemoryTool("http:success", {
+    ...clientSummary(options),
+    path,
+    status: response.status,
+    responseBytes: responseText.length,
+  });
   return (responseText ? JSON.parse(responseText) : {}) as T;
 }
 
@@ -177,12 +219,25 @@ export async function callAgentContext(
   input: AgentContextInput,
 ): Promise<ContextPacket> {
   const parsedInput = agentContextSchema.parse(input);
-  const raw = await postJson<unknown>(options, "/agent-ctx", parsedInput, "agent_ctx");
-  return normalizePacket(
+  const raw = await postJson<unknown>(options, "/agent-ctx", parsedInput, "agent_ctx", {
+    agentId: parsedInput.agent_id,
+    queryPreview: previewText(parsedInput.query),
+    limit: parsedInput.limit,
+    metadataKeys: Object.keys(parsedInput.metadata ?? {}),
+  });
+  const packet = normalizePacket(
     raw,
     { query: parsedInput.query, target_agent_id: parsedInput.agent_id },
     "agent",
   );
+  logMemoryTool("agent_ctx:packet", {
+    ...clientSummary(options),
+    targetAgentId: packet.target_agent_id,
+    resultCount: packet.results.length,
+    insufficientContext: packet.insufficient_context,
+    contextExchangeId: packet.context_exchange_id,
+  });
+  return packet;
 }
 
 export async function callGlobalContext(
@@ -190,8 +245,19 @@ export async function callGlobalContext(
   input: GlobalContextInput,
 ): Promise<ContextPacket> {
   const parsedInput = globalContextSchema.parse(input);
-  const raw = await postJson<unknown>(options, "/global-ctx", parsedInput, "global_ctx");
-  return normalizePacket(raw, { query: parsedInput.query }, "global");
+  const raw = await postJson<unknown>(options, "/global-ctx", parsedInput, "global_ctx", {
+    queryPreview: previewText(parsedInput.query),
+    limit: parsedInput.limit,
+    metadataKeys: Object.keys(parsedInput.metadata ?? {}),
+  });
+  const packet = normalizePacket(raw, { query: parsedInput.query }, "global");
+  logMemoryTool("global_ctx:packet", {
+    ...clientSummary(options),
+    resultCount: packet.results.length,
+    insufficientContext: packet.insufficient_context,
+    contextExchangeId: packet.context_exchange_id,
+  });
+  return packet;
 }
 
 export async function commitMemoryUpdate(
@@ -204,9 +270,22 @@ export async function commitMemoryUpdate(
     "/memory-updates",
     parsedInput,
     "commit_memory_update",
+    {
+      chatSessionId: parsedInput.chat_session_id,
+      checkpointIndex: parsedInput.checkpoint_index,
+      operationCount: parsedInput.operations.length,
+      operations: parsedInput.operations.map((operation) => ({
+        authorAgentId: operation.author_agent_id,
+        importance: operation.importance,
+        documentKey: operation.document_key,
+        hasCanonicalContent: Boolean(operation.canonical_content),
+        contextExchangeId: operation.context_exchange_id,
+        metadataKeys: Object.keys(operation.metadata ?? {}),
+      })),
+    },
   );
   const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  return {
+  const response = {
     event_ids: Array.isArray(data.event_ids)
       ? data.event_ids.filter((item): item is string => typeof item === "string")
       : [],
@@ -214,6 +293,12 @@ export async function commitMemoryUpdate(
       ? data.document_ids.filter((item): item is string => typeof item === "string")
       : [],
   };
+  logMemoryTool("commit_memory_update:response", {
+    ...clientSummary(options),
+    eventIds: response.event_ids,
+    documentIds: response.document_ids,
+  });
+  return response;
 }
 
 export function createUserRetrieverMcpServer(
@@ -233,7 +318,21 @@ export function createUserRetrieverMcpServer(
           reason: z.string().optional(),
         },
         async (args) => {
-          const result = await askRetriever(retrieverRequestSchema.parse(args));
+          const request = retrieverRequestSchema.parse(args);
+          logMemoryTool("ask_retriever:called", {
+            scope: request.target_agent_id ? "agent" : "global",
+            targetAgentId: request.target_agent_id,
+            queryPreview: previewText(request.query),
+            reason: request.reason,
+          });
+          const result = await askRetriever(request);
+          logMemoryTool("ask_retriever:result", {
+            scope: result.scope,
+            targetAgentId: result.target_agent_id,
+            resultCount: result.results.length,
+            insufficientContext: result.insufficient_context,
+            contextExchangeId: result.context_exchange_id,
+          });
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
           };
@@ -263,7 +362,13 @@ export function createRetrieverMcpServer(
           metadata: z.record(z.string(), z.unknown()).optional(),
         },
         async (args) => {
-          const packet = await callAgentContext(options, agentContextSchema.parse(args));
+          const parsedArgs = agentContextSchema.parse(args);
+          logMemoryTool("mcp.agent_ctx:called", {
+            ...clientSummary(options),
+            agentId: parsedArgs.agent_id,
+            queryPreview: previewText(parsedArgs.query),
+          });
+          const packet = await callAgentContext(options, parsedArgs);
           onPacket?.(packet);
           return {
             content: [{ type: "text", text: JSON.stringify(packet) }],
@@ -280,7 +385,12 @@ export function createRetrieverMcpServer(
           metadata: z.record(z.string(), z.unknown()).optional(),
         },
         async (args) => {
-          const packet = await callGlobalContext(options, globalContextSchema.parse(args));
+          const parsedArgs = globalContextSchema.parse(args);
+          logMemoryTool("mcp.global_ctx:called", {
+            ...clientSummary(options),
+            queryPreview: previewText(parsedArgs.query),
+          });
+          const packet = await callGlobalContext(options, parsedArgs);
           onPacket?.(packet);
           return {
             content: [{ type: "text", text: JSON.stringify(packet) }],
@@ -310,7 +420,14 @@ export function createUpdaterMcpServer(
           operations: z.array(memoryUpdateOperationSchema).min(1),
         },
         async (args) => {
-          const response = await commitMemoryUpdate(options, commitMemoryUpdateSchema.parse(args));
+          const parsedArgs = commitMemoryUpdateSchema.parse(args);
+          logMemoryTool("mcp.commit_memory_update:called", {
+            ...clientSummary(options),
+            chatSessionId: parsedArgs.chat_session_id,
+            checkpointIndex: parsedArgs.checkpoint_index,
+            operationCount: parsedArgs.operations.length,
+          });
+          const response = await commitMemoryUpdate(options, parsedArgs);
           onCommit?.(response);
           return {
             content: [{ type: "text", text: JSON.stringify(response) }],
