@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { parseMentions } from '../../../mentionParser.js'
 import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
+import MarkdownMessage from '../components/MarkdownMessage'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
 
@@ -60,32 +61,8 @@ function toRunStatusMessage(error: unknown): string {
   return `runner error: ${message}`
 }
 
-function renderInlineMarkdown(text: string): React.ReactNode[] {
-  return text
-    .split(/(\*\*.*?\*\*)/g)
-    .filter(Boolean)
-    .map((part, index) => {
-      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-        return <strong key={index}>{part.slice(2, -2)}</strong>
-      }
-
-      return <span key={index}>{part}</span>
-    })
-}
-
-function renderMessageText(text: string): React.ReactNode {
-  const paragraphs = text.split(/\n{2,}/)
-
-  return paragraphs.map((paragraph, paragraphIndex) => (
-    <p className="chat-msg__paragraph" key={paragraphIndex}>
-      {paragraph.split('\n').map((line, lineIndex) => (
-        <span key={lineIndex}>
-          {lineIndex > 0 && <br />}
-          {renderInlineMarkdown(line)}
-        </span>
-      ))}
-    </p>
-  ))
+function renderUserText(text: string): React.ReactNode {
+  return <span style={{ whiteSpace: 'pre-wrap' }}>{text}</span>
 }
 
 function ChatView({
@@ -371,7 +348,12 @@ function ChatView({
             <div className="chat-msg__header">
               <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
             </div>
-            <div className="chat-msg__text">{renderMessageText(message.text)}</div>
+            <div className="chat-msg__text">
+              {message.role === 'assistant'
+                ? <MarkdownMessage text={message.text} />
+                : renderUserText(message.text)
+              }
+            </div>
           </div>
         ))}
         <div ref={bottomRef} />
