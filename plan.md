@@ -1,445 +1,482 @@
-# Relevo Hackathon Plan - Claude Agent Project Dashboard
+# Hackathon Plan — Cross-User Context Workflow
 
-## 0. Product Thesis
+> Read [goal.md](goal.md) first. This plan is the implementation strategy for
+> the system described there. When this document and goal.md disagree,
+> goal.md wins and this document is the bug.
 
-Relevo gives Claude-powered local coding agents shared project memory,
-coordination, and teammate context through a project dashboard.
+## 0. What we are building
 
-For the hackathon, Relevo is not trying to support every coding agent or every
-terminal workflow. The live path is:
+A workflow where a user's local AI assistant can transparently borrow context
+from teammates' AI assistants. Three components:
 
-```text
-Relevo UI
-  -> local Relevo server/runner
-  -> Claude Agent SDK
-  -> disposable local worktree
-  -> Relevo database, event stream, dashboard, and context retrieval
-```
+1. **Shared remote server** — owns per-user context databases, a shared
+   project context, and the ability to spin up an *agent built from a given
+   user's context* (live LLM + retrieval over that user's DB) on demand.
+2. **Local app (per user)** — a coding-agent runner with a chat-style prompt
+   surface and a project dashboard. Hosts the user's AI, intercepts its
+   missing-context tool calls, brokers them to the server, and persists the
+   final prompt+answer into the prompting user's DB.
+3. **The user's AI assistant** — runs inside the local app, has access to the
+   user's local codebase via a runner that points at a working directory, and
+   uses a `request_context` tool to reach across to teammates.
 
-The dashboard is for humans. It shows the project, people, tasks, claims,
-agent runs, memories, artifacts, and timeline. The Relevo tool layer is for the
-running agent. It lets the agent ask what the project knows, what another user
-or agent has been doing, and what work is safe to claim.
+Implementation note (carried over from prior plan, kept by design):
+the local app is structured as a UI + local runner, where the runner spins up
+the coding-agent runtime (e.g. Claude Agent SDK) with `cwd` set to a working
+directory. The user prompts via the app's chat surface; the runner is the
+mechanism, not a separate product.
 
-The core demo loop is:
+## 1. The end-to-end flow this plan must implement
 
-```text
-User 1 has a prior progress session stored in Relevo
-  -> User 2 opens the Relevo project dashboard
-  -> User 2 prompts their agent from Relevo UI
-  -> Relevo starts a local Claude Agent SDK run in a disposable worktree
-  -> the agent asks Relevo what User 1 did
-  -> Relevo returns cited project/User 1 context
-  -> the agent claims work, edits or proposes an artifact, and publishes progress
-  -> Relevo stores raw events, derived memory, tasks, claims, artifacts, and timeline
-  -> the dashboard can answer what happened, who owns what, and why
-```
+This is the same flow as goal.md §"The end-to-end flow", restated as the
+contract every version converges toward:
 
-Every version after V0 must advance that loop. If live Claude Agent SDK work
-stalls during the demo, Relevo must replay deterministic fallback events through
-the same run/event/artifact contract.
+1. **Session start.** App pulls (a) the user's own context summary and (b)
+   the shared project context (which includes the team roster) from the
+   server. Both are loaded into the AI's initial context.
+2. **User prompts.** User types in the app's chat UI.
+3. **AI self-assessment.** AI either answers, or decides it is missing
+   context.
+4. **Missing-context loop.** AI calls `request_context({target, question})`
+   where `target` is a user id, `"project"`, or both. The local app forwards
+   the request to the server; the server retrieves the relevant slice of the
+   target's stored context, spins up an agent grounded in that slice, gets an
+   answer, returns it. The app feeds the answer back to the user's AI as the
+   tool result.
+5. **Iterate.** AI may call `request_context` again if the answer surfaces a
+   new gap. Loop until the AI is satisfied.
+6. **Final answer.** AI produces its answer.
+7. **Persist.** App displays the answer, then writes the prompt + final
+   answer into the prompting user's DB.
+8. **Closure invariant.** Every cross-user `request_context` call — the
+   question User1's AI asked, and the answer the queried user's agent gave —
+   is also written into the *queried* user's DB. This is non-negotiable: it
+   is what makes context compound across the team.
 
-## 1. Hackathon Scope
+## 2. Hackathon scope
 
 In scope:
 
-- Relevo UI as the project dashboard and prompt surface.
-- A local Relevo server/runner that can launch Claude Agent SDK.
-- One seeded project with multiple users and personal worker agents.
-- Seeded User 1 prior context from an earlier progress session.
-- One live User 2 Claude Agent SDK run in a disposable worktree.
-- Human project-context queries from the dashboard.
-- Agent self-query through Relevo tools during a run.
-- Durable tasks, claims, raw run events, artifacts, memories, and timeline.
+- Shared remote server (single deployed instance, e.g. Railway) that all
+  users' local apps connect to. Required — the cross-user mechanism cannot
+  exist on a single laptop.
+- Per-user context DBs and one shared project context, on the server.
+- Server-side ability to spin up an agent built from a target user's context.
+- Local app (UI + runner) on at least two laptops/sessions during the demo.
+- The user's AI assistant has access to the user's real local codebase (the
+  runner's `cwd` is the user's working repo). Editing the user's repo is the
+  point — the AI is a real coding assistant.
+- `request_context` tool exposed to the AI.
+- Bootstrap context fetch at session start.
+- Persisting prompt + final answer to the prompting user's DB.
+- Persisting cross-user Q&A into the queried user's DB.
+- Multi-hop missing-context loop (AI can call the tool more than once per
+  turn).
 
 Out of scope:
 
-- Passive ingestion from arbitrary local coding agents.
-- Claude Code terminal hooks as the primary demo path.
-- Codex/Cursor/GitHub Copilot integration.
-- Real multi-laptop sync as a required demo dependency.
-- Editing the actual Relevo repo during the live agent demo.
+- Wrapping arbitrary third-party coding agents (Cursor, Copilot, etc.).
+  The local app *is* the user's coding agent.
+- Generic terminal-hook integrations.
+- A polished safety layer around codebase edits beyond what the underlying
+  agent runtime already provides.
+- Real-time UI sync between teammates' dashboards (the cross-user mechanism
+  is the AI loop, not a live shared UI).
 
-Use a disposable demo repo or disposable git worktree for live code changes.
-The main Relevo checkout must not be the agent's live-edit target.
+## 3. Storage shape
 
-## 2. Product Model
+**TO BE DETERMINED IN V1.** goal.md leaves this open: graph DB, Postgres
++ pgvector, hybrid, or other. Leaning toward a graph for graph-RAG, but
+the plan must not depend on the choice. V1 picks one and writes it down;
+later versions inherit it.
 
-Important concept: a `project` is the dashboard tab and collaboration boundary.
-If the database uses `workspace` internally, treat one workspace row as one
-project for the hackathon. Do not add a separate workspace-above-project model.
+Whatever backend is chosen, it must support:
 
-Core objects:
+- per-user context partitions (one logical DB or namespace per user);
+- a shared project-context partition;
+- retrieval that takes `{target, question}` and returns a relevant slice;
+- append-only writes for prompt/answer entries and cross-user Q&A entries.
 
-| Object | Purpose |
-|---|---|
-| `person` | Human teammate using the dashboard. |
-| `worker_agent` | The personal coding agent identity associated with one person. |
-| `project` | One tracked software project. |
-| `project_member` | A person plus their worker agent inside one project. |
-| `project_rule` | Project convention or safety rule the agent must follow. |
-| `task` | Durable unit of project work with status, owner, and acceptance criteria. |
-| `work_claim` | Temporary or durable claim on a task, file, module, or concern. |
-| `agent_run` | One seeded, fallback, or live Claude Agent SDK work session. |
-| `agent_event` | Raw ordered event from a run: prompt, message, tool call, file change, command, result, or error. |
-| `agent_message` | Human-visible message from agent to person, agent to agent, or agent to project. |
-| `artifact` | Work product from a run: patch, diff, summary, test result, review, or status report. |
-| `memory_entry` | Derived durable knowledge from seeded context, run summaries, decisions, progress, or blockers. |
-| `source_ref` | Citation pointer back to a raw event, artifact, memory, task, or timeline event. |
-| `memory_edge` | Lightweight relationship between memory, tasks, files, agents, and artifacts. |
-| `timeline_event` | Chronological project history derived from tasks, claims, messages, artifacts, memories, and approvals. |
+The current codebase already provisions Postgres + pgvector via
+`infra/docker-compose.yml` and a single migration `migrations/0001_init.sql`.
+That migration was written for the old plan and contains tables we will
+not use (see V1 below). pgvector itself is a strong default for the new
+plan; the V1 decision is whether to keep it as the sole backend or layer
+something graph-shaped on top.
 
-`agent_event` is the raw audit log. `memory_entry` is the queryable project
-knowledge extracted from that log. Do not rely on raw transcript stuffing for
-normal context bringup.
+## 4. Server responsibilities
 
-## 3. Memory And Context
+The shared remote server owns:
 
-Canonical memory is append-only for the hackathon. Corrections or changed facts
-create new entries that supersede old entries. Raw events are also append-only.
+- **Storage.** Per-user context DBs and the shared project context.
+- **Retrieval.** Given `{target, question}`, return the relevant slice of
+  the target's stored context. **Algorithm TO BE DETERMINED IN V1.**
+- **On-demand agent.** Given a retrieved slice, spin up an LLM agent
+  grounded in that slice and answer the question. **Runtime/model choice
+  TO BE DETERMINED IN V2.** (Could be a stateless LLM call with the slice
+  inlined; could be a sub-agent process; the contract is what matters.)
+- **Bootstrap context.** Endpoint that returns `(user_summary,
+  project_context)` for a given user, including the team roster.
+- **Write ingest.** Endpoints that accept (a) prompt+answer entries from a
+  prompting user's app and (b) cross-user Q&A entries from the queried
+  user's perspective.
 
-Memory layers:
+API surface: **TO BE DETERMINED IN V1.** Concrete endpoint paths, payload
+shapes, and auth scheme are designed in V1 alongside the storage choice.
+The capability list above is what the API must cover. The current FastAPI
+scaffold in `apps/server/` only exposes `/health` and is the starting
+point.
 
-- `worker_agent`: reusable preferences and habits for a person's agent.
-- `project`: shared project facts, decisions, rules, architecture, risks, and
-  current state.
-- `project_agent`: what one worker agent has learned or done inside one project.
+## 5. Local app responsibilities
 
-Suggested memory entry shape:
+The local app is a UI + runner. The UI is a chat surface (and a small
+project dashboard for visibility). The runner hosts the user's AI assistant
+with `cwd` set to the user's actual working repo.
 
-```json
-{
-  "id": "uuid",
-  "layer": "worker_agent|project|project_agent",
-  "project_id": "uuid|null",
-  "agent_id": "uuid|null",
-  "person_id": "uuid|null",
-  "task_id": "uuid|null",
-  "run_id": "uuid|null",
-  "content": "string",
-  "kind": "fact|decision|rule|progress|blocker|handoff|artifact_summary|session_summary",
-  "tags": ["api-key", "settings", "security"],
-  "subjects": ["files/settings", "api-key-storage"],
-  "source_refs": [
-    {"type": "agent_event|artifact|task|timeline_event|manual_seed", "id": "uuid"}
-  ],
-  "supersedes": ["memory_id"],
-  "created_at": "timestamp"
-}
-```
+Responsibilities:
 
-Context bringup:
+- **Session start.** Hit the server's bootstrap endpoint, load
+  `(user_summary, project_context)` into the AI's initial context. The
+  project context must include the team roster so the AI knows who exists
+  and roughly what each teammate owns.
+- **Conversation loop.** Run the AI against user prompts. Stream output back
+  to the chat UI.
+- **Tool brokering.** When the AI calls `request_context({target,
+  question})`, intercept the call, forward to the server, return the answer
+  as the tool result. Allow multiple calls per turn (multi-hop).
+- **Codebase access.** The runner's `cwd` is the user's real repo. The AI
+  has the runtime's normal file/edit/command tools.
+- **Persistence.** After the AI's final answer:
+  1. display it,
+  2. POST the prompt+final-answer to the server for the prompting user's DB.
+- **Roster/dashboard view (optional, for demo legibility).** A small panel
+  showing which teammates exist, recent context entries, and the running
+  conversation. Implementation **TO BE DETERMINED IN V2**.
 
-1. Start from the current project, member, worker agent, task, active claims,
-   prompt, and recent run events.
-2. Retrieve relevant project, worker-agent, and project-agent memory.
-3. Include current project rules and active claims before general memory.
-4. Expand one hop through `memory_edge` for related files, tasks, decisions,
-   artifacts, and superseding facts.
-5. Return compact cited context to the human query or to the running agent tool.
+Local-runner runtime choice: **TO BE DETERMINED IN V1.** Likely Claude
+Agent SDK because it supports `cwd`, file/edit/command tools, streaming,
+and custom tool registration — but the plan does not require that
+specific SDK. Note that `apps/desktop/` currently contains only a
+`package.json` stub; the local app has to be built from zero.
 
-Both humans and agents can query context:
+## 6. The `request_context` tool
 
-- humans use the Relevo dashboard query UI;
-- the live Claude Agent SDK run uses Relevo agent tools during work.
-
-## 4. Runtime Architecture
-
-For the hackathon, run everything on one laptop unless the team chooses to add a
-remote deploy for health checks or backup data.
+The single mechanism by which the AI reaches across to teammates.
 
 ```text
-Desktop/Web UI
-  calls local FastAPI server over HTTP/SSE
-
-Local FastAPI server
-  owns API, persistence, retrieval, SSE, and run orchestration
-
-Runner module
-  starts Claude Agent SDK with cwd set to a disposable worktree
-  configures allowed file/command/edit tools
-  exposes Relevo context tools to the agent
-  streams SDK messages and tool activity into agent_event rows
-
-Disposable worktree
-  contains the small demo codebase the live agent can edit safely
+request_context(target, question)
+  target:   user_id | "project" | list of either
+  question: free-form natural language, written by the AI
+  returns:  { answer: string, source_user_ids: [user_id], citations?: [...] }
 ```
 
-The server can later be deployed, but the live coding runner needs local file
-access. For the hackathon, keep the runner local and make the UI talk to that
-local server.
+Behavior:
 
-Claude Agent SDK is the live runtime because it can run a coding agent from an
-app, use a working directory, call file/edit/command tools, stream output, and
-call custom/MCP-style tools exposed by Relevo.
+- The local app forwards the call to the server.
+- The server, for each target user, retrieves the relevant slice of that
+  user's context and runs the on-demand agent against it.
+- For `"project"` targets, the server uses the shared project context the
+  same way.
+- The server returns a single consolidated answer to the local app.
+- The local app returns it to the AI as the tool result.
+- The AI may call the tool again if a new gap appears.
 
-## 5. Agent Context Tools
+Closure invariant (see §7): every per-user invocation of this tool also
+results in a Q&A entry written to that target user's DB.
 
-Expose these tools to the live Claude Agent SDK run. They are product-level
-contracts; implementation can be direct Python functions or MCP tools,
-whichever is fastest.
+Tool implementation (direct SDK tool vs MCP vs custom): **TO BE
+DETERMINED IN V1.**
 
-```text
-query_project_context(question, task_id?)
-  -> cited context from project rules, tasks, memories, artifacts, claims, and timeline
+## 7. The closure invariant
 
-query_teammate_context(person_id?, agent_id?, question)
-  -> cited context about another user's prior work and run summaries
+> When a user's AI queries another user's agent, the queried user's DB must
+> be updated with the Q&A the queried user's agent produced.
 
-claim_work(task_id, files_or_areas, reason)
-  -> creates work_claim or returns claim_conflict
+This is the load-bearing property of the whole system. It is what makes the
+shared brain compound: every cross-user query enriches the queried user's
+context, not just the asking user's.
 
-publish_progress(task_id, summary, files_changed?, blockers?)
-  -> appends agent_message, memory_entry, and timeline_event
+Implementation details — when in the request lifecycle the write happens
+(synchronously inside the server's request handler vs queued), what exact
+shape the Q&A entry takes, how it is tagged so it surfaces in later
+retrievals — **TO BE DETERMINED IN V2.** The plan only requires that the
+write is durable and visible to subsequent retrievals on the queried user's
+context.
 
-append_memory(layer, content, tags?, subjects?, source_refs?)
-  -> appends worker_agent, project, or project_agent memory
+Persisting the prompting user's prompt+answer is the symmetric write and
+follows the same "TO BE DETERMINED IN V2" note for entry shape.
 
-report_blocker(task_id, reason, needs_context_from?)
-  -> marks the run/task blocked and emits timeline_event
-```
+## 8. Version plan
 
-Tool rules:
+The hackathon block is roughly 36 hours. Each version must keep the previous
+versions' smoke tests passing. If a lane is blocked, ship a deterministic
+stub that preserves the contract so the version can still converge.
 
-- Every context response must include source refs.
-- The agent must call `query_teammate_context` before making claims about User
-  1's prior work.
-- The agent must call `claim_work` before editing or producing an artifact for a
-  specific file/module/task.
-- The agent must call `publish_progress` or `report_blocker` before the run
-  finishes.
+> **About V0.** There is no V0 version block in this plan. V0 is the
+> existing codebase as of the writing of this plan: a FastAPI server stub
+> with only `/health`, a Postgres+pgvector migration written for the old
+> "Relevo" plan (workspaces, persons, agents, tasks, timeline events), an
+> empty desktop app stub, an old-plan-shaped agent prompt, a router-style
+> eval harness, and seed fixtures shaped for the old domain. V1 starts
+> from this state and reworks/scraps as needed.
 
-## 6. API Surface
+### V1 — Repivot the codebase, lock decisions, prove single-user loop (h0–h10)
 
-Use `/api/v1/projects` in product-facing contracts. Keep `/workspaces` only as
-an internal alias if needed for speed.
+V1 is destructive on purpose. The current codebase was built against the
+old plan. Some of it survives the pivot; some of it does not. V1 ends with
+the deferred V0 decisions locked, the old-plan dead weight removed, the
+salvageable pieces reworked, and a working single-user end-to-end loop:
+user prompts → AI answers (using bootstrap + local codebase) → prompt and
+final answer persist to the prompting user's DB. No cross-user calls yet.
 
-Human/dashboard endpoints:
+#### Decisions to lock in V1
 
-```text
-GET    /api/v1/health
+These were marked TBD elsewhere in this plan. V1 must pick and document:
 
-GET    /api/v1/projects
-GET    /api/v1/projects/{project_id}
-GET    /api/v1/projects/{project_id}/members
-GET    /api/v1/projects/{project_id}/rules
-GET    /api/v1/projects/{project_id}/tasks
-POST   /api/v1/projects/{project_id}/tasks
-PATCH  /api/v1/tasks/{task_id}
+1. **Storage backend.** Postgres + pgvector is already provisioned and is
+   a strong default. Decide: keep pgvector as the sole backend, or layer
+   a graph (e.g. graph table + edges in Postgres, or an external graph
+   DB) on top for graph-RAG.
+2. **Per-user partitioning scheme.** One schema per user, one table with
+   `user_id` discriminator, or per-user namespaces in a graph. Write it
+   down.
+3. **API surface.** Concrete endpoint paths and payload shapes for:
+   bootstrap, request_context, write prompt+answer, write cross-user Q&A.
+4. **Auth scheme.** Simple per-user header token is fine for the
+   hackathon; pick one and apply it everywhere.
+5. **Local-runner runtime.** Most likely Claude Agent SDK. Decide and
+   build the "hello world" runner.
+6. **Desktop app stack.** Electron, Tauri, browser-only — pick one. The
+   `apps/desktop/` tree is currently empty.
+7. **`request_context` tool implementation.** Direct SDK tool, MCP tool,
+   or custom transport. Pick based on whichever the chosen runtime makes
+   easiest.
+8. **On-demand agent runtime (preview).** V1 doesn't need the on-demand
+   agent yet, but lock the runtime/model choice now so V2 can build
+   immediately. Stateless inlined-context LLM call vs sub-agent process.
 
-GET    /api/v1/projects/{project_id}/timeline?cursor=&limit=
-GET    /api/v1/projects/{project_id}/context?query=&member_id=&task_id=
+#### What to scrap from the V0 codebase
 
-POST   /api/v1/projects/{project_id}/prompt
-       body: { member_id, prompt, target_task_id? }
-       starts a local Claude Agent SDK run when live mode is enabled
+These are old-plan artifacts that have no place in the new plan. Removing
+them is part of V1, not optional cleanup later.
 
-GET    /api/v1/runs/{run_id}
-GET    /api/v1/runs/{run_id}/events
-GET    /api/v1/runs/{run_id}/messages
-GET    /api/v1/runs/{run_id}/artifacts
+- **Old-plan tables in `migrations/0001_init.sql`.** Drop or replace the
+  `workspace`, `person`, `agent`, `task`, and `timeline_event` tables.
+  They encode the wrong product (project dashboard with task management
+  and multi-agent coordination). V1 either rewrites this migration in
+  place or adds a new migration that replaces the schema.
+- **`prompts/router_system.md` and `prompts/synthesis_system.md`** —
+  empty stubs for the old plan's router/synthesis flow. The new plan has
+  no router (the user's local AI decides when to call `request_context`)
+  and no synthesis step. Delete.
+- **`eval/router_cases.yaml` and `eval/_stub_router.py`** — the cases
+  evaluate a "which agent should handle this prompt" router that does
+  not exist anymore. Delete the cases. The harness skeleton survives
+  (see "rework").
+- **`seeds/tasks.yaml` and `seeds/timeline.yaml`** — empty files for
+  old-plan concepts. Delete.
 
-GET    /api/v1/memory/{memory_id}
-```
+#### What to rework
 
-Runner/internal endpoints:
+Bones are fine; semantics change.
 
-```text
-POST   /api/v1/runs/{run_id}/events
-POST   /api/v1/runs/{run_id}/messages
-POST   /api/v1/runs/{run_id}/artifacts
-POST   /api/v1/runs/{run_id}/summarize
+- **`apps/server/` (FastAPI scaffold).** Keep the FastAPI app and config
+  loader. Replace the (empty-besides-`/health`) router layer with the
+  V1 endpoints below. The `/health` endpoint stays.
+- **`migrations/` schema.** Keep pgvector enabled. Keep the *idea* of a
+  `memory_entry`-shaped table with content + embedding + metadata, but
+  drop its old-plan tier enum (`personal/pool/timeline`). Rebuild the
+  schema around: `user`, `project`, per-user context entries (with
+  vectors), shared project-context entries, and a Q&A ledger that
+  records cross-user calls (the closure invariant is enforced via this
+  ledger plus the per-user context table).
+- **`packages/contracts/agent_persona.json`.** Keep voice + domain tag
+  shape. Strip `agent_id` (no persistent agents). Adapt as the
+  per-user "context profile" — what the bootstrap endpoint returns when
+  asked for a user's summary, and what gets included in the project
+  roster.
+- **`prompts/agent_system.md`.** This is the most salvageable piece in
+  the repo. It already expects retrieval + citation, which is exactly
+  what the on-demand agent needs. Strip the `handoff` field and any
+  multi-agent-coordination language; rebind variables to the on-demand
+  agent's context (retrieved slice of a target user's DB). V1 only
+  needs to migrate it; V2 will exercise it.
+- **`eval/run_eval.py` and `eval/test_run_eval.py`.** Keep the harness
+  loop (load YAML cases → run → grade). Replace the cases (V1 ships at
+  least one trivial case proving the harness runs against the new
+  shape). The full V2/V3 cases come later.
+- **`seeds/__fixtures__/` personas and memories.** Keep the persona
+  profile shape (display name, domain tags, expertise summary). Re-seed
+  the memory content for the new plan: per-user context entries that
+  are *deliberately non-overlapping* between two seeded users so V2 can
+  force a cross-user query.
+- **`infra/docker-compose.yml`.** Keep as is.
+- **`apps/desktop/`.** Currently a stub. Build the V1 chat-surface UI
+  and runner here using the stack chosen above.
 
-POST   /api/v1/tasks/{task_id}/claims
-DELETE /api/v1/claims/{claim_id}
+#### V1 deliverables
 
-POST   /api/v1/projects/{project_id}/memory
-POST   /api/v1/projects/{project_id}/agents/{agent_id}/memory
-POST   /api/v1/worker-agents/{agent_id}/memory
-```
+- New migration applied: old-plan tables gone, new schema in place
+  (users, project, per-user context entries with embeddings, shared
+  project context, Q&A ledger).
+- Server endpoints implemented:
+  - `GET /health` (kept).
+  - Bootstrap endpoint returning `(user_summary, project_context)` with
+    roster.
+  - Write endpoint for prompt+answer entries on the prompting user's DB.
+  - Stub for `request_context` (returns a deterministic placeholder)
+    so V2 can swap in the real implementation without changing the
+    client. Required for closure-invariant testing later.
+- Local app (`apps/desktop/`) boots, has a chat surface, hits the
+  bootstrap endpoint on session start, runs the chosen agent runtime
+  with `cwd` = a configured local repo path, streams output back to
+  the UI.
+- AI can answer prompts using its bootstrap context + local codebase
+  tools (file/edit/command from the runtime).
+- After every final answer, the local app POSTs prompt+final-answer to
+  the prompting user's DB.
+- Two users seeded with distinct, deliberately non-overlapping context.
+- Eval harness runs against the new schema with at least one passing
+  case (e.g. "bootstrap returns roster including User2").
+- Server deployed (Railway or equivalent), reachable from the local
+  app.
 
-Primary SSE events:
+#### V1 converge (h10)
 
-```text
-project_selected
-context_retrieved
-run_started
-agent_started
-agent_event_received
-agent_message
-tool_call
-claim_created
-claim_conflict
-file_change
-command_result
-artifact_created
-memory_appended
-task_created
-task_updated
-timeline_event
-run_done
-run_failed
-```
+1. Apply migration cleanly to a fresh DB (old tables are gone).
+2. Start the deployed server. `/health` works.
+3. Launch the local app for User1.
+4. Bootstrap fires; chat UI shows User1 is in session and the roster
+   includes User2.
+5. User1 prompts something answerable from local code or their own
+   bootstrap context (no cross-user knowledge needed).
+6. AI answers. UI displays it.
+7. The prompt+answer entry appears in User1's DB on the server.
+8. Restart the local app; the conversation history (or at least the
+   persisted entry) is still queryable from the server.
 
-Hackathon auth stays simple: use a header such as
-`X-Project-Member: <member_id>`.
+### V2 — Cross-user `request_context` (h10–h18)
 
-## 7. Version Plan
+The defining feature lights up: the AI realizes it is missing teammate
+context, calls `request_context`, the server spins up an agent grounded in
+the targeted teammate's context, returns an answer, and the AI uses it.
 
-### V0 - Contracts And Scaffold (h0-h4)
+Deliverables:
 
-V0 proves the repo, local API, dashboard shell, seed files, and contracts exist.
+- `request_context` tool wired to the AI inside the runner (replacing
+  the V1 stub on the client side).
+- Server endpoint accepts `{target, question}`, runs retrieval over the
+  target user's DB, runs the on-demand agent, returns an answer.
+- On-demand agent runtime built using the V1 decision and the reworked
+  `prompts/agent_system.md`.
+- AI system prompt updated so the AI knows when and how to call the tool,
+  using roster info from bootstrap.
+- **Closure invariant:** the cross-user Q&A is written to the queried
+  user's DB as part of the request lifecycle, in the Q&A ledger /
+  per-user context shape decided in V1.
+- Eval cases: queries that should trigger `request_context`, queries that
+  should not, and a check that the answer is grounded in the target
+  user's seeded context.
 
-| Lane | Concrete deliverables |
-|---|---|
-| Narf | FastAPI app runs locally. `/health` returns status, sha, model versions, and live/fallback mode. Stub endpoints for projects, context, prompt, runs, and events. |
-| Sarf | Initial schema covers projects, members, worker agents, rules, tasks, runs, raw events, memories, claims, artifacts, and timeline. Seed loader skeleton exists. |
-| Jorf | Agent run contract, agent context tool contract, and prompt skeleton for Claude Agent SDK. |
-| Jerf | Eval harness with fixture prompts for context retrieval, teammate context, and claim overlap. |
-| Marf | Dashboard shell shows project, people/agents, tasks, timeline, memories, and a prompt box using fixtures. |
+Converge h18:
 
-Converge h4:
+1. User1 prompts something User1's context cannot answer but User2's can.
+2. AI calls `request_context({target: user2, question: ...})`.
+3. Server retrieves User2 slice → spins up User2-grounded agent → answers.
+4. AI uses the answer, produces final answer to User1.
+5. User1's DB has the prompt+final-answer.
+6. **User2's DB has the cross-user Q&A entry.**
+7. A subsequent prompt from User2 retrieving on the same topic surfaces
+   the Q&A entry — closure property demonstrated.
 
-- Local server boots.
-- Dashboard boots.
-- Seeded project appears.
-- User 1 seeded memory appears.
-- Context query fixture returns cited memory.
+### V3 — Multi-hop and project-scoped queries (h18–h28)
 
-### V1 - Seeded Project Context Dashboard (h4-h10)
+The AI can iterate: a teammate's answer reveals a new gap, AI calls the
+tool again, possibly against a different teammate or `"project"`. Also
+firms up the project-context path.
 
-Working product at V1: a teammate can open the dashboard, inspect seeded User 1
-work, ask what happened, and see cited project context from persisted data.
+Deliverables:
 
-| Lane | Concrete deliverables |
-|---|---|
-| Narf | Implement project, member, task, memory, run, event, timeline, and context endpoints against the local database or deterministic in-memory store. |
-| Sarf | Seed one project, three members, three worker agents, User 1 prior session events, tasks, memory entries, project rules, and timeline. |
-| Jorf | Context-answer prompt: answer human questions from retrieved memory/source refs. Stub and live LLM paths share the same response shape. |
-| Jerf | Retrieval/eval cases prove User 1 context is returned for API-key/settings questions. |
-| Marf | Dashboard query UI renders cited answers, User 1 prior run summary, tasks, memory source drawer, and timeline. |
+- AI prompt allows multiple `request_context` calls per turn, with a
+  reasonable termination signal.
+- `target = "project"` works: server retrieves over the shared project
+  context and runs the on-demand agent against that.
+- Multi-target single-call (`target = [user2, "project"]`) consolidated
+  server-side. **Consolidation strategy TBD here** — single agent over
+  combined slice vs parallel agents + merge.
+- Retrieval improvements informed by V2 eval failures. **Specific
+  improvements TBD here.**
+- Eval: at least one case requiring two hops (User1 → User2 → User3 or
+  User1 → User2 → project).
 
-Converge h10 smoke:
+Converge h28:
 
-1. Open Relevo dashboard.
-2. Show User 1's prior session, task, memory, and timeline.
-3. Ask: "What did User 1 do on API keys?"
-4. Relevo answers from seeded User 1 memory with source refs.
-5. Refresh and confirm the same project state persists.
+1. User1 prompts a question requiring info from User2 *and* User3.
+2. AI calls `request_context` once, sees a gap, calls again.
+3. Final answer integrates both teammates' contributions.
+4. User1's DB has prompt+answer; User2's and User3's DBs each have their
+   own cross-user Q&A entries.
 
-### V2 - Live Claude Agent SDK Run (h10-h18)
+### V4 — Demo hardening (h28–h36)
 
-Working product at V2: User 2 starts a live agent run from Relevo UI. Claude
-Agent SDK runs locally in a disposable worktree, streams events, and produces
-an artifact or progress report.
+Make the multi-laptop demo reliable and readable.
 
-| Lane | Concrete deliverables |
-|---|---|
-| Narf | Local runner starts Claude Agent SDK with `cwd` set to disposable worktree. `POST /prompt` creates `agent_run`, streams SSE events, records raw `agent_event` rows, and handles fallback replay. |
-| Sarf | Store run status, raw events, messages, artifacts, summaries, and source refs. Seed or create the disposable demo worktree. |
-| Jorf | Claude Agent SDK system prompt and tool instructions for safe local work: read context, claim work, produce artifact, publish progress. |
-| Jerf | Eval verifies live/fallback run selects the right task/member context and emits required events in order. |
-| Marf | Run detail panel shows live stream, agent messages, tool calls, artifact/diff, status, and fallback indicator. |
+Deliverables:
 
-Converge h18 smoke:
+- Two laptops (or two sessions) running the local app, both pointed at the
+  shared server. Demo seeded with two distinct users.
+- Fallback path for the on-demand agent if the live LLM stalls — replay a
+  pre-recorded answer through the same response shape.
+- Visual cues in the UI: when `request_context` is firing, which teammate
+  is being queried, when an answer comes back. Optional but high-leverage.
+- Final eval pass on the exact demo prompts plus two unscripted prompts.
+- Seed lockfile (`seeds/LOCK.md`) documenting users, project context, and
+  demo prompts.
+- h28–h30 dataset jam, h30–h32 integration hardening, h32–h34 rehearsal,
+  h34–h36 buffer/submission.
 
-1. User 2 prompts: "Check the API-key settings work and add the missing validation."
-2. Relevo starts a live or fallback Claude Agent SDK run in a disposable worktree.
-3. Dashboard streams run events.
-4. The run produces an artifact or progress report.
-5. The artifact and raw events are visible after refresh.
+Converge h36:
 
-### V3 - Agent Self-Query And Coordination (h18-h28)
+- Clean app launch on both laptops.
+- Run the scripted demo: User1 asks → AI silently queries User2 → answer.
+- Show User2's DB updated.
+- User2 then runs their own session and a follow-up query proves the
+  closure property.
+- Use fallback only if the live agent times out.
 
-Working product at V3: the live agent uses Relevo tools during the run to query
-User 1 context, claim work, publish progress, and leave memory for the next
-teammate or agent.
+## 9. Build discipline
 
-| Lane | Concrete deliverables |
-|---|---|
-| Narf | Agent-callable tools are wired to retrieval, claims, memory append, progress publishing, and blocker reporting. Tool calls are streamed and stored. |
-| Sarf | Claims, memory appends, event source refs, and timeline updates are transactional enough for the demo. |
-| Jorf | Agent prompt requires querying teammate context before claims about User 1 work, claiming before edits/artifacts, and publishing progress before completion. |
-| Jerf | Overlap detector flags prompts that touch seeded User 1 tasks or active claims. Eval covers teammate-context and claim-conflict cases. |
-| Marf | Dashboard highlights agent self-query, cited teammate context, claims, progress updates, artifacts, and timeline in one flow. |
+- goal.md is the source of truth. If this plan and goal.md drift, fix the
+  plan.
+- The shared server is required, not optional. The cross-user mechanism is
+  the product.
+- The local app's runner points at the user's real codebase. Disposable
+  worktrees are not used — that contradicts the goal.
+- Closure invariant (queried user's DB gets the Q&A) is a P0. Skipping it
+  breaks the demo's success criterion.
+- Wherever this plan says "TO BE DETERMINED IN THIS VERSION", treat that
+  as a real V1/V2 deliverable: the choice must be made and written down,
+  not deferred indefinitely.
+- Stubs are acceptable only when they preserve the real contract end-to-end.
+- Smoke tests cumulate. A V3 change that breaks V2's cross-user demo is a
+  stop-the-room bug.
+- Feature freeze at h28. After that: only demo data, bug fixes, fallbacks,
+  and polish.
+- The existing codebase (the unstated V0) was built against the old plan.
+  Treat scrapping or rewriting parts of it as part of the work, not as
+  failure. The verdicts in V1 §"What to scrap" and §"What to rework" are
+  load-bearing.
 
-Converge h28 smoke:
+## 10. Immediate next decisions
 
-1. User 2 starts the API-key validation run.
-2. The agent calls `query_teammate_context` for User 1's prior API-key work.
-3. Relevo returns cited context.
-4. The agent calls `claim_work` for validation files/area.
-5. The agent produces an artifact and calls `publish_progress`.
-6. Dashboard shows task status, claim, artifact, memory, and timeline after refresh.
-
-### V4 - Demo Hardening (h28-h36)
-
-Working product at V4: the single-laptop demo is reliable, readable, and has a
-fallback path that proves the same product contract even if live Claude SDK work
-times out.
-
-| Lane | Concrete deliverables |
-|---|---|
-| Narf | Timeouts, graceful run failure, fallback replay, clear live/fallback state, and deploy/local startup verification. |
-| Sarf | Final seeds and `seeds/LOCK.md` documenting project, members, rules, User 1 prior session, tasks, memories, artifacts, claims, and demo questions. |
-| Jorf | Demo-safe fallback events for exact prompts and compact final-answer prompt for "what happened?" questions. |
-| Jerf | Final eval pass on exact demo prompts plus two unscripted-style context questions. |
-| Marf | Demo mode, readable activity stream, source drawer, artifact view, empty/loading/error states, and no layout breaks on projector dimensions. |
-| All | h28-h30 dataset jam. h30-h32 integration hardening. h32-h34 rehearsal. h34-h36 buffer/submission. |
-
-Converge h36 smoke:
-
-- Start from a clean local launch.
-- Show seeded User 1 context.
-- Run or replay User 2 Claude Agent SDK flow.
-- Ask: "What did User 1 do, what did User 2 change, and what remains?"
-- Answer cites User 1 memory, User 2 run events/artifact, task state, and timeline.
-
-## 8. Demo Narrative
-
-Primary demo: one laptop, one Relevo dashboard, one seeded prior session, and
-one live or fallback-backed Claude Agent SDK run.
-
-1. Open the Relevo project dashboard.
-2. Show members and worker agents: User 1, User 2, and reviewer/security owner.
-3. Show project rules: cite memory, protect API keys, claim work before edits,
-   use disposable worktree, publish progress.
-4. Show User 1's prior session: task, memory summary, artifact, and timeline.
-5. User 2 prompts their agent from Relevo UI:
-   "Check what happened with API keys and add the missing validation."
-6. Relevo starts Claude Agent SDK locally in a disposable worktree.
-7. The agent asks Relevo what User 1 did.
-8. Relevo returns cited project/User 1 context.
-9. The agent claims validation work, produces patch/artifact, and publishes progress.
-10. Dashboard shows run stream, context query, claim, artifact, task update,
-    memory append, and timeline.
-11. Human asks:
-    "What did User 1 do, what did User 2 change, and what remains?"
-12. Relevo answers with citations to User 1 memory, User 2 run events/artifact,
-    task state, and timeline.
-
-## 9. Build Discipline
-
-- The hackathon product is Relevo UI plus local Claude Agent SDK runner.
-- Do not build generic Codex/Cursor/Claude Code terminal support for the MVP.
-- The live agent edits a disposable worktree, not the Relevo repo checkout.
-- Store raw run events and derived memory; use retrieval for context bringup.
-- Every important answer must cite memory, event, artifact, task, or timeline
-  source refs.
-- Every live run should show coordination: context retrieved, work claimed,
-  progress published, artifact created, and timeline updated.
-- Stubs and fallbacks are acceptable only when they preserve the real contract.
-- Smoke tests cumulate. A V3 change that breaks V1 context questions or V2 run
-  replay is a stop-the-room bug.
-- Feature freeze at h28. After that, only demo data, bug fixes, fallbacks, and
-  polish.
-
-## 10. Immediate Next Decisions
-
-1. Confirm the disposable demo repo/worktree content.
-2. Choose the exact User 1 seeded prior session.
-3. Choose the exact User 2 live prompt.
-4. Decide whether agent context tools are implemented as direct SDK tools or MCP
-   tools; pick the fastest path for the current SDK/runtime.
-5. Pick the final project rules shown in the demo.
-6. Choose the exact fallback event script for the live run.
+1. Storage backend (graph vs Postgres+pgvector vs hybrid).
+2. Local-runner runtime (Claude Agent SDK vs alternative).
+3. Hosting target for the shared server.
+4. On-demand agent runtime: stateless inlined-context LLM call vs
+   sub-agent process.
+5. The two seeded users and the deliberately non-overlapping context for
+   each, plus the demo prompt that forces a cross-user query.
+6. Lane assignments — the prior plan's role split (Narf/Sarf/Jorf/Jerf/
+   Marf) was written for a different product and should be re-mapped
+   against this plan's components: server, local app, on-demand agent,
+   eval, UI.
