@@ -8,6 +8,7 @@ import TopBar from './components/TopBar'
 import { getProjectFolderDisplayName } from './projectFolders'
 import ChatView from './views/ChatView'
 import PoolView from './views/PoolView'
+import ResponsibilitiesView from './views/ResponsibilitiesView'
 import TasksView from './views/TasksView'
 import TimelineView from './views/TimelineView'
 
@@ -587,6 +588,8 @@ function App(): React.JSX.Element {
     activeView = <PoolView />
   } else if (activeTab === 'timeline') {
     activeView = <TimelineView projectFolderPath={selectedProjectFolderPath} />
+  } else if (activeTab === 'responsibilities') {
+    activeView = <ResponsibilitiesView />
   } else if (activeTab === 'tasks') {
     activeView = <TasksView />
   }

@@ -8,6 +8,7 @@ files:
   - package.json
 asarUnpack:
   - resources/**
+  - node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**
 win:
   executableName: electron-app
 nsis:

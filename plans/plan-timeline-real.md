@@ -1,5 +1,7 @@
 # Plan: Wire Timeline Tab to Real Data
 
+**Status:** Superseded by `plans/plan-team-pulse.md`. Kept for reference.
+
 **Branch:** `feat/timeline-real`
 
 ## Problem

@@ -231,6 +231,45 @@ interface DesktopApi {
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
   toggleActivityGraph: (enabled: boolean) => Promise<DesktopSettingsResponse>
   getActivityNotes: (projectFolderPath: string) => Promise<ActivityNote[]>
+  loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseResponse>
+  refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseRefreshResult>
+  loadResponsibilities: () => Promise<ResponsibilitiesResponse>
+}
+
+type TeamPulseCell = {
+  summary: string | null
+  event_count: number
+  updated_at?: string | null
+}
+
+type TeamPulseMember = {
+  agent_id: string
+  display_name: string
+  cells: TeamPulseCell[]
+}
+
+type TeamPulseResponse = {
+  bucket_size_seconds: number
+  bucket_starts: string[]
+  members: TeamPulseMember[]
+}
+
+type TeamPulseRefreshResult = {
+  pulse_doc_ids: string[]
+  responsibility_doc_ids: string[]
+  skipped_responsibility_agent_ids: string[]
+}
+
+type ResponsibilityMember = {
+  agent_id: string
+  display_name: string
+  content: string | null
+  updated_at: string | null
+  word_count: number | null
+}
+
+type ResponsibilitiesResponse = {
+  members: ResponsibilityMember[]
 }
 
 declare global {

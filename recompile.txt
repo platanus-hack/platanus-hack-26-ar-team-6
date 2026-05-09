@@ -1,0 +1,14 @@
+cd ~/Documents/sarf/platanus-hack-26-ar-team-6/apps/desktop
+
+unset ELECTRON_RUN_AS_NODE
+
+VITE_API_BASE_URL="https://platanus-hack-26-ar-team-6-copy-production.up.railway.app" \
+VITE_ENABLE_HEALTHCHECK=true \
+npm run build:linux
+
+VITE_API_BASE_URL="https://platanus-hack-26-ar-team-6-copy-production.up.railway.app" \
+VITE_ENABLE_HEALTHCHECK=true \
+./dist/linux-unpacked/electron-app --ozone-platform=x11 --disable-gpu --no-sandbox
+
+
+./dist/linux-unpacked/electron-app --ozone-platform=x11 --disable-gpu --no-sandbox

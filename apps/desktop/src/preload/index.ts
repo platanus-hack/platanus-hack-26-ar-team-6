@@ -43,6 +43,11 @@ const api = {
   clearConversation: (workspaceId: string) => ipcRenderer.invoke('conversation:clear', workspaceId),
   toggleActivityGraph: (enabled: boolean) => ipcRenderer.invoke('settings:activity-graph:toggle', enabled),
   getActivityNotes: (projectFolderPath: string) => ipcRenderer.invoke('activity-graph:get-notes', projectFolderPath),
+  loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
+    ipcRenderer.invoke('team-pulse:load', opts),
+  refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
+    ipcRenderer.invoke('team-pulse:refresh', opts),
+  loadResponsibilities: () => ipcRenderer.invoke('responsibilities:load'),
   onAuthEvent: (callback: (event: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
     ipcRenderer.on('auth:event', listener)

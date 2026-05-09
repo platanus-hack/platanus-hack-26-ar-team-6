@@ -1096,3 +1096,229 @@ def commit_memory_update(
                 document_ids.append(str(cur.fetchone()["id"]))
         conn.commit()
     return {"event_ids": event_ids, "document_ids": document_ids}
+
+
+# ---------------------------------------------------------------------------
+# Team pulse + responsibilities
+# ---------------------------------------------------------------------------
+#
+# Pulse data and responsibility documents are projected into existing tables:
+#
+#   agent_memory_document(importance='local',  document_key='pulse:<iso>')
+#   agent_memory_document(importance='global', document_key='responsibility')
+#
+# This means responsibility docs surface through `global_ctx` automatically,
+# which is exactly how we want the retriever to discover them.
+
+PULSE_DOCUMENT_KEY_PREFIX = "pulse:"
+RESPONSIBILITY_DOCUMENT_KEY = "responsibility"
+RESPONSIBILITY_DOCUMENT_KIND = "responsibility_doc"
+PULSE_DOCUMENT_KIND = "team_pulse_bucket"
+
+
+def _bucket_iso(bucket_start: datetime) -> str:
+    """Canonical bucket key suffix. Always UTC, ISO-8601 with Z."""
+    if bucket_start.tzinfo is None:
+        bucket_start = bucket_start.replace(tzinfo=timezone.utc)
+    else:
+        bucket_start = bucket_start.astimezone(timezone.utc)
+    return bucket_start.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def pulse_document_key(bucket_start: datetime) -> str:
+    return f"{PULSE_DOCUMENT_KEY_PREFIX}{_bucket_iso(bucket_start)}"
+
+
+def list_pulse_documents(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    *,
+    bucket_starts: list[datetime],
+    agent_ids: list[UUID] | None = None,
+) -> list[dict[str, Any]]:
+    """Cached pulse docs for the requested buckets/members."""
+    if not bucket_starts:
+        return []
+    keys = [pulse_document_key(start) for start in bucket_starts]
+    args: list[Any] = [project_id, keys]
+    sql = """
+        SELECT id, author_agent_id, document_key, content, metadata, updated_at
+        FROM agent_memory_document
+        WHERE project_id = %s
+          AND importance = 'local'
+          AND document_key = ANY(%s)
+    """
+    if agent_ids:
+        sql += " AND author_agent_id = ANY(%s)"
+        args.append(list(agent_ids))
+    sql += " ORDER BY updated_at DESC"
+    with conn.cursor() as cur:
+        cur.execute(sql, tuple(args))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_responsibility_documents(
+    conn: psycopg.Connection,
+    project_id: UUID,
+) -> list[dict[str, Any]]:
+    """Responsibility docs for everyone in the project."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, author_agent_id, content, metadata, updated_at
+            FROM agent_memory_document
+            WHERE project_id = %s
+              AND importance = 'global'
+              AND document_key = %s
+            ORDER BY updated_at DESC
+            """,
+            (project_id, RESPONSIBILITY_DOCUMENT_KEY),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+
+def list_pulse_raw_events(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    agent_ids: list[UUID] | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Raw `agent_memory_event` rows in [window_start, window_end)."""
+    args: list[Any] = [project_id, window_start, window_end]
+    sql = """
+        SELECT id, author_agent_id, content, metadata, created_at
+        FROM agent_memory_event
+        WHERE project_id = %s
+          AND created_at >= %s
+          AND created_at <  %s
+    """
+    if agent_ids:
+        sql += " AND author_agent_id = ANY(%s)"
+        args.append(list(agent_ids))
+    sql += " ORDER BY created_at ASC LIMIT %s"
+    args.append(limit)
+    with conn.cursor() as cur:
+        cur.execute(sql, tuple(args))
+        return [dict(row) for row in cur.fetchall()]
+
+
+def upsert_pulse_document(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    author_agent_id: UUID,
+    bucket_start: datetime,
+    bucket_end: datetime,
+    summary: str,
+    event_count: int,
+    event_ids: list[UUID] | None = None,
+) -> str:
+    """Create/update one hourly pulse cell."""
+    if not summary or event_count <= 0:
+        raise ValueError("pulse cell requires non-empty summary and event_count > 0")
+    metadata = {
+        "kind": PULSE_DOCUMENT_KIND,
+        "bucket_start": _bucket_iso(bucket_start),
+        "bucket_end": _bucket_iso(bucket_end),
+        "event_count": int(event_count),
+        "event_ids": [str(eid) for eid in (event_ids or [])],
+    }
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agent_memory_document (
+              project_id, author_agent_id, importance, document_key, content, metadata
+            )
+            VALUES (%s, %s, 'local', %s, %s, %s)
+            ON CONFLICT (project_id, author_agent_id, importance, document_key)
+            DO UPDATE SET
+              content = EXCLUDED.content,
+              metadata = agent_memory_document.metadata || EXCLUDED.metadata,
+              updated_at = NOW()
+            RETURNING id
+            """,
+            (
+                project_id,
+                author_agent_id,
+                pulse_document_key(bucket_start),
+                summary,
+                psycopg.types.json.Jsonb(metadata),
+            ),
+        )
+        doc_id = str(cur.fetchone()["id"])
+        conn.commit()
+    return doc_id
+
+
+def upsert_responsibility_document(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    author_agent_id: UUID,
+    content: str,
+    word_count: int,
+    source_window_start: datetime,
+) -> str:
+    """Create/update the per-user responsibility doc (≤2000 words)."""
+    metadata = {
+        "kind": RESPONSIBILITY_DOCUMENT_KIND,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_window_start": source_window_start.astimezone(timezone.utc).isoformat(),
+        "word_count": int(word_count),
+    }
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO agent_memory_document (
+              project_id, author_agent_id, importance, document_key, content, metadata
+            )
+            VALUES (%s, %s, 'global', %s, %s, %s)
+            ON CONFLICT (project_id, author_agent_id, importance, document_key)
+            DO UPDATE SET
+              content = EXCLUDED.content,
+              metadata = agent_memory_document.metadata || EXCLUDED.metadata,
+              updated_at = NOW()
+            RETURNING id
+            """,
+            (
+                project_id,
+                author_agent_id,
+                RESPONSIBILITY_DOCUMENT_KEY,
+                content,
+                psycopg.types.json.Jsonb(metadata),
+            ),
+        )
+        doc_id = str(cur.fetchone()["id"])
+        conn.commit()
+    return doc_id
+
+
+def get_responsibility_refresh_state(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    author_agent_id: UUID,
+) -> datetime | None:
+    """Return updated_at of the existing responsibility doc, if any."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT updated_at
+            FROM agent_memory_document
+            WHERE project_id = %s
+              AND author_agent_id = %s
+              AND importance = 'global'
+              AND document_key = %s
+            """,
+            (project_id, author_agent_id, RESPONSIBILITY_DOCUMENT_KEY),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    updated_at = row["updated_at"]
+    if isinstance(updated_at, datetime) and updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return updated_at
