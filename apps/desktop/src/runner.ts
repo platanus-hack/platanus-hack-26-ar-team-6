@@ -206,6 +206,7 @@ export async function* runLocalAssistant(
       maxTurns: options.maxTurns,
       includePartialMessages: true,
       permissionMode: "acceptEdits",
+      ...(options.resumeSessionId ? { resume: options.resumeSessionId } : {}),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",

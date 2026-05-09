@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join, resolve } from 'node:path'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runLocalAssistant } from '../runner.js'
-import type { BootstrapContext, RunLocalAssistantOptions } from '../types.js'
+import type { BootstrapContext, PersistedConversation, RunLocalAssistantOptions } from '../types.js'
 import {
   clearAnthropicApiKey,
   clearProjectFolder,
@@ -147,6 +148,33 @@ function notifyAuthEvent(event: AuthEvent): void {
 
 function fallbackRunnerCwd(payloadCwd?: string): string {
   return payloadCwd ?? viteEnv['VITE_LOCAL_REPO_PATH'] ?? process.env['VITE_LOCAL_REPO_PATH'] ?? '.'
+}
+
+function conversationFilePath(workspaceId: string): string {
+  return join(app.getPath('userData'), 'conversations', `${workspaceId}.json`)
+}
+
+async function loadConversationFromDisk(workspaceId: string): Promise<PersistedConversation> {
+  try {
+    const raw = await readFile(conversationFilePath(workspaceId), 'utf-8')
+    return JSON.parse(raw) as PersistedConversation
+  } catch {
+    return { sessionId: null, messages: [] }
+  }
+}
+
+async function saveConversationToDisk(workspaceId: string, data: PersistedConversation): Promise<void> {
+  const dir = join(app.getPath('userData'), 'conversations')
+  await mkdir(dir, { recursive: true })
+  await writeFile(conversationFilePath(workspaceId), JSON.stringify(data), 'utf-8')
+}
+
+async function clearConversationFromDisk(workspaceId: string): Promise<void> {
+  try {
+    await unlink(conversationFilePath(workspaceId))
+  } catch {
+    // file may not exist
+  }
 }
 
 async function selectDirectory(parentWindow: BrowserWindow | null): Promise<string | null> {
@@ -512,6 +540,18 @@ app.whenReady().then(() => {
     }
   )
 
+  ipcMain.handle('conversation:load', async (_, workspaceId: string): Promise<PersistedConversation> => {
+    return loadConversationFromDisk(workspaceId)
+  })
+
+  ipcMain.handle('conversation:save', async (_, workspaceId: string, data: PersistedConversation): Promise<void> => {
+    await saveConversationToDisk(workspaceId, data)
+  })
+
+  ipcMain.handle('conversation:clear', async (_, workspaceId: string): Promise<void> => {
+    await clearConversationFromDisk(workspaceId)
+  })
+
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
     const anthropicApiKey = await readAnthropicApiKey()
     if (!anthropicApiKey) {
@@ -520,13 +560,15 @@ app.whenReady().then(() => {
 
     const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
     const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
+    const persisted = await loadConversationFromDisk(selectedProjectId)
     const runOptions: RunLocalAssistantOptions = {
       ...payload,
       cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
       anthropicApiKey,
       serverUrl: serverBaseUrl,
       authToken: sessionToken,
-      projectId: selectedProjectId
+      projectId: selectedProjectId,
+      resumeSessionId: persisted.sessionId ?? undefined
     }
 
     for await (const assistantEvent of runLocalAssistant(runOptions)) {

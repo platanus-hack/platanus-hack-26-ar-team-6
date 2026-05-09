@@ -32,6 +32,16 @@ const api = {
     model?: string
     maxTurns?: number
   }) => ipcRenderer.invoke('assistant:run:start', payload),
+  loadConversation: (workspaceId: string) =>
+    ipcRenderer.invoke('conversation:load', workspaceId) as Promise<{
+      sessionId: string | null
+      messages: Array<{ id: string; role: 'user' | 'assistant'; text: string }>
+    }>,
+  saveConversation: (
+    workspaceId: string,
+    data: { sessionId: string | null; messages: Array<{ id: string; role: 'user' | 'assistant'; text: string }> }
+  ) => ipcRenderer.invoke('conversation:save', workspaceId, data),
+  clearConversation: (workspaceId: string) => ipcRenderer.invoke('conversation:clear', workspaceId),
   onAuthEvent: (callback: (event: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
     ipcRenderer.on('auth:event', listener)

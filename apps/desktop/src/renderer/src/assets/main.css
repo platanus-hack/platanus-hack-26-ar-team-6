@@ -637,6 +637,31 @@ button {
   opacity: 0.7;
 }
 
+.chat-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-new {
+  padding: 0 16px;
+  background: transparent;
+  color: #888888;
+  border: 1px solid #e0e0e0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.chat-new:hover {
+  background: #f5f5f5;
+  color: #444444;
+}
+
+.chat-new:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .settings-overlay {
   position: fixed;
   inset: 0;
