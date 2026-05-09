@@ -1,137 +1,162 @@
-# Sarf — V3 Task: Backend Project Context + Retrieval Hardening
+# Sarf Deployment Instructions
 
-> Read [goal.md](goal.md) and [plan.md](plan.md) first. This file scopes
-> Sarf's lane in V3. V3 only starts if V2 is green at h20; if V2 is shaky,
-> skip this and help V4 hardening.
+This is the deployment handoff for the LangGraph multi-agent context network.
+The old deployed Railway service is online, but it is running the previous API
+shape until this branch is deployed.
 
-## Lane
+## Current Production Check
 
-Backend implementation for the V3 stretch items that touch server storage,
-retrieval, and HTTP contracts.
+Public server URL:
 
-The main V3 backend goal is `target = "project"` end-to-end: a local AI can
-ask for shared project context, the server retrieves from
-`project_context_entry`, the on-demand agent answers from that slice, and the
-answer is persisted somewhere project-scoped so later project retrieval can
-surface it.
+```text
+https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app
+```
 
-You also own the retrieval hardening that is already called out in
-`apps/server/src/relevo/DATABASE.md`: move embeddings to the locked
-`text-embedding-3-small` dimension, add pgvector indexes only after the
-dimension is correct, and keep the lexical fallback working.
+Before redeploying, check what is currently live:
 
-You do not own the desktop streaming event contract (Marf), the local
-`request_context` tool UI/SDK shape (Jerf), or the on-demand prompt internals
-(Jorf). You do own the backend contract they call.
+```bash
+curl https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/health
+```
 
-## Coordination
+If `/health` returns `models.agent` and `models.router`, production is still on
+the old server. The new server health response should expose:
 
-- Pair with Jerf before changing the request body. The desktop client
-  currently posts `{target_user_id, question}` from
-  `apps/desktop/src/main/tools/request_context.ts`; V3 needs it to preserve
-  that path while also accepting `{target: "project", question}`.
-- Pair with Jorf before project answers ship. The live route currently imports
-  `relevo.agent.answer_from_context`, while Jorf's newer contract is
-  `relevo.agents.answer_on_demand`. Decide whether project context uses a
-  project-shaped target in that contract or a separate project answer helper.
-- Pair with whoever owns deploy before changing migrations on Railway. The
-  V2 closure smoke test must stay green after every schema change.
+```json
+{
+  "models": {
+    "user_agent": "claude-code-sdk-session",
+    "retriever": "claude-code-sdk-session",
+    "updater": "claude-code-sdk-session"
+  }
+}
+```
 
-## Starting State
+Also check the new global retriever endpoint:
 
-- `project_context_entry` already exists in
-  `migrations/0001_init.sql` and is seeded by `seeds/project.yaml`.
-- `/bootstrap` already returns `project_context`.
-- `/request-context` and `/request_context` reject `target = "project"` in
-  `apps/server/src/relevo/api/context.py`.
-- User retrieval lives in `retrieve_user_context` in
-  `apps/server/src/relevo/db.py`; there is no matching project retrieval
-  function yet.
-- `context_entry.embedding` and `project_context_entry.embedding` are still
-  `vector(1024)`, while the locked embedding model needs `vector(1536)`.
+```bash
+curl -X POST https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/global-ctx \
+  -H "Authorization: Bearer dev-token-user1" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"shared architecture"}'
+```
 
-## Deliverables
+Expected current-branch behavior: HTTP 200 with `context_exchange_id`.
+If this returns 404, the new memory API is not deployed yet.
 
-1. **V2 gate stays green.** Before V3 work, run the closure smoke path and
-   confirm user-targeted `request_context` still writes `context_entry` +
-   `qa_ledger`. After every backend contract change, rerun it.
-2. **Project target API.** Update `RequestContextRequest` and target
-   resolution so `POST /request-context` accepts both:
-   - existing V2 form: `{ "target_user_id": "<uuid>", "question": "..." }`
-   - V3 form: `{ "target": "project", "question": "..." }`
-3. **Project retrieval.** Add `retrieve_project_context(conn, project_id,
-   question, limit)` beside `retrieve_user_context`. Use the same lexical
-   ranking fallback first, over `project_context_entry.content` and metadata.
-   Keep the function isolated so vector ranking can replace it later.
-4. **Project answer path.** Route `target = "project"` through the on-demand
-   answerer with project-scoped entries only. The response should preserve the
-   useful V2 fields and add project-specific fields without breaking older
-   clients:
-   - `answer`
-   - `source_user_ids: []`
-   - `source_context_entry_ids`
-   - `target: "project"`
-   - `target_project_id`
-   - `retrieved_context_entries`
-5. **Project closure write.** Persist project-target Q&A into
-   `project_context_entry` so future project queries can retrieve it. Add a
-   schema-safe audit path for the demo. Prefer a small additive table
-   (`project_qa_ledger`) over weakening V2's `qa_ledger` constraints unless
-   the team explicitly wants one generalized ledger.
-6. **Seed lock for project context.** Expand `seeds/project.yaml` and
-   `seeds/LOCK.md` with one scripted prompt that should route to
-   `target = "project"` instead of User1 or User2. Keep it different from the
-   V2 deployment prompt so routing is visibly distinct.
-7. **Embedding migration prep.** Add the migration/admin change that moves both
-   embedding columns to `vector(1536)`. Do not enable vector ranking until
-   there is a real backfill path or a deterministic fallback.
-8. **Pgvector index only after backfill.** Once embeddings are populated, add
-   HNSW indexes for user and project context retrieval. Until then, do not add
-   dead indexes over all-null columns.
-9. **Smoke tests.** Add `apps/server/scripts/smoke_project_context.py` or
-   extend the existing smoke script to prove:
-   - `target = "project"` returns 200.
-   - retrieved rows come from `project_context_entry`.
-   - the project Q&A is materialized back into `project_context_entry`.
-   - existing user-target closure still passes.
+## Railway Service Variables
 
-## Decisions You Own
+Set these on the FastAPI server service:
 
-- The exact project-Q&A persistence shape, as long as it is additive and does
-  not break V2's user-targeted closure invariant.
-- The `kind` value for project materialized Q&A. Recommended:
-  `project_qa`, added to `context_entry_kind`, because
-  `project_context_entry` currently reuses that enum.
-- The backend response additions for project targets. Keep older fields
-  stable so Jerf can merge client support without blocking V2 behavior.
-- The retrieval ranking fallback for project entries before vector search is
-  ready.
-- The migration order for `vector(1536)`, backfill, and HNSW indexes.
+```env
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+AUTO_MIGRATE=1
+AUTO_SEED=1
+RAILWAY_DOCKERFILE_PATH=apps/server/Dockerfile
+```
 
-## Out Of Scope For V3
+Railway normally injects `PORT`. If the service crashes with a missing `PORT`,
+set:
 
-- Desktop renderer streaming semantics (`runner:delta`, `runner:final`,
-  `runner:error`). Coordinate if the server response shape affects traces, but
-  Marf owns the UI/IPC fix.
-- General graph-RAG unless V2 retrieval is failing badly enough that the team
-  explicitly trades off project target work for it.
-- Full multi-target consolidation across users and project. If time remains,
-  support it as a thin loop over the single-target backend path, not as a new
-  schema.
-- Multi-hop policy in the local AI. The backend should tolerate repeated calls,
-  but Jerf/Jorf own when the assistant decides to call again.
+```env
+PORT=8000
+```
 
-## Done When
+Do not set `FORCE_SEED=1` unless you intentionally want to wipe and reseed demo
+data. `AUTO_SEED=1` only seeds when `app_user` is empty.
 
-V3 is done for Sarf when these pass on the deployed server:
+## Deploy Current Code
 
-1. V2 scripted User1 -> User2 request still passes and writes the target user's
-   `cross_user_qa` row.
-2. User1 can ask a project-level question and the local AI can call
-   `request_context({target: "project", question})`.
-3. The server retrieves only `project_context_entry` rows, returns a grounded
-   answer, and includes source context entry ids.
-4. A SQL query shows the project Q&A materialized into
-   `project_context_entry`.
-5. A second `target = "project"` query on the same topic can surface the prior
-   project Q&A row.
+Railway needs committed and pushed code. From the repo root:
+
+```bash
+git status --short --branch
+git push -u origin feature/langgraph-multi-agent-context
+```
+
+Then deploy the code with Railway CLI:
+
+```bash
+railway login
+railway link
+railway up
+```
+
+Use `railway up` for new code. `railway redeploy` only redeploys the latest
+already-uploaded deployment, so it will not pick up local source changes.
+
+If Railway prompts for a service, choose the FastAPI/server service. If the
+project has separate services for server and Postgres, do not deploy this code
+to the Postgres service.
+
+## Migration Behavior
+
+The server startup hook runs these when enabled:
+
+- `AUTO_MIGRATE=1` calls `ensure_schema()` and applies SQL files in
+  `migrations/` in order.
+- `AUTO_SEED=1` calls `seed_if_empty()` and loads `seeds/` only when there are
+  no `app_user` rows.
+
+The new deployment needs `migrations/0003_agent_memory_network.sql` applied.
+It creates:
+
+- `context_exchange`
+- `agent_memory_event`
+- `agent_memory_document`
+
+## Post-Deploy Verification
+
+After `railway up` completes, verify in this order:
+
+```bash
+curl https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/health
+```
+
+Then:
+
+```bash
+curl -X POST https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/global-ctx \
+  -H "Authorization: Bearer dev-token-user1" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"shared architecture"}'
+```
+
+Then targeted retrieval. Replace `TARGET_AGENT_ID` with User2's UUID from
+`/bootstrap`:
+
+```bash
+curl -X POST https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/agent-ctx \
+  -H "Authorization: Bearer dev-token-user1" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"TARGET_AGENT_ID","query":"How is the server deployed?"}'
+```
+
+Finally, run the smoke scripts from a machine that can reach the deployed DB and
+server:
+
+```bash
+SERVER_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app \
+  uv run python apps/server/scripts/smoke_closure.py
+
+SERVER_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app \
+  uv run python apps/server/scripts/smoke_project_context.py
+```
+
+## Desktop Configuration
+
+The desktop app should point at the deployed server:
+
+```env
+VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app
+VITE_ENABLE_HEALTHCHECK=true
+VITE_AUTH_TOKEN=dev-token-user1
+VITE_LOCAL_REPO_PATH=/absolute/path/to/your/repo
+```
+
+The Anthropic API key is configured in the app settings panel, not in `.env`.
+
+## Useful Railway References
+
+- Deploy source code with `railway up`: https://docs.railway.com/cli/deploying
+- Configure a non-root Dockerfile path: https://docs.railway.com/deploy/dockerfiles
+- Configure service variables: https://docs.railway.com/variables

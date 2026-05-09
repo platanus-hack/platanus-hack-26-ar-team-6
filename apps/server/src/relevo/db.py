@@ -1,11 +1,8 @@
-"""V2/V3 data-access layer.
+"""Data-access layer for bootstrap and the LangGraph memory network.
 
-Narf's API routes call into these functions. They are the only place that
-should issue SQL. Everything is synchronous psycopg for hackathon simplicity; if we
-need async we can switch the connection pool without touching call sites.
-
-The shapes here are the contract between Sarf (database) and Narf (API).
-If you need to change a return shape, sync with Narf first.
+API routes call into these functions. They are the only place that should issue
+SQL. Everything is synchronous psycopg for hackathon simplicity; if we need
+async we can switch the connection pool without touching call sites.
 """
 from __future__ import annotations
 
@@ -686,201 +683,340 @@ def retrieve_project_context(
     )
 
 
-def write_prompt_answer_entry(
-    conn: psycopg.Connection,
-    user_id: UUID,
-    prompt: str,
-    final_answer: str,
-    extra_metadata: dict[str, Any] | None = None,
-) -> UUID:
-    """Append a single prompt+answer row to the prompting user's context.
-
-    Shape:
-      kind = 'prompt_answer'
-      content = "PROMPT:\n<prompt>\n\nANSWER:\n<final_answer>"
-      metadata = {"prompt": ..., "final_answer": ..., **extra_metadata}
-
-    Embedding is left NULL until the model decision is locked with Jorf.
-    """
-    metadata: dict[str, Any] = {"prompt": prompt, "final_answer": final_answer}
-    if extra_metadata:
-        metadata.update(extra_metadata)
-    content = f"PROMPT:\n{prompt}\n\nANSWER:\n{final_answer}"
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO context_entry (user_id, kind, content, metadata)
-            VALUES (%s, 'prompt_answer', %s, %s)
-            RETURNING id
-            """,
-            (user_id, content, psycopg.types.json.Jsonb(metadata)),
-        )
-        row = cur.fetchone()
-        conn.commit()
-    return row["id"]  # type: ignore[index]
+def _sort_memory_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=lambda row: str(row.get("created_at") or ""), reverse=True)
 
 
-def write_cross_user_qa_entry(
-    conn: psycopg.Connection,
-    target_user_id: UUID,
-    asker_user_id: UUID,
-    question: str,
-    answer: str,
-    extra_metadata: dict[str, Any] | None = None,
-) -> UUID:
-    """Closure invariant write: append the Q&A produced by target_user's
-    on-demand agent into target_user's context and qa_ledger.
-
-    Returns the materialized context_entry id because retrieval cares about
-    that row. The ledger id is also stored in the context metadata.
-    """
-    target_user = get_user(conn, target_user_id)
-    if target_user is None:
-        raise ValueError(f"target user not found: {target_user_id}")
-    asker_user = get_user(conn, asker_user_id)
-    if asker_user is None:
-        raise ValueError(f"asker user not found: {asker_user_id}")
-    if target_user["project_id"] != asker_user["project_id"]:
-        raise ValueError("asking user and target user must belong to the same project")
-
-    project_id = target_user["project_id"]
-    metadata: dict[str, Any] = {
-        "source": "request_context",
-        "asker_user_id": str(asker_user_id),
-        "target_user_id": str(target_user_id),
-        "question": question,
-        "answer": answer,
+def _with_memory_metadata(
+    row: dict[str, Any],
+    *,
+    source_table: str,
+    importance: str,
+    author_agent_id: UUID | None = None,
+    document_key: str | None = None,
+) -> dict[str, Any]:
+    metadata = dict(row.get("metadata") or {})
+    metadata.update(
+        {
+            "source_table": source_table,
+            "importance": importance,
+        }
+    )
+    if author_agent_id is not None:
+        metadata["author_agent_id"] = str(author_agent_id)
+    if document_key is not None:
+        metadata["document_key"] = document_key
+    return {
+        "id": row["id"],
+        "kind": source_table,
+        "content": row["content"],
+        "metadata": metadata,
+        "created_at": row.get("created_at") or row.get("updated_at"),
     }
-    if extra_metadata:
-        metadata.update(extra_metadata)
-    content = f"QUESTION (from {asker_user_id}):\n{question}\n\nANSWER:\n{answer}"
+
+
+def retrieve_agent_memory(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    agent_id: UUID,
+    query: str,
+    limit: int = 6,
+    scan_limit: int = 80,
+) -> list[dict[str, Any]]:
+    """Author-owned memory for one agent.
+
+    New agent memory rows are searched first, but legacy context_entry rows are
+    included so existing seed data remains useful during the migration.
+    """
+    rows: list[dict[str, Any]] = []
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO context_entry (user_id, kind, content, metadata)
-            VALUES (%s, 'cross_user_qa', %s, %s)
-            RETURNING id
+            SELECT id, importance, document_key, content, metadata, updated_at AS created_at
+            FROM agent_memory_document
+            WHERE project_id = %s AND author_agent_id = %s
+            ORDER BY updated_at DESC
+            LIMIT %s
             """,
-            (target_user_id, content, psycopg.types.json.Jsonb(metadata)),
+            (project_id, agent_id, scan_limit),
         )
-        context_entry_id = cur.fetchone()["id"]
+        rows.extend(
+            _with_memory_metadata(
+                dict(row),
+                source_table="agent_memory_document",
+                importance=row["importance"],
+                author_agent_id=agent_id,
+                document_key=row["document_key"],
+            )
+            for row in cur.fetchall()
+        )
         cur.execute(
             """
-            INSERT INTO qa_ledger (
-              project_id,
-              asking_user_id,
-              target_user_id,
-              context_entry_id,
-              question,
-              answer,
-              metadata
+            SELECT id, importance, content, metadata, created_at
+            FROM agent_memory_event
+            WHERE project_id = %s AND author_agent_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (project_id, agent_id, scan_limit),
+        )
+        rows.extend(
+            _with_memory_metadata(
+                dict(row),
+                source_table="agent_memory_event",
+                importance=row["importance"],
+                author_agent_id=agent_id,
+            )
+            for row in cur.fetchall()
+        )
+        cur.execute(
+            """
+            SELECT id, kind, content, metadata, created_at
+            FROM context_entry
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (agent_id, scan_limit),
+        )
+        rows.extend(
+            _with_memory_metadata(
+                dict(row),
+                source_table=f"context_entry:{row['kind']}",
+                importance="local",
+                author_agent_id=agent_id,
+            )
+            for row in cur.fetchall()
+        )
+
+    return _rank_context_rows(
+        _sort_memory_rows(rows),
+        query,
+        closure_kind="agent_memory_event",
+        limit=limit,
+    )
+
+
+def retrieve_global_memory(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    query: str,
+    limit: int = 6,
+    scan_limit: int = 80,
+) -> list[dict[str, Any]]:
+    """Project-wide memory marked global, plus legacy project context rows."""
+    rows: list[dict[str, Any]] = []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, author_agent_id, document_key, content, metadata, updated_at AS created_at
+            FROM agent_memory_document
+            WHERE project_id = %s AND importance = 'global'
+            ORDER BY updated_at DESC
+            LIMIT %s
+            """,
+            (project_id, scan_limit),
+        )
+        rows.extend(
+            _with_memory_metadata(
+                dict(row),
+                source_table="agent_memory_document",
+                importance="global",
+                author_agent_id=row["author_agent_id"],
+                document_key=row["document_key"],
+            )
+            for row in cur.fetchall()
+        )
+        cur.execute(
+            """
+            SELECT id, author_agent_id, content, metadata, created_at
+            FROM agent_memory_event
+            WHERE project_id = %s AND importance = 'global'
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (project_id, scan_limit),
+        )
+        rows.extend(
+            _with_memory_metadata(
+                dict(row),
+                source_table="agent_memory_event",
+                importance="global",
+                author_agent_id=row["author_agent_id"],
+            )
+            for row in cur.fetchall()
+        )
+        cur.execute(
+            """
+            SELECT id, kind, content, metadata, created_at
+            FROM project_context_entry
+            WHERE project_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (project_id, scan_limit),
+        )
+        rows.extend(
+            _with_memory_metadata(
+                dict(row),
+                source_table=f"project_context_entry:{row['kind']}",
+                importance="global",
+            )
+            for row in cur.fetchall()
+        )
+
+    return _rank_context_rows(
+        _sort_memory_rows(rows),
+        query,
+        closure_kind="agent_memory_event",
+        limit=limit,
+    )
+
+
+def record_context_exchange(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    asking_agent_id: UUID,
+    target_agent_id: UUID | None,
+    query: str,
+    tool_name: str,
+    results: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
+) -> UUID:
+    result_refs = [
+        {
+            "id": str(row["id"]),
+            "source_table": (row.get("metadata") or {}).get("source_table", row.get("kind")),
+        }
+        for row in results
+    ]
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO context_exchange (
+              project_id, asking_agent_id, target_agent_id, query, tool_name,
+              result_refs, metadata
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
                 project_id,
-                asker_user_id,
-                target_user_id,
-                context_entry_id,
-                question,
-                answer,
-                psycopg.types.json.Jsonb({"source": "request_context"}),
+                asking_agent_id,
+                target_agent_id,
+                query,
+                tool_name,
+                psycopg.types.json.Jsonb(result_refs),
+                psycopg.types.json.Jsonb(metadata or {}),
             ),
         )
-        qa_ledger_id = cur.fetchone()["id"]
-        cur.execute(
-            """
-            UPDATE context_entry
-            SET metadata = metadata || %s
-            WHERE id = %s
-            """,
-            (
-                psycopg.types.json.Jsonb({"qa_ledger_id": str(qa_ledger_id)}),
-                context_entry_id,
-            ),
-        )
+        row = cur.fetchone()
         conn.commit()
-    return context_entry_id  # type: ignore[return-value]
+    return row["id"]  # type: ignore[index]
 
 
-def write_project_qa_entry(
-    conn: psycopg.Connection,
-    project_id: UUID,
-    asker_user_id: UUID,
-    question: str,
-    answer: str,
-    extra_metadata: dict[str, Any] | None = None,
-) -> UUID:
-    """Project closure write for target='project'.
-
-    The Q&A is appended to project_context_entry so later project-scoped
-    retrieval can surface it, and a project_qa_ledger row gives the demo a
-    schema-safe audit trail without weakening qa_ledger's user-target FKs.
-    """
-    project = get_project(conn, project_id)
-    if project is None:
-        raise ValueError(f"project not found: {project_id}")
-    asker_user = get_user(conn, asker_user_id)
-    if asker_user is None:
-        raise ValueError(f"asker user not found: {asker_user_id}")
-    if asker_user["project_id"] != project_id:
-        raise ValueError("asking user must belong to the target project")
-
-    metadata: dict[str, Any] = {
-        "source": "request_context",
-        "asker_user_id": str(asker_user_id),
-        "target": "project",
-        "target_project_id": str(project_id),
-        "question": question,
-        "answer": answer,
-    }
-    if extra_metadata:
-        metadata.update(extra_metadata)
-    content = f"PROJECT QUESTION (from {asker_user_id}):\n{question}\n\nANSWER:\n{answer}"
+def get_context_exchange(conn: psycopg.Connection, exchange_id: UUID) -> dict[str, Any] | None:
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO project_context_entry (project_id, kind, content, metadata)
-            VALUES (%s, 'project_qa', %s, %s)
-            RETURNING id
-            """,
-            (project_id, content, psycopg.types.json.Jsonb(metadata)),
-        )
-        project_context_entry_id = cur.fetchone()["id"]
-        cur.execute(
-            """
-            INSERT INTO project_qa_ledger (
-              project_id,
-              asking_user_id,
-              project_context_entry_id,
-              question,
-              answer,
-              metadata
-            )
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (
-                project_id,
-                asker_user_id,
-                project_context_entry_id,
-                question,
-                answer,
-                psycopg.types.json.Jsonb({"source": "request_context"}),
-            ),
-        )
-        project_qa_ledger_id = cur.fetchone()["id"]
-        cur.execute(
-            """
-            UPDATE project_context_entry
-            SET metadata = metadata || %s
+            SELECT id, project_id, asking_agent_id, target_agent_id, query, tool_name,
+                   result_refs, metadata, created_at
+            FROM context_exchange
             WHERE id = %s
             """,
-            (
-                psycopg.types.json.Jsonb({"project_qa_ledger_id": str(project_qa_ledger_id)}),
-                project_context_entry_id,
-            ),
+            (exchange_id,),
         )
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def commit_memory_update(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    operations: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    """Append memory events and upsert canonical memory documents atomically."""
+    event_ids: list[str] = []
+    document_ids: list[str] = []
+    with conn.cursor() as cur:
+        for operation in operations:
+            author_agent_id = UUID(str(operation["author_agent_id"]))
+            importance = str(operation.get("importance") or "local")
+            if importance not in {"local", "global"}:
+                raise ValueError("importance must be local or global")
+
+            author = get_user(conn, author_agent_id)
+            if author is None or author["project_id"] != project_id:
+                raise ValueError(f"author agent is not in project: {author_agent_id}")
+
+            exchange_id: UUID | None = None
+            if operation.get("context_exchange_id"):
+                exchange_id = UUID(str(operation["context_exchange_id"]))
+                exchange = get_context_exchange(conn, exchange_id)
+                if exchange is None or exchange["project_id"] != project_id:
+                    raise ValueError(f"context exchange not found in project: {exchange_id}")
+                if author_agent_id not in {
+                    exchange["asking_agent_id"],
+                    exchange.get("target_agent_id"),
+                }:
+                    raise ValueError("context exchange does not involve author agent")
+
+            metadata = dict(operation.get("metadata") or {})
+            metadata.update(
+                {
+                    "chat_session_id": operation.get("chat_session_id"),
+                    "checkpoint_index": operation.get("checkpoint_index"),
+                }
+            )
+            event_content = str(operation.get("event_content") or "").strip()
+            if event_content:
+                cur.execute(
+                    """
+                    INSERT INTO agent_memory_event (
+                      project_id, author_agent_id, importance, content, metadata,
+                      source_context_exchange_id
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        project_id,
+                        author_agent_id,
+                        importance,
+                        event_content,
+                        psycopg.types.json.Jsonb(metadata),
+                        exchange_id,
+                    ),
+                )
+                event_ids.append(str(cur.fetchone()["id"]))
+
+            canonical_content = str(operation.get("canonical_content") or "").strip()
+            if canonical_content:
+                document_key = str(operation.get("document_key") or "chat-summary")
+                cur.execute(
+                    """
+                    INSERT INTO agent_memory_document (
+                      project_id, author_agent_id, importance, document_key, content, metadata
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (project_id, author_agent_id, importance, document_key)
+                    DO UPDATE SET
+                      content = EXCLUDED.content,
+                      metadata = agent_memory_document.metadata || EXCLUDED.metadata,
+                      updated_at = NOW()
+                    RETURNING id
+                    """,
+                    (
+                        project_id,
+                        author_agent_id,
+                        importance,
+                        document_key,
+                        canonical_content,
+                        psycopg.types.json.Jsonb(metadata),
+                    ),
+                )
+                document_ids.append(str(cur.fetchone()["id"]))
         conn.commit()
-    return project_context_entry_id  # type: ignore[return-value]
+    return {"event_ids": event_ids, "document_ids": document_ids}

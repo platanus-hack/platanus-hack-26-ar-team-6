@@ -10,25 +10,25 @@ from typing import Any
 
 import yaml
 
-from _stub_router import RouterDecision, route
+from _stub_retriever import RetrieverDecision, retrieve
 
 
 PASS_PRECISION = 0.80
 PASS_RECALL = 0.85
-ALLOWED_TIERS = {"pool", "personal", "timeline"}
+ALLOWED_TOOLS = {"agent_ctx", "global_ctx"}
 ALLOWED_CATEGORIES = {"factual", "rationale", "status", "cross_cutting", "out_of_scope"}
+EXPECTED_TOOLS_FIELD = "expected_tools_any_of"
 EXPECTED_AGENTS_FIELD = "expected_agents_any_of"
 LEGACY_EXPECTED_AGENTS_FIELD = "expected_agents"
 REQUIRED_FIELDS = {
     "id",
     "question",
-    "expected_tiers",
     "forbidden_agents",
     "must_mention_any_of",
     "category",
 }
 ROOT = Path(__file__).resolve().parent
-CASES_PATH = ROOT / "router_cases.yaml"
+CASES_PATH = ROOT / "retrieval_cases.yaml"
 AGENT_DIRECTORY_PATH = ROOT / "agent_directory.yaml"
 REPORTS_DIR = ROOT / "reports"
 
@@ -63,14 +63,14 @@ class CaseResult:
     case_id: str
     category: str
     question: str
-    expected_tiers: list[str]
+    expected_tools: list[str]
     expected_agents: list[str]
-    predicted_tiers: list[str]
+    predicted_tools: list[str]
     predicted_agents: list[str]
     forbidden_agents: list[str]
     precision: float
     recall: float
-    tier_match: bool
+    tool_match: bool
     forbidden_ok: bool
     rationale_mentions_expected: bool
     passed: bool
@@ -95,18 +95,35 @@ def as_string_list(value: Any, field_name: str, case_id: str) -> list[str]:
     return value
 
 
-def expected_agents_for_case(case: dict[str, Any], case_id: str) -> list[str]:
-    has_current = EXPECTED_AGENTS_FIELD in case
-    has_legacy = LEGACY_EXPECTED_AGENTS_FIELD in case
+def single_current_or_legacy_field(
+    case: dict[str, Any],
+    *,
+    case_id: str,
+    current: str,
+    legacy: str,
+) -> str:
+    has_current = current in case
+    has_legacy = legacy in case
     if has_current and has_legacy:
-        raise ValueError(
-            f"{case_id}: use only one of {EXPECTED_AGENTS_FIELD} "
-            f"or {LEGACY_EXPECTED_AGENTS_FIELD}"
-        )
+        raise ValueError(f"{case_id}: use only one of {current} or {legacy}")
     if not has_current and not has_legacy:
-        raise ValueError(f"{case_id}: missing ['{EXPECTED_AGENTS_FIELD}']")
+        raise ValueError(f"{case_id}: missing ['{current}']")
+    return current if has_current else legacy
 
-    field_name = EXPECTED_AGENTS_FIELD if has_current else LEGACY_EXPECTED_AGENTS_FIELD
+
+def expected_tools_for_case(case: dict[str, Any], case_id: str) -> list[str]:
+    if EXPECTED_TOOLS_FIELD not in case:
+        raise ValueError(f"{case_id}: missing ['{EXPECTED_TOOLS_FIELD}']")
+    return as_string_list(case[EXPECTED_TOOLS_FIELD], EXPECTED_TOOLS_FIELD, case_id)
+
+
+def expected_agents_for_case(case: dict[str, Any], case_id: str) -> list[str]:
+    field_name = single_current_or_legacy_field(
+        case,
+        case_id=case_id,
+        current=EXPECTED_AGENTS_FIELD,
+        legacy=LEGACY_EXPECTED_AGENTS_FIELD,
+    )
     return as_string_list(case[field_name], field_name, case_id)
 
 
@@ -121,10 +138,10 @@ def validate_case(case: dict[str, Any], index: int) -> None:
     if not isinstance(case["question"], str) or not case["question"]:
         raise ValueError(f"{case_id}: question must be a non-empty string")
 
-    expected_tiers = as_string_list(case["expected_tiers"], "expected_tiers", case_id)
-    unknown_tiers = sorted(set(expected_tiers) - ALLOWED_TIERS)
-    if unknown_tiers:
-        raise ValueError(f"{case_id}: unknown expected_tiers {unknown_tiers}")
+    expected_tools = expected_tools_for_case(case, case_id)
+    unknown_tools = sorted(set(expected_tools) - ALLOWED_TOOLS)
+    if unknown_tools:
+        raise ValueError(f"{case_id}: unknown expected tools {unknown_tools}")
 
     expected_agents_for_case(case, case_id)
     as_string_list(case["forbidden_agents"], "forbidden_agents", case_id)
@@ -138,7 +155,7 @@ def validate_case(case: dict[str, Any], index: int) -> None:
 def validate_case_suite(cases: list[dict[str, Any]], profile: EvalProfile) -> None:
     if len(cases) != profile.expected_case_count:
         raise ValueError(
-            f"router_cases.yaml must contain exactly {profile.expected_case_count} "
+            f"retrieval_cases.yaml must contain exactly {profile.expected_case_count} "
             f"cases for profile {profile.name}"
         )
 
@@ -158,14 +175,14 @@ def validate_case_suite(cases: list[dict[str, Any]], profile: EvalProfile) -> No
         expected_counts = Counter(profile.expected_category_counts)
         if category_counts != expected_counts:
             raise ValueError(
-                "router_cases.yaml category spread must be "
+                "retrieval_cases.yaml category spread must be "
                 f"{profile.expected_category_counts}, got {dict(category_counts)}"
             )
     elif profile.require_all_categories:
         missing_categories = sorted(ALLOWED_CATEGORIES - set(category_counts))
         if missing_categories:
             raise ValueError(
-                f"router_cases.yaml is missing categories for profile {profile.name}: "
+                f"retrieval_cases.yaml is missing categories for profile {profile.name}: "
                 f"{missing_categories}"
             )
 
@@ -235,17 +252,16 @@ def agent_precision(expected_agents: list[str], predicted_agents: list[str]) -> 
 
 
 def agent_recall(expected_agents: list[str], predicted_agents: list[str]) -> float:
-    """Score recall as correct expected agents over all expected agents."""
     if not expected_agents:
         return 1.0 if not predicted_agents else 0.0
     correct = len(set(expected_agents) & set(predicted_agents))
     return correct / len(expected_agents)
 
 
-def tiers_match(expected_tiers: list[str], predicted_tiers: list[str]) -> bool:
-    if not expected_tiers:
-        return not predicted_tiers
-    return bool(set(expected_tiers) & set(predicted_tiers))
+def tools_match(expected_tools: list[str], predicted_tools: list[str]) -> bool:
+    if not expected_tools:
+        return not predicted_tools
+    return bool(set(expected_tools) & set(predicted_tools))
 
 
 def rationale_mentions_any(rationale: str, expected_terms: list[str]) -> bool:
@@ -255,9 +271,13 @@ def rationale_mentions_any(rationale: str, expected_terms: list[str]) -> bool:
     return any(term.lower() in normalized_rationale for term in expected_terms)
 
 
-def score_case(case: dict[str, Any], decision: RouterDecision, directory: dict[str, str | None]) -> CaseResult:
+def score_case(
+    case: dict[str, Any],
+    decision: RetrieverDecision,
+    directory: dict[str, str | None],
+) -> CaseResult:
     case_id = str(case["id"])
-    expected_tiers = as_string_list(case["expected_tiers"], "expected_tiers", case_id)
+    expected_tools = expected_tools_for_case(case, case_id)
     expected_agents = resolve_agents(
         expected_agents_for_case(case, case_id),
         directory,
@@ -266,30 +286,30 @@ def score_case(case: dict[str, Any], decision: RouterDecision, directory: dict[s
         as_string_list(case["forbidden_agents"], "forbidden_agents", case_id),
         directory,
     )
-    predicted_tiers = list(decision.tiers)
+    predicted_tools = list(decision.tools)
     predicted_agents = resolve_agents(list(decision.agents), directory)
     precision = agent_precision(expected_agents, predicted_agents)
     recall = agent_recall(expected_agents, predicted_agents)
-    tier_ok = tiers_match(expected_tiers, predicted_tiers)
+    tool_ok = tools_match(expected_tools, predicted_tools)
     forbidden_ok = not (set(predicted_agents) & set(forbidden_agents))
     rationale_ok = rationale_mentions_any(
         decision.rationale,
         as_string_list(case["must_mention_any_of"], "must_mention_any_of", case_id),
     )
-    passed = precision == 1.0 and recall == 1.0 and tier_ok and forbidden_ok
+    passed = precision == 1.0 and recall == 1.0 and tool_ok and forbidden_ok
 
     return CaseResult(
         case_id=case_id,
         category=str(case["category"]),
         question=str(case["question"]),
-        expected_tiers=expected_tiers,
+        expected_tools=expected_tools,
         expected_agents=expected_agents,
-        predicted_tiers=predicted_tiers,
+        predicted_tools=predicted_tools,
         predicted_agents=predicted_agents,
         forbidden_agents=forbidden_agents,
         precision=precision,
         recall=recall,
-        tier_match=tier_ok,
+        tool_match=tool_ok,
         forbidden_ok=forbidden_ok,
         rationale_mentions_expected=rationale_ok,
         passed=passed,
@@ -317,15 +337,15 @@ def category_breakdown(results: list[CaseResult]) -> dict[str, dict[str, float]]
     return breakdown
 
 
-def route_checks_pass(results: list[CaseResult]) -> bool:
-    return all(result.tier_match and result.forbidden_ok for result in results)
+def retrieval_checks_pass(results: list[CaseResult]) -> bool:
+    return all(result.tool_match and result.forbidden_ok for result in results)
 
 
 def suite_passes(results: list[CaseResult], macro_precision: float, macro_recall: float) -> bool:
     return (
         macro_precision >= PASS_PRECISION
         and macro_recall >= PASS_RECALL
-        and route_checks_pass(results)
+        and retrieval_checks_pass(results)
     )
 
 
@@ -342,10 +362,10 @@ def render_report(
     profile: EvalProfile,
 ) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    all_tiers_match = all(result.tier_match for result in results)
+    all_tools_match = all(result.tool_match for result in results)
     all_forbidden_ok = all(result.forbidden_ok for result in results)
     lines = [
-        "# Router Eval Report",
+        "# Retriever Eval Report",
         "",
         f"Generated: {timestamp}",
         "",
@@ -355,9 +375,9 @@ def render_report(
         f"- Cases: {len(results)}",
         f"- Macro precision: {macro_precision:.3f}",
         f"- Macro recall: {macro_recall:.3f}",
-        f"- Tier checks: {'PASS' if all_tiers_match else 'FAIL'}",
+        f"- Tool checks: {'PASS' if all_tools_match else 'FAIL'}",
         f"- Forbidden checks: {'PASS' if all_forbidden_ok else 'FAIL'}",
-        f"- Pass bar: precision >= {PASS_PRECISION:.2f}, recall >= {PASS_RECALL:.2f}, all tier and forbidden checks pass",
+        f"- Pass bar: precision >= {PASS_PRECISION:.2f}, recall >= {PASS_RECALL:.2f}, all tool and forbidden checks pass",
         f"- Status: {'PASS' if passed else 'FAIL'}",
         "",
     ]
@@ -387,7 +407,7 @@ def render_report(
             "",
             "## Cases",
             "",
-            "| ID | Category | Pass | Precision | Recall | Tier Match | Forbidden OK | Rationale Mentions |",
+            "| ID | Category | Pass | Precision | Recall | Tool Match | Forbidden OK | Rationale Mentions |",
             "|---|---|---|---:|---:|---|---|---|",
         ]
     )
@@ -396,7 +416,7 @@ def render_report(
             "| "
             f"{result.case_id} | {result.category} | {format_bool(result.passed)} | "
             f"{result.precision:.3f} | {result.recall:.3f} | "
-            f"{format_bool(result.tier_match)} | {format_bool(result.forbidden_ok)} | "
+            f"{format_bool(result.tool_match)} | {format_bool(result.forbidden_ok)} | "
             f"{format_bool(result.rationale_mentions_expected)} |"
         )
 
@@ -406,8 +426,8 @@ def render_report(
             [
                 f"### {result.case_id}: {result.question}",
                 "",
-                f"- Expected tiers: {result.expected_tiers}",
-                f"- Predicted tiers: {result.predicted_tiers}",
+                f"- Expected tools: {result.expected_tools}",
+                f"- Predicted tools: {result.predicted_tools}",
                 f"- Expected agents: {result.expected_agents}",
                 f"- Predicted agents: {result.predicted_agents}",
                 f"- Forbidden agents: {result.forbidden_agents}",
@@ -431,16 +451,16 @@ def print_console_report(
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
-    print("Router eval")
+    print("Retriever eval")
     print(f"profile: {profile.name}")
     print(f"cases: {len(results)}")
     print(f"macro_precision: {macro_precision:.3f}")
     print(f"macro_recall: {macro_recall:.3f}")
-    print(f"tier_checks: {'PASS' if all(result.tier_match for result in results) else 'FAIL'}")
+    print(f"tool_checks: {'PASS' if all(result.tool_match for result in results) else 'FAIL'}")
     print(f"forbidden_checks: {'PASS' if all(result.forbidden_ok for result in results) else 'FAIL'}")
     print(
         f"pass_bar: precision >= {PASS_PRECISION:.2f}, "
-        f"recall >= {PASS_RECALL:.2f}, all tier and forbidden checks pass"
+        f"recall >= {PASS_RECALL:.2f}, all tool and forbidden checks pass"
     )
     print("")
     print("Category breakdown:")
@@ -465,7 +485,7 @@ def write_report(content: str) -> Path:
 
 
 def parse_args(argv: list[str] | None = None) -> Namespace:
-    parser = ArgumentParser(description="Run router eval cases against the configured router.")
+    parser = ArgumentParser(description="Run retriever eval cases against the configured retriever.")
     parser.add_argument(
         "--profile",
         choices=sorted(PROFILES),
@@ -482,7 +502,7 @@ def run(argv: list[str] | None = None) -> int:
     directory = load_agent_directory()
     warnings = warn_for_unresolved_placeholders(cases, directory)
     results = [
-        score_case(case, route(str(case["question"])), directory)
+        score_case(case, retrieve(str(case["question"])), directory)
         for case in cases
     ]
     macro_precision = average([result.precision for result in results])

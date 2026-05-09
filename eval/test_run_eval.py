@@ -11,17 +11,17 @@ EVAL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(EVAL_DIR))
 
 import run_eval
-from _stub_router import route
+from _stub_retriever import retrieve
 
 
-def make_case(case_id: str = "r_999", category: str = "factual") -> dict[str, object]:
+def make_case(case_id: str = "ret_999", category: str = "factual") -> dict[str, object]:
     return {
         "id": case_id,
-        "question": "What should this test route?",
-        "expected_tiers": ["pool"],
+        "question": "What should this test retrieve?",
+        "expected_tools_any_of": ["agent_ctx"],
         "expected_agents_any_of": ["<api_owner>"],
         "forbidden_agents": [],
-        "must_mention_any_of": ["route"],
+        "must_mention_any_of": ["retrieve"],
         "category": category,
     }
 
@@ -30,34 +30,34 @@ def make_result(
     *,
     precision: float = 1.0,
     recall: float = 1.0,
-    tier_match: bool = True,
+    tool_match: bool = True,
     forbidden_ok: bool = True,
 ) -> run_eval.CaseResult:
     return run_eval.CaseResult(
-        case_id="r_999",
+        case_id="ret_999",
         category="factual",
-        question="What should this test route?",
-        expected_tiers=["pool"],
+        question="What should this test retrieve?",
+        expected_tools=["agent_ctx"],
         expected_agents=["<api_owner>"],
-        predicted_tiers=["pool"],
+        predicted_tools=["agent_ctx"],
         predicted_agents=["<api_owner>"],
         forbidden_agents=[],
         precision=precision,
         recall=recall,
-        tier_match=tier_match,
+        tool_match=tool_match,
         forbidden_ok=forbidden_ok,
         rationale_mentions_expected=True,
-        passed=precision == 1.0 and recall == 1.0 and tier_match and forbidden_ok,
+        passed=precision == 1.0 and recall == 1.0 and tool_match and forbidden_ok,
         rationale="test rationale",
     )
 
 
-class RouterEvalTest(unittest.TestCase):
-    def test_suite_passes_when_metrics_and_route_checks_pass(self) -> None:
+class RetrieverEvalTest(unittest.TestCase):
+    def test_suite_passes_when_metrics_and_retrieval_checks_pass(self) -> None:
         self.assertTrue(run_eval.suite_passes([make_result()], 1.0, 1.0))
 
-    def test_suite_fails_when_tier_check_fails_despite_agent_metrics(self) -> None:
-        self.assertFalse(run_eval.suite_passes([make_result(tier_match=False)], 1.0, 1.0))
+    def test_suite_fails_when_tool_check_fails_despite_agent_metrics(self) -> None:
+        self.assertFalse(run_eval.suite_passes([make_result(tool_match=False)], 1.0, 1.0))
 
     def test_suite_fails_when_forbidden_check_fails_despite_agent_metrics(self) -> None:
         self.assertFalse(run_eval.suite_passes([make_result(forbidden_ok=False)], 1.0, 1.0))
@@ -67,7 +67,7 @@ class RouterEvalTest(unittest.TestCase):
             run_eval.validate_case_suite([make_case()], run_eval.PROFILES["v0"])
 
     def test_validate_case_suite_rejects_duplicate_ids(self) -> None:
-        cases = [make_case("r_001") for _ in range(20)]
+        cases = [make_case("ret_001") for _ in range(20)]
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             run_eval.validate_case_suite(cases, run_eval.PROFILES["v0"])
 
@@ -75,8 +75,10 @@ class RouterEvalTest(unittest.TestCase):
         cases = run_eval.load_cases()
         self.assertEqual(len(cases), 20)
 
-    def test_current_yaml_uses_task_agent_field_name(self) -> None:
+    def test_current_yaml_uses_retriever_field_names(self) -> None:
         cases = run_eval.load_yaml(run_eval.CASES_PATH)
+        self.assertTrue(all("expected_tools_any_of" in case for case in cases))
+        self.assertTrue(all("expected_tiers" not in case for case in cases))
         self.assertTrue(all("expected_agents_any_of" in case for case in cases))
         self.assertTrue(all("expected_agents" not in case for case in cases))
 
@@ -89,12 +91,13 @@ class RouterEvalTest(unittest.TestCase):
             "out_of_scope",
         ]
         cases = [
-            make_case(f"r_{index:03d}", categories[index % len(categories)])
+            make_case(f"ret_{index:03d}", categories[index % len(categories)])
             for index in range(30)
         ]
         run_eval.validate_case_suite(cases, run_eval.PROFILES["v3"])
 
-    def test_task_agent_field_is_canonical(self) -> None:
+    def test_retriever_fields_are_canonical(self) -> None:
+        self.assertEqual(run_eval.EXPECTED_TOOLS_FIELD, "expected_tools_any_of")
         self.assertEqual(run_eval.EXPECTED_AGENTS_FIELD, "expected_agents_any_of")
         self.assertEqual(run_eval.LEGACY_EXPECTED_AGENTS_FIELD, "expected_agents")
 
@@ -109,14 +112,20 @@ class RouterEvalTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "only one"):
             run_eval.validate_case(case, 1)
 
-    def test_score_case_uses_task_expected_agents_field(self) -> None:
+    def test_validate_case_requires_current_tool_field(self) -> None:
+        case = make_case()
+        case.pop("expected_tools_any_of")
+        with self.assertRaisesRegex(ValueError, "expected_tools_any_of"):
+            run_eval.validate_case(case, 1)
+
+    def test_score_case_uses_retriever_expected_agents_field(self) -> None:
         result = run_eval.score_case(
             make_case(),
-            run_eval.RouterDecision(
-                tiers=["pool"],
+            run_eval.RetrieverDecision(
+                tools=["agent_ctx"],
                 agents=["<api_owner>"],
                 mode="single",
-                rationale="route",
+                rationale="retrieve",
             ),
             {},
         )
@@ -129,11 +138,11 @@ class RouterEvalTest(unittest.TestCase):
 
         result = run_eval.score_case(
             case,
-            run_eval.RouterDecision(
-                tiers=["pool"],
+            run_eval.RetrieverDecision(
+                tools=["agent_ctx"],
                 agents=["<infra_owner>"],
                 mode="single",
-                rationale="route",
+                rationale="retrieve",
             ),
             {},
         )
@@ -145,11 +154,11 @@ class RouterEvalTest(unittest.TestCase):
     def test_score_case_penalizes_duplicate_predicted_agents(self) -> None:
         result = run_eval.score_case(
             make_case(),
-            run_eval.RouterDecision(
-                tiers=["pool"],
+            run_eval.RetrieverDecision(
+                tools=["agent_ctx"],
                 agents=["<api_owner>", "<api_owner>"],
                 mode="single",
-                rationale="route",
+                rationale="retrieve",
             ),
             {},
         )
@@ -161,11 +170,11 @@ class RouterEvalTest(unittest.TestCase):
     def test_score_case_resolves_predicted_agent_placeholders(self) -> None:
         result = run_eval.score_case(
             make_case(),
-            run_eval.RouterDecision(
-                tiers=["pool"],
+            run_eval.RetrieverDecision(
+                tools=["agent_ctx"],
                 agents=["<api_owner>"],
                 mode="single",
-                rationale="route",
+                rationale="retrieve",
             ),
             {"<api_owner>": "api-real"},
         )
@@ -181,11 +190,11 @@ class RouterEvalTest(unittest.TestCase):
 
         result = run_eval.score_case(
             case,
-            run_eval.RouterDecision(
-                tiers=["pool"],
+            run_eval.RetrieverDecision(
+                tools=["agent_ctx"],
                 agents=["<api_owner>"],
                 mode="single",
-                rationale="route",
+                rationale="retrieve",
             ),
             {"<api_owner>": "api-real"},
         )
@@ -201,7 +210,7 @@ class RouterEvalTest(unittest.TestCase):
         self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_stub_rationale_does_not_echo_question_keywords(self) -> None:
-        decision = route("How do we deploy to Railway?")
+        decision = retrieve("How do we deploy to Railway?")
         self.assertNotIn("Railway", decision.rationale)
         self.assertNotIn("deploy", decision.rationale)
 
