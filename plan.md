@@ -246,15 +246,6 @@ Pick from stretch list only after V2 is green:
 - Multi-hop loop (AI calls the tool more than once per turn).
 - Multi-target single call.
 - Retrieval improvements driven by V2 failures.
-- **Runner streaming event contract.** Today the renderer's
-  `chatStore.mergeAssistantText` carries a text-prefix heuristic
-  (V2 workaround) to deduplicate streamed deltas against a final
-  full-text snapshot from the SDK loop. Replace it with explicit IPC
-  event types (`runner:delta`, `runner:final`, `runner:error`) so the
-  store does pure append on deltas and pure replace on final. Drop the
-  heuristic. Owner: Marf when wiring real streaming to the chat UI;
-  coordinate with Jerf since the IPC channel is shared with
-  `request_context` tool-call traces.
 
 If V2 is shaky at h20, skip V3 entirely and start V4.
 

@@ -50,25 +50,11 @@ type LocalAssistantEvent =
       messageType: string
       message: unknown
     }
-type LocalRunnerPromptRequest = {
-  apiBaseUrl: string
-  authToken: string
-  cwd: string
-  maxTurns?: number
-  model?: string
-  prompt: string
-}
-
-type LocalRunnerPromptResponse = {
-  result: string
-  messages: unknown[]
-}
 
 interface DesktopApi {
   getHealth: (apiBaseUrl: string) => Promise<HealthResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
-  runAgentPrompt: (request: LocalRunnerPromptRequest) => Promise<LocalRunnerPromptResponse>
 }
 
 declare global {
