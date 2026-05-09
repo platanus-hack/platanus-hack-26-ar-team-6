@@ -4,6 +4,9 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   getHealth: (apiBaseUrl: string) => ipcRenderer.invoke('health:check', apiBaseUrl),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveAnthropicApiKey: (apiKey: string) => ipcRenderer.invoke('settings:anthropic-key:save', apiKey),
+  clearAnthropicApiKey: () => ipcRenderer.invoke('settings:anthropic-key:clear'),
   getBootstrap: (request: { apiBaseUrl: string; authToken: string; userId: string }) =>
     ipcRenderer.invoke('bootstrap:load', request),
   savePromptAnswer: (request: {
@@ -23,8 +26,8 @@ const api = {
     model?: string
     maxTurns?: number
   }) => ipcRenderer.invoke('assistant:run:start', payload),
-  onAssistantEvent: (callback: (event: unknown) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
+  onAssistantEvent: (callback: (event: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
     ipcRenderer.on('assistant:event', listener)
 
     return () => {

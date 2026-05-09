@@ -16,6 +16,21 @@ async function resolveWorkingDirectory(cwd: string): Promise<string> {
   return resolved;
 }
 
+function buildSdkEnvironment(anthropicApiKey: string): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") {
+      env[key] = value;
+    }
+  }
+
+  delete env.ANTHROPIC_API_KEY;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  env.ANTHROPIC_API_KEY = anthropicApiKey;
+  return env;
+}
+
 function textFromAssistantMessage(message: SDKMessage): LocalAssistantEvent[] {
   if (message.type !== "assistant") {
     return [];
@@ -169,6 +184,11 @@ export async function* runLocalAssistant(
   options: RunLocalAssistantOptions,
 ): AsyncGenerator<LocalAssistantEvent> {
   const cwd = await resolveWorkingDirectory(options.cwd);
+  const anthropicApiKey = options.anthropicApiKey?.trim();
+  if (!anthropicApiKey) {
+    throw new Error("Anthropic API key is not configured.");
+  }
+
   const systemPrompt = await buildLocalAssistantSystemPrompt(options.bootstrap);
   const requestContextServer = createRequestContextMcpServer({
     serverUrl: options.serverUrl,
@@ -180,6 +200,7 @@ export async function* runLocalAssistant(
     prompt: options.prompt,
     options: {
       cwd,
+      env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
       maxTurns: options.maxTurns,
       includePartialMessages: true,

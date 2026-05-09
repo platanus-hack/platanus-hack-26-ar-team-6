@@ -11,6 +11,8 @@ type TopBarProps = {
   bootstrapStatus?: 'live' | 'fallback'
   isDark: boolean
   onToggleTheme: () => void
+  anthropicKeyConfigured?: boolean
+  onSettings?: () => void
 }
 
 function SunIcon(): React.JSX.Element {
@@ -41,7 +43,15 @@ function MoonIcon(): React.JSX.Element {
   )
 }
 
-function TopBar({ workspaceName, onBack, bootstrapStatus, isDark, onToggleTheme }: TopBarProps): React.JSX.Element {
+function TopBar({
+  workspaceName,
+  onBack,
+  bootstrapStatus,
+  isDark,
+  onToggleTheme,
+  anthropicKeyConfigured,
+  onSettings
+}: TopBarProps): React.JSX.Element {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
@@ -72,10 +82,23 @@ function TopBar({ workspaceName, onBack, bootstrapStatus, isDark, onToggleTheme 
             <span>bootstrap: {bootstrapStatus}</span>
           </div>
         )}
+        {typeof anthropicKeyConfigured === 'boolean' && (
+          <div className="topbar-status">
+            <span
+              className={`health-indicator ${anthropicKeyConfigured ? 'health-indicator--ok' : 'health-indicator--off'}`}
+            />
+            <span>ai: {anthropicKeyConfigured ? 'configured' : 'missing key'}</span>
+          </div>
+        )}
         <div className="topbar-status">
           <span className={`health-indicator ${isHealthy ? 'health-indicator--ok' : 'health-indicator--off'}`} />
           <span title={data?.sha || ''}>{healthText}</span>
         </div>
+        {onSettings && (
+          <button className="topbar-button" type="button" onClick={onSettings}>
+            settings
+          </button>
+        )}
         <button className="theme-toggle" type="button" onClick={onToggleTheme}>
           {isDark ? <MoonIcon /> : <SunIcon />}
         </button>

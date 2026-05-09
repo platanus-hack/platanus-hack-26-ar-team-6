@@ -96,8 +96,16 @@ type SavePromptAnswerResponse = {
   kind: string
 }
 
+type DesktopSettingsResponse = {
+  hasAnthropicApiKey: boolean
+  encryptionAvailable: boolean
+}
+
 interface DesktopApi {
   getHealth: (apiBaseUrl: string) => Promise<HealthResponse>
+  getSettings: () => Promise<DesktopSettingsResponse>
+  saveAnthropicApiKey: (apiKey: string) => Promise<DesktopSettingsResponse>
+  clearAnthropicApiKey: () => Promise<DesktopSettingsResponse>
   getBootstrap: (request: { apiBaseUrl: string; authToken: string; userId: string }) => Promise<BootstrapResponse>
   savePromptAnswer: (request: {
     apiBaseUrl: string

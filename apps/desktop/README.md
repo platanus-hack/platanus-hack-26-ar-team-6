@@ -22,11 +22,15 @@ VITE_AUTH_TOKEN=dev-token-user1
 VITE_LOCAL_REPO_PATH=/absolute/path/to/your/repo
 ```
 
+Configure the Anthropic API key from the app's settings panel. It is not read from
+`.env`.
+
 notes:
 
 - the app calls `/bootstrap` on launch using `VITE_AUTH_TOKEN`
 - the chat saves `{prompt, final_answer}` through `/context-entries`
 - the runner uses `VITE_LOCAL_REPO_PATH` as its working directory
+- the runner uses the Anthropic API key saved in app settings
 - the health indicator uses `VITE_API_BASE_URL/health`
 
 manual smoke:
