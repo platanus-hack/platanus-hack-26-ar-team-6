@@ -97,13 +97,13 @@ uv run python -m relevo.seeds.loader
 The loader TRUNCATEs all data tables before inserting; pass
 `--keep-existing` to skip the wipe.
 
-## Remaining V2 handoff
+## Remaining Retrieval Upgrade
+
+These are not blocking the V2 demo path, which currently uses lexical
+retrieval over `context_entry` while preserving the target-user filter and
+closure-write contract.
 
 1. Sarf migrates `embedding vector(1024)` to `vector(1536)` for
    `text-embedding-3-small`.
 2. Create the HNSW index on `embedding`.
 3. Add a backfill pass that re-embeds existing rows.
-4. Narf retrieves top 6 rows filtered by target `user_id` and passes them to
-   `relevo.agents.answer_on_demand`.
-5. Wire `write_cross_user_qa_entry` into Narf's now-real
-   `/request-context` route after Jorf returns an answer.
