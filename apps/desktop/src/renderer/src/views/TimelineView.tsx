@@ -1,13 +1,58 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 type ActivityNote = Awaited<ReturnType<typeof window.api.getActivityNotes>>[number]
-type GraphEdge = { a: string; b: string; sharedFiles: string[] }
+type GraphEdge = {
+  a: string
+  b: string
+  kind: 'sequence' | 'topic'
+  sharedFiles: string[]
+  topicKey?: string
+  topicLabel?: string
+}
+
+type TopicGroup = {
+  key: string
+  label: string
+  noteIds: string[]
+  color: string
+  laneIndex: number
+}
+
+type GraphLayout = {
+  edges: GraphEdge[]
+  groups: TopicGroup[]
+  height: number
+  positions: Map<string, { x: number; y: number }>
+  width: number
+}
 
 const USER_COLORS = ['#2f80ed', '#c94840', '#2e8b57', '#c07c21', '#7d4bc2', '#008f8c']
+const TOPIC_COLORS = ['#2563eb', '#0f766e', '#a16207', '#7c3aed', '#be123c', '#475569']
 const NODE_W = 236
 const NODE_H = 96
 const DETAIL_W = 320
 const GRAPH_PADDING = 32
+const LANE_TOP = 96
+const LANE_GAP_Y = 154
+const NODE_GAP_X = 92
+const TOPIC_STOP_WORDS = new Set([
+  'activity',
+  'app',
+  'code',
+  'file',
+  'files',
+  'general',
+  'local',
+  'node',
+  'nodes',
+  'project',
+  'response',
+  'session',
+  'summary',
+  'title',
+  'titles',
+  'work'
+])
 
 function userColor(user: string): string {
   let hash = 0
@@ -15,18 +60,14 @@ function userColor(user: string): string {
   return USER_COLORS[hash % USER_COLORS.length]!
 }
 
-function hashString(value: string): number {
+function hashValue(value: string): number {
   let hash = 0
   for (let i = 0; i < value.length; i++) hash = (hash * 31 + value.charCodeAt(i)) >>> 0
   return hash
 }
 
-function jitter(id: string, amount: number): number {
-  return ((hashString(id) % 1000) / 1000 - 0.5) * amount
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
+function topicColor(topicKey: string): string {
+  return TOPIC_COLORS[hashValue(topicKey) % TOPIC_COLORS.length]!
 }
 
 function truncateText(text: string, maxLength: number): string {
@@ -78,6 +119,58 @@ function displayTitle(note: ActivityNote): string {
   const fileScope = describeChangedFiles(note.filesChanged)
   if (fileScope) return truncateText(fileScope, 80)
   return title || 'Untitled session'
+}
+
+function titleCaseWord(word: string): string {
+  const upper = word.toUpperCase()
+  if (['API', 'CSS', 'DB', 'HTML', 'IPC', 'JSON', 'MCP', 'SQL', 'SVG', 'UI', 'URL', 'UX'].includes(upper)) {
+    return upper
+  }
+  return `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`
+}
+
+function normalizeTopicWord(word: string): string {
+  const lower = word.toLowerCase()
+  if (lower.length > 4 && lower.endsWith('s')) return lower.slice(0, -1)
+  return lower
+}
+
+function topicWordsFromTitle(title: string): string[] {
+  return title
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .split(' ')
+    .map((word) => word.trim())
+    .filter(Boolean)
+    .map(normalizeTopicWord)
+    .filter((word) => word.length > 2 && !TOPIC_STOP_WORDS.has(word))
+}
+
+function topicFromFilePath(filePath: string): { key: string; label: string } {
+  const label = humanizePath(filePath)
+  const key = topicWordsFromTitle(label).slice(0, 2).join(':') || normalizeTopicWord(label)
+  return { key: `file:${key}`, label }
+}
+
+function topicForNote(note: ActivityNote): { key: string; label: string } {
+  const words = topicWordsFromTitle(displayTitle(note))
+  if (words.length >= 2) {
+    const topicWords = words.slice(0, 2)
+    return {
+      key: `title:${topicWords.join(':')}`,
+      label: topicWords.map(titleCaseWord).join(' ')
+    }
+  }
+
+  if (note.filesChanged.length > 0) {
+    return topicFromFilePath(note.filesChanged[0]!)
+  }
+
+  const fallback = words[0] ?? 'general'
+  return {
+    key: `fallback:${fallback}`,
+    label: titleCaseWord(fallback)
+  }
 }
 
 function splitTitle(title: string): string[] {
@@ -141,148 +234,166 @@ function fileCountLabel(count: number): string {
   return `${count} file${count === 1 ? '' : 's'}`
 }
 
-function buildEdges(notes: ActivityNote[]): GraphEdge[] {
+function sharedFilesBetween(a: ActivityNote, b: ActivityNote): string[] {
+  const filesA = new Set(a.filesChanged)
+  return b.filesChanged.filter((file) => filesA.has(file))
+}
+
+function buildTopicGroups(notes: ActivityNote[]): TopicGroup[] {
+  const rawGroups = new Map<string, Omit<TopicGroup, 'color' | 'laneIndex'>>()
+  for (const note of notes) {
+    const topic = topicForNote(note)
+    const group = rawGroups.get(topic.key)
+    if (group) {
+      group.noteIds.push(note.id)
+      continue
+    }
+    rawGroups.set(topic.key, {
+      key: topic.key,
+      label: topic.label,
+      noteIds: [note.id]
+    })
+  }
+
+  const groups = [...rawGroups.values()]
+  const repeatedGroups = groups.filter((group) => group.noteIds.length > 1)
+  const singletonGroups = groups.filter((group) => group.noteIds.length === 1)
+  const laneGroups =
+    repeatedGroups.length > 0
+      ? singletonGroups.length > 0
+        ? repeatedGroups.concat({
+            key: 'other',
+            label: 'Other Activity',
+            noteIds: singletonGroups.flatMap((group) => group.noteIds)
+          })
+        : repeatedGroups
+      : groups.length > 1
+        ? [{ key: 'all', label: 'All Activity', noteIds: groups.flatMap((group) => group.noteIds) }]
+        : groups
+
+  return laneGroups.map((group, laneIndex) => ({
+    ...group,
+    color: topicColor(group.key),
+    laneIndex
+  }))
+}
+
+function buildEdges(notes: ActivityNote[], groups: TopicGroup[]): GraphEdge[] {
   const edges: GraphEdge[] = []
-  for (let i = 0; i < notes.length; i++) {
-    for (let j = i + 1; j < notes.length; j++) {
-      const setA = new Set(notes[i]!.filesChanged)
-      const sharedFiles = notes[j]!.filesChanged.filter((file) => setA.has(file))
-      if (sharedFiles.length > 0) {
-        edges.push({ a: notes[i]!.id, b: notes[j]!.id, sharedFiles })
-      }
+  const noteById = new Map(notes.map((note) => [note.id, note]))
+  const noteIndex = new Map(notes.map((note, index) => [note.id, index]))
+
+  for (let i = 0; i < notes.length - 1; i++) {
+    edges.push({
+      a: notes[i]!.id,
+      b: notes[i + 1]!.id,
+      kind: 'sequence',
+      sharedFiles: sharedFilesBetween(notes[i]!, notes[i + 1]!)
+    })
+  }
+
+  for (const group of groups) {
+    if (group.noteIds.length < 2 || group.key === 'all' || group.key === 'other') continue
+    const ids = [...group.noteIds].sort((a, b) => (noteIndex.get(a) ?? 0) - (noteIndex.get(b) ?? 0))
+    for (let i = 0; i < ids.length - 1; i++) {
+      const a = noteById.get(ids[i]!)
+      const b = noteById.get(ids[i + 1]!)
+      if (!a || !b) continue
+      edges.push({
+        a: a.id,
+        b: b.id,
+        kind: 'topic',
+        sharedFiles: sharedFilesBetween(a, b),
+        topicKey: group.key,
+        topicLabel: group.label
+      })
     }
   }
+
   return edges
 }
 
-type Pos = { x: number; y: number; vx: number; vy: number }
+function buildGraphLayout(notes: ActivityNote[], availableWidth: number, availableHeight: number): GraphLayout {
+  const groups = buildTopicGroups(notes)
+  const groupByNote = new Map<string, TopicGroup>()
+  for (const group of groups) {
+    for (const noteId of group.noteIds) {
+      groupByNote.set(noteId, group)
+    }
+  }
 
-function snapshotPositions(pos: Map<string, Pos>): Map<string, { x: number; y: number }> {
-  const out = new Map<string, { x: number; y: number }>()
-  for (const [id, p] of pos) out.set(id, { x: p.x, y: p.y })
-  return out
-}
-
-function buildTargets(notes: ActivityNote[], width: number, height: number): Map<string, { x: number; y: number }> {
-  const targets = new Map<string, { x: number; y: number }>()
-  const left = GRAPH_PADDING + NODE_W / 2
-  const right = Math.max(left, width - GRAPH_PADDING - NODE_W / 2)
-  const centerY = clamp(height / 2, NODE_H / 2 + GRAPH_PADDING, Math.max(NODE_H / 2 + GRAPH_PADDING, height - NODE_H / 2 - GRAPH_PADDING))
-  const lanes = [-86, 86, 0, -154, 154]
+  const minStep = NODE_W + NODE_GAP_X
+  const innerWidth = Math.max(0, availableWidth - GRAPH_PADDING * 2 - NODE_W)
+  const step = notes.length <= 1 ? 0 : Math.max(minStep, innerWidth / (notes.length - 1))
+  const width = Math.max(availableWidth || 1, GRAPH_PADDING * 2 + NODE_W + Math.max(0, notes.length - 1) * step)
+  const height = Math.max(
+    availableHeight || 1,
+    LANE_TOP + Math.max(0, groups.length - 1) * LANE_GAP_Y + NODE_H / 2 + GRAPH_PADDING
+  )
+  const positions = new Map<string, { x: number; y: number }>()
 
   notes.forEach((note, index) => {
-    const progress = notes.length === 1 ? 0.5 : index / (notes.length - 1)
-    const targetY = centerY + lanes[index % lanes.length]!
-    targets.set(note.id, {
-      x: left + (right - left) * progress,
-      y: clamp(targetY, NODE_H / 2 + 16, Math.max(NODE_H / 2 + 16, height - NODE_H / 2 - 16))
+    const group = groupByNote.get(note.id)
+    positions.set(note.id, {
+      x: GRAPH_PADDING + NODE_W / 2 + index * step,
+      y: LANE_TOP + (group?.laneIndex ?? 0) * LANE_GAP_Y
     })
   })
 
-  return targets
+  return {
+    edges: buildEdges(notes, groups),
+    groups,
+    height,
+    positions,
+    width
+  }
 }
 
-function useForceSimulation(
-  notes: ActivityNote[],
-  edges: GraphEdge[],
-  width: number,
-  height: number
-): Map<string, { x: number; y: number }> {
-  const posRef = useRef<Map<string, Pos>>(new Map())
-  const [positions, setPositions] = useState<Map<string, { x: number; y: number }>>(new Map())
+function edgePath(edge: GraphEdge, a: { x: number; y: number }, b: { x: number; y: number }): string {
+  const midX = (a.x + b.x) / 2
+  if (edge.kind === 'topic') {
+    const lift = a.y === b.y ? 42 : 18
+    return `M ${a.x} ${a.y} C ${midX} ${a.y - lift}, ${midX} ${b.y - lift}, ${b.x} ${b.y}`
+  }
+  return `M ${a.x} ${a.y} C ${midX} ${a.y}, ${midX} ${b.y}, ${b.x} ${b.y}`
+}
 
-  useEffect(() => {
-    if (notes.length === 0 || width === 0 || height === 0) return
+function edgeTitle(edge: GraphEdge): string {
+  if (edge.kind === 'sequence') {
+    return edge.sharedFiles.length > 0
+      ? `Next session - shared files: ${edge.sharedFiles.map(compactPath).join(', ')}`
+      : 'Next session'
+  }
+  return edge.sharedFiles.length > 0
+    ? `${edge.topicLabel} - shared files: ${edge.sharedFiles.map(compactPath).join(', ')}`
+    : `${edge.topicLabel} topic`
+}
 
-    const targets = buildTargets(notes, width, height)
-    const existing = posRef.current
-    const next = new Map<string, Pos>()
-    for (const note of notes) {
-      const target = targets.get(note.id)!
-      next.set(
-        note.id,
-        existing.get(note.id) ?? {
-          x: target.x + jitter(note.id, 28),
-          y: target.y + jitter(`${note.id}:y`, 28),
-          vx: 0,
-          vy: 0
-        }
-      )
-    }
-    posRef.current = next
+function edgeOpacity(edge: GraphEdge, selected: ActivityNote | null): number {
+  if (!selected) return edge.kind === 'topic' ? 0.74 : 0.46
+  const selectedEdge = edge.a === selected.id || edge.b === selected.id
+  if (!selectedEdge) return 0.12
+  return edge.kind === 'topic' ? 0.92 : 0.72
+}
 
-    let stableCount = 0
-    let handle: ReturnType<typeof setTimeout>
+function groupBandBounds(group: TopicGroup, graphWidth: number): { x: number; y: number; width: number; height: number } {
+  return {
+    x: 14,
+    y: LANE_TOP + group.laneIndex * LANE_GAP_Y - NODE_H / 2 - 28,
+    width: Math.max(0, graphWidth - 28),
+    height: NODE_H + 56
+  }
+}
 
-    function tick(): void {
-      const pos = posRef.current
-      const REPULSION = 42000
-      const EDGE_STRENGTH = 0.024
-      const TARGET_PULL_X = 0.018
-      const TARGET_PULL_Y = 0.014
-      const DAMPING = 0.78
-      const ids = [...pos.keys()]
+function groupLabel(group: TopicGroup): string {
+  const count = group.noteIds.length
+  return `${group.label} ${count > 1 ? `(${count})` : ''}`.trim()
+}
 
-      for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-          const a = pos.get(ids[i]!)!
-          const b = pos.get(ids[j]!)!
-          const dx = a.x - b.x
-          const dy = a.y - b.y
-          const distSq = dx * dx + dy * dy || 1
-          const dist = Math.sqrt(distSq)
-          const overlapBoost = Math.abs(dx) < NODE_W && Math.abs(dy) < NODE_H ? 1.8 : 1
-          const force = (REPULSION * overlapBoost) / distSq
-          const fx = (dx / dist) * force
-          const fy = (dy / dist) * force
-          a.vx += fx
-          a.vy += fy
-          b.vx -= fx
-          b.vy -= fy
-        }
-      }
-
-      for (const edge of edges) {
-        const a = pos.get(edge.a)
-        const b = pos.get(edge.b)
-        if (!a || !b) continue
-        const dx = b.x - a.x
-        const dy = b.y - a.y
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const desired = NODE_W + 54
-        const force = (dist - desired) * EDGE_STRENGTH
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        a.vx += fx
-        a.vy += fy
-        b.vx -= fx
-        b.vy -= fy
-      }
-
-      let kinetic = 0
-      for (const [id, p] of pos) {
-        const target = targets.get(id)
-        if (target) {
-          p.vx += (target.x - p.x) * TARGET_PULL_X
-          p.vy += (target.y - p.y) * TARGET_PULL_Y
-        }
-        p.vx *= DAMPING
-        p.vy *= DAMPING
-        p.x = clamp(p.x + p.vx, NODE_W / 2 + 12, Math.max(NODE_W / 2 + 12, width - NODE_W / 2 - 12))
-        p.y = clamp(p.y + p.vy, NODE_H / 2 + 12, Math.max(NODE_H / 2 + 12, height - NODE_H / 2 - 12))
-        kinetic += Math.abs(p.vx) + Math.abs(p.vy)
-      }
-
-      setPositions(snapshotPositions(pos))
-      stableCount = kinetic < 0.12 * ids.length ? stableCount + 1 : 0
-      if (stableCount < 8) handle = setTimeout(tick, 33)
-    }
-
-    handle = setTimeout(tick, 33)
-    return () => clearTimeout(handle)
-  }, [notes, edges, width, height])
-
-  return positions
+function orderedEdges(edges: GraphEdge[]): GraphEdge[] {
+  return edges
+    .filter((edge) => edge.kind === 'sequence')
+    .concat(edges.filter((edge) => edge.kind === 'topic'))
 }
 
 function DetailPanel({ note, docked, onClose }: { note: ActivityNote; docked: boolean; onClose: () => void }): React.JSX.Element {
@@ -381,12 +492,12 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
   }, [])
 
   const notesForGraph = useMemo(() => [...notes].sort(compareNotes), [notes])
-  const edges = useMemo(() => buildEdges(notesForGraph), [notesForGraph])
   const detailDocked = Boolean(selected && dims.width >= 680)
-  const graphWidth = detailDocked ? Math.max(0, dims.width - DETAIL_W) : dims.width
-  const graphHeight = Math.max(dims.height, 1)
-  const axisY = clamp(graphHeight / 2, 72, Math.max(72, graphHeight - 72))
-  const positions = useForceSimulation(notesForGraph, edges, graphWidth, dims.height)
+  const availableGraphWidth = detailDocked ? Math.max(0, dims.width - DETAIL_W) : dims.width
+  const graph = useMemo(
+    () => buildGraphLayout(notesForGraph, availableGraphWidth, dims.height),
+    [availableGraphWidth, dims.height, notesForGraph]
+  )
 
   if (!projectFolderPath) {
     return (
@@ -403,8 +514,8 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
       ) : (
         <svg
           className="timeline-graph"
-          width={graphWidth}
-          height={graphHeight}
+          width={graph.width}
+          height={graph.height}
           role="img"
           aria-label="Activity graph"
           onClick={() => setSelected(null)}
@@ -421,45 +532,61 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
             </filter>
           </defs>
 
-          <rect width={graphWidth} height={graphHeight} fill="#fbfcfe" />
-          <rect width={graphWidth} height={graphHeight} fill="url(#timeline-grid)" opacity="0.7" />
-          <line
-            className="timeline-graph__axis"
-            x1={GRAPH_PADDING}
-            y1={axisY}
-            x2={Math.max(GRAPH_PADDING, graphWidth - GRAPH_PADDING)}
-            y2={axisY}
-          />
+          <rect width={graph.width} height={graph.height} fill="#fbfcfe" />
+          <rect width={graph.width} height={graph.height} fill="url(#timeline-grid)" opacity="0.7" />
 
-          {notesForGraph.map((note) => {
-            const pos = positions.get(note.id)
-            if (!pos) return null
-            return <circle key={`tick-${note.id}`} className="timeline-graph__tick" cx={pos.x} cy={axisY} r={3} />
+          {graph.groups.map((group) => {
+            const bounds = groupBandBounds(group, graph.width)
+            const laneY = LANE_TOP + group.laneIndex * LANE_GAP_Y
+            return (
+              <g key={group.key}>
+                <rect
+                  className="timeline-topic-band"
+                  x={bounds.x}
+                  y={bounds.y}
+                  width={bounds.width}
+                  height={bounds.height}
+                  rx={8}
+                  fill={group.color}
+                  opacity={group.noteIds.length > 1 ? 0.08 : 0.04}
+                />
+                <line
+                  className="timeline-topic-lane"
+                  x1={GRAPH_PADDING}
+                  y1={laneY}
+                  x2={Math.max(GRAPH_PADDING, graph.width - GRAPH_PADDING)}
+                  y2={laneY}
+                />
+                <text className="timeline-topic-label" x={GRAPH_PADDING} y={bounds.y + 18} fill={group.color}>
+                  {groupLabel(group)}
+                </text>
+              </g>
+            )
           })}
 
-          {edges.map((edge) => {
-            const a = positions.get(edge.a)
-            const b = positions.get(edge.b)
+          {orderedEdges(graph.edges).map((edge) => {
+            const a = graph.positions.get(edge.a)
+            const b = graph.positions.get(edge.b)
             if (!a || !b) return null
-            const selectedEdge = selected ? edge.a === selected.id || edge.b === selected.id : false
-            const curve = clamp(Math.abs(b.x - a.x) * 0.32, 48, 130)
-            const d = `M ${a.x} ${a.y} C ${a.x + curve} ${a.y}, ${b.x - curve} ${b.y}, ${b.x} ${b.y}`
+            const topicGroup = edge.topicKey ? graph.groups.find((group) => group.key === edge.topicKey) : undefined
+            const stroke = edge.kind === 'topic' ? (topicGroup?.color ?? '#64748b') : '#98a2b3'
 
             return (
-              <g key={`${edge.a}:${edge.b}`}>
-                <title>{edge.sharedFiles.map(compactPath).join(', ')}</title>
+              <g key={`${edge.kind}:${edge.a}:${edge.b}`}>
+                <title>{edgeTitle(edge)}</title>
                 <path
-                  className="timeline-graph__edge"
-                  d={d}
-                  strokeWidth={Math.min(4, 1.4 + edge.sharedFiles.length * 0.55)}
-                  opacity={selected ? (selectedEdge ? 0.8 : 0.16) : 0.42}
+                  className={`timeline-graph__edge timeline-graph__edge--${edge.kind}`}
+                  d={edgePath(edge, a, b)}
+                  stroke={stroke}
+                  strokeWidth={edge.kind === 'topic' ? Math.min(4.5, 2.4 + edge.sharedFiles.length * 0.45) : 2}
+                  opacity={edgeOpacity(edge, selected)}
                 />
               </g>
             )
           })}
 
           {notesForGraph.map((note) => {
-            const pos = positions.get(note.id)
+            const pos = graph.positions.get(note.id)
             if (!pos) return null
             const color = userColor(note.user)
             const isSelected = selected?.id === note.id

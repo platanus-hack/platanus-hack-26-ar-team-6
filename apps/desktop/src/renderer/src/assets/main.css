@@ -472,7 +472,7 @@ button {
 /* Timeline graph */
 .timeline-panel {
   position: relative;
-  overflow: hidden;
+  overflow: auto;
   padding: 0;
   background: #fbfcfe;
 }
@@ -482,31 +482,41 @@ button {
 }
 
 .timeline-graph {
-  position: absolute;
-  top: 0;
-  left: 0;
   display: block;
   font-family: Arial, sans-serif;
 }
 
-.timeline-graph__axis {
-  stroke: #d7dce5;
-  stroke-dasharray: 4 7;
+.timeline-topic-band {
+  pointer-events: none;
+}
+
+.timeline-topic-lane {
+  pointer-events: none;
+  stroke: #d8dee8;
+  stroke-dasharray: 5 8;
   stroke-linecap: round;
   stroke-width: 1;
 }
 
-.timeline-graph__tick {
-  fill: #c8d0dc;
-  stroke: #ffffff;
-  stroke-width: 2;
+.timeline-topic-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .timeline-graph__edge {
   fill: none;
   pointer-events: none;
-  stroke: #8a96a8;
   stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.timeline-graph__edge--sequence {
+  stroke-dasharray: 7 7;
+}
+
+.timeline-graph__edge--topic {
+  stroke-dasharray: none;
 }
 
 .timeline-node {
