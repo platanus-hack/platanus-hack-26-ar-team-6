@@ -27,6 +27,8 @@ const CLAUDE_BINARY_OVERRIDE = resolveClaudeBinary();
 const CLAUDE_BINARY_OPTIONS: { pathToClaudeCodeExecutable?: string } =
   CLAUDE_BINARY_OVERRIDE ? { pathToClaudeCodeExecutable: CLAUDE_BINARY_OVERRIDE } : {};
 
+const DEFAULT_RETRIEVER_MODEL = "claude-haiku-4-5-20251001";
+
 import { runAgentNetwork, type UpdaterInput, type UserAgentInput } from "./agentGraph.js";
 import { createLogger, previewText as previewTextShared } from "./logger.js";
 import {
@@ -510,6 +512,7 @@ async function runRetrieverAgent(
   request: RetrieverRequest,
 ): Promise<ContextPacket> {
   const agentStartMs = performance.now();
+  const retrieverModel = options.retrieverModel ?? DEFAULT_RETRIEVER_MODEL;
   logRunner("retriever-agent:start", {
     userId: options.userId,
     projectId: options.projectId,
@@ -517,7 +520,7 @@ async function runRetrieverAgent(
     targetAgentId: request.target_agent_id,
     queryPreview: previewText(request.query),
     reason: request.reason,
-    model: options.model,
+    model: retrieverModel,
   });
   const observedPackets: ContextPacket[] = [];
   const retrieverServer = createRetrieverMcpServer(
@@ -536,7 +539,7 @@ async function runRetrieverAgent(
       ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
-      model: options.model,
+      model: retrieverModel,
       maxTurns: 3,
       includePartialMessages: false,
       systemPrompt:
