@@ -1,7 +1,7 @@
-"""V1 data-access layer.
+"""V2 data-access layer.
 
 Narf's API routes call into these functions. They are the only place that
-should issue SQL. Everything is synchronous psycopg for V1 simplicity; if we
+should issue SQL. Everything is synchronous psycopg for hackathon simplicity; if we
 need async we can switch the connection pool without touching call sites.
 
 The shapes here are the contract between Sarf (database) and Narf (API).
@@ -134,12 +134,12 @@ def write_prompt_answer_entry(
 ) -> UUID:
     """Append a single prompt+answer row to the prompting user's context.
 
-    V1 shape:
+    Shape:
       kind = 'prompt_answer'
       content = "PROMPT:\n<prompt>\n\nANSWER:\n<final_answer>"
       metadata = {"prompt": ..., "final_answer": ..., **extra_metadata}
 
-    Embedding is left NULL in V1 (model decision deferred to V2 with Jorf).
+    Embedding is left NULL until the model decision is locked with Jorf.
     """
     metadata: dict[str, Any] = {"prompt": prompt, "final_answer": final_answer}
     if extra_metadata:
@@ -168,13 +168,25 @@ def write_cross_user_qa_entry(
     extra_metadata: dict[str, Any] | None = None,
 ) -> UUID:
     """Closure invariant write: append the Q&A produced by target_user's
-    on-demand agent into target_user's context.
+    on-demand agent into target_user's context and qa_ledger.
 
-    Wired by V2. Provided in V1 so Narf's stub endpoint and Jerf's eval
-    fixtures can exercise the function signature.
+    Returns the materialized context_entry id because retrieval cares about
+    that row. The ledger id is also stored in the context metadata.
     """
+    target_user = get_user(conn, target_user_id)
+    if target_user is None:
+        raise ValueError(f"target user not found: {target_user_id}")
+    asker_user = get_user(conn, asker_user_id)
+    if asker_user is None:
+        raise ValueError(f"asker user not found: {asker_user_id}")
+    if target_user["project_id"] != asker_user["project_id"]:
+        raise ValueError("asking user and target user must belong to the same project")
+
+    project_id = target_user["project_id"]
     metadata: dict[str, Any] = {
+        "source": "request_context",
         "asker_user_id": str(asker_user_id),
+        "target_user_id": str(target_user_id),
         "question": question,
         "answer": answer,
     }
@@ -190,6 +202,42 @@ def write_cross_user_qa_entry(
             """,
             (target_user_id, content, psycopg.types.json.Jsonb(metadata)),
         )
-        row = cur.fetchone()
+        context_entry_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO qa_ledger (
+              project_id,
+              asking_user_id,
+              target_user_id,
+              context_entry_id,
+              question,
+              answer,
+              metadata
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                project_id,
+                asker_user_id,
+                target_user_id,
+                context_entry_id,
+                question,
+                answer,
+                psycopg.types.json.Jsonb({"source": "request_context"}),
+            ),
+        )
+        qa_ledger_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            UPDATE context_entry
+            SET metadata = metadata || %s
+            WHERE id = %s
+            """,
+            (
+                psycopg.types.json.Jsonb({"qa_ledger_id": str(qa_ledger_id)}),
+                context_entry_id,
+            ),
+        )
         conn.commit()
-    return row["id"]  # type: ignore[index]
+    return context_entry_id  # type: ignore[return-value]
