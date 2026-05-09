@@ -1,385 +1,544 @@
-# Project Memory — Build Spec v1
+# Relevo Hackathon Plan — Project Agent Workspace MVP
 
-> **Demo cast TBD** — see end of doc, three options, my pick is hybrid (recursive + scripted). Read the doc first, then choose, then I'll pin the cast and finalize seed-data scope.
+## 0. Product thesis
 
----
+Relevo is a multi-project workspace for teams whose members each have a
+personal coding agent.
 
-## 0. Repo, infra, names to pick
+The app is organized as project tabs. Each project tab is one workspace: it has
+people, each person has their own agent for that project, and those agents do
+the real work. The people prompt their agents; the app makes the agents'
+coordination visible and durable.
 
-Everything lives in one monorepo. Pick a project codename now (suggestion: **`relevo`** — "relay" in Spanish, fits the agent-handoff metaphor; replace if you've got a better one).
+For each project, Relevo helps the team:
 
-```
-relevo/
-├── apps/
-│   ├── desktop/                   # Electron + React + TS — Marf
-│   │   ├── electron/              # main process, IPC
-│   │   ├── src/
-│   │   │   ├── views/             # ChatView, RosterView, PoolView, TimelineView, TasksView
-│   │   │   ├── components/        # RoutingVisualizer, CitationChip, AttributionDrawer, AgentCard
-│   │   │   ├── stores/            # zustand: chatStore, workspaceStore, attributionStore
-│   │   │   └── api/               # typed client generated from packages/contracts
-│   │   └── package.json
-│   └── server/                    # FastAPI — Narf (api/deploy) + Sarf (data/memory)
-│       ├── src/relevo/
-│       │   ├── api/               # routes, SSE handlers
-│       │   ├── domain/            # pydantic models
-│       │   ├── memory/            # store, retrieval, embedding — Sarf
-│       │   ├── agents/            # agent runtime — Jorf
-│       │   ├── routing/           # router — Jerf
-│       │   ├── synthesis/         # multi-agent merge — Jorf
-│       │   └── main.py
-│       ├── migrations/            # SQL — Sarf
-│       ├── tests/
-│       └── pyproject.toml
-├── packages/
-│   └── contracts/                 # shared JSON schemas + generated TS types
-├── eval/
-│   ├── router_cases.yaml          # Jerf
-│   ├── retrieval_cases.yaml       # Jerf
-│   └── run_eval.py
-├── seeds/
-│   ├── personas.yaml              # Jorf
-│   ├── memories/<agent>.yaml      # Jorf + Jerf jointly
-│   ├── pool.yaml
-│   ├── timeline.yaml
-│   └── tasks.yaml
-├── prompts/
-│   ├── agent_system.md            # Jorf
-│   ├── router_system.md           # Jerf
-│   └── synthesis_system.md        # Jorf
-└── infra/
-    ├── railway.json
-    └── docker-compose.yml         # local Postgres+pgvector for dev
+- see who is in the project and which agent belongs to each person;
+- prompt a personal agent to plan, code, review, or check status;
+- let agents communicate with each other in real time;
+- track what is being worked on, what is done, and what is blocked;
+- prevent agents from overstepping another person's task or files;
+- enforce project rules, conventions, and current decisions;
+- preserve overall worker-agent memory that travels with a person's agent;
+- preserve project memory shared by everyone in the project tab;
+- preserve project-agent task memory scoped to one worker agent's work in that project;
+- continue project development across many agent runs instead of losing context
+  when a chat ends.
+
+For the hackathon, the domain is software engineering. Every agent is primarily
+a coder for its person, with planner/reviewer behaviors layered on top when the
+project needs coordination.
+
+The core demo loop is:
+
+```text
+Person opens a project tab
+  -> prompts their own agent
+  -> agent checks project rules, task ownership, and retrieved memory
+  -> agent claims or updates work
+  -> agent communicates with other agents if the task overlaps
+  -> agent produces progress, a plan, a review, or an artifact
+  -> memory, task state, and timeline append new records
+  -> everyone else sees the new project state in real time
 ```
 
-Branch protection: `main` requires PR + 1 review for V0–V1, drop to fast-merge after V2.
+Every version after V0 must be a working MVP of that loop, not a collection of
+independent subsystem milestones.
 
-## 1. Data model — `migrations/0001_init.sql`
+## 1. Version rule
 
-Sarf owns this. Land it merged by **h2**.
+Each version must answer four questions before it is considered done:
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
+1. What can a teammate do in a running project tab?
+2. What task, message, artifact, rule check, timeline event, or memory persists?
+3. Which agent behavior is real, stubbed, or fallback-backed?
+4. What smoke test proves the previous versions still work?
 
-CREATE TABLE workspace (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+Every version has tasks for all five lanes:
 
-CREATE TABLE person (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-  display_name TEXT NOT NULL,
-  domain_summary TEXT NOT NULL
-);
+| Lane | Responsibility |
+|---|---|
+| Narf | API, deploy, SSE, run lifecycle, real-time project state |
+| Sarf | Data model, worker/project/task memory, retrieval, seeds |
+| Jorf | Personal agent prompts, project-rule following, handoffs, synthesis |
+| Jerf | Routing, overlap detection, eval harness, assignment quality |
+| Marf | Project-tab UI, people/agent roster, live progress surface |
 
-CREATE TABLE agent (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  person_id UUID NOT NULL REFERENCES person(id) ON DELETE CASCADE,
-  persona JSONB NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+If one lane is blocked, that lane ships a deterministic stub with the same
+contract so the version can still converge.
 
-CREATE TYPE memory_tier AS ENUM ('personal', 'pool', 'timeline');
+## 2. Product model
 
-CREATE TABLE memory_entry (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-  tier memory_tier NOT NULL,
-  agent_id UUID REFERENCES agent(id) ON DELETE CASCADE,  -- NULL for pool/timeline
-  content TEXT NOT NULL,
-  metadata JSONB NOT NULL DEFAULT '{}',  -- {source, tags, occurred_at, links[]}
-  embedding vector(1024),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  CHECK ((tier = 'personal' AND agent_id IS NOT NULL) OR (tier <> 'personal'))
-);
+Important concept: in product language, `project` is the main object. If the
+existing database uses `workspace`, treat one `workspace` row as one project tab.
+Do not build a separate workspace-above-project hierarchy for the hackathon.
 
-CREATE INDEX memory_embedding_hnsw ON memory_entry USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX memory_tier_ws ON memory_entry (workspace_id, tier);
-CREATE INDEX memory_agent ON memory_entry (agent_id) WHERE agent_id IS NOT NULL;
+Important product objects:
 
-CREATE TYPE task_status AS ENUM ('proposed','open','in_progress','blocked','review','done');
+- `person`: a human teammate who prompts and supervises a personal agent.
+- `worker_agent`: the personal agent identity owned by one person. It can carry
+  memory across project tabs.
+- `project`: one project tab/workspace, such as "Relevo" or a seeded demo app.
+- `project_member`: a person plus their worker agent inside one project.
+- `project_rule`: conventions and boundaries every agent must follow.
+- `task`: durable unit of project work with status, owner, dependencies, and
+  optionally claimed files/areas.
+- `work_claim`: an agent's temporary or durable claim on a task, file, module,
+  or concern so other agents know not to collide.
+- `agent_run`: one execution started by a person's prompt or by an agent handoff.
+- `agent_message`: agent-to-agent or agent-to-person communication during a run.
+- `artifact`: work product from a run, such as a plan, diff, patch, review,
+  test result, or status report.
+- `memory_entry`: append-only knowledge tagged by memory layer and source.
+- `memory_edge`: a derived or explicit relationship between memory entries,
+  tasks, files, rules, agents, and artifacts.
+- `timeline_event`: chronological project history derived from tasks, claims,
+  agent messages, artifacts, memory appends, and approvals.
 
-CREATE TABLE task (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT,
-  owner_agent_id UUID REFERENCES agent(id),
-  status task_status NOT NULL DEFAULT 'proposed',
-  dependencies UUID[] NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+## 3. Memory architecture
 
-CREATE TABLE timeline_event (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  actor_agent_id UUID REFERENCES agent(id),
-  event_type TEXT NOT NULL,         -- 'task_created','task_state_change','decision_recorded','memory_added'
-  subject_type TEXT,
-  subject_id UUID,
-  payload JSONB NOT NULL DEFAULT '{}'
-);
+Canonical memory is append-only for the hackathon. Agents do not edit or delete
+old memories. If a fact changes, append a new memory that supersedes or corrects
+the older one. Indexes, embeddings, summaries, and graph edges can be rebuilt
+from the append-only log.
 
-CREATE INDEX timeline_ws_time ON timeline_event (workspace_id, occurred_at DESC);
-```
+Memory has three layers:
 
-Triggers (V2): `task` updates emit a `timeline_event` row automatically. Sarf writes the trigger.
+- `worker_agent`: overall memory for a person's agent across all projects. This
+  includes owner preferences, coding style, reusable knowledge, tools it knows,
+  long-lived strengths/weaknesses, and cross-project lessons.
+- `project`: shared memory for one project tab. This includes product brief,
+  architecture, rules, decisions, runbooks, known risks, current truths, and
+  "what is done."
+- `project_agent`: memory for one worker agent inside one project. This includes
+  assigned tasks, active context, implementation notes, handoffs, blockers,
+  prior run summaries, claimed areas, and what that agent should remember next
+  time it works on the project.
 
-## 2. API surface — owned by Narf
+Timeline remains factual history rather than a fourth editable memory layer:
+who/which agent did what, when, and why it changed project state. Timeline
+events can be retrieved as context, but they are generated from tasks, claims,
+messages, artifacts, approvals, and memory appends.
 
-All under `/api/v1`. JSON unless SSE.
-
-```
-GET    /health                              -> {status, sha, model_versions}
-POST   /workspaces                          -> Workspace
-GET    /workspaces/{id}                     -> Workspace
-GET    /workspaces/{id}/agents              -> Agent[]
-GET    /workspaces/{id}/timeline?cursor=    -> {events: TimelineEvent[], next_cursor}
-GET    /workspaces/{id}/tasks               -> Task[]
-POST   /workspaces/{id}/tasks               -> Task
-PATCH  /tasks/{id}                          -> Task
-
-POST   /workspaces/{id}/memory              -> MemoryEntry            (manual deposit)
-GET    /memory/{id}                         -> MemoryEntry             (citation drill-down)
-
-POST   /workspaces/{id}/ask    [SSE]
-  body: { question: str, asker_agent_id?: UUID }
-  events:
-    - routing_decision { agents: [{id, name}], tiers: [...], rationale }
-    - agent_started    { agent_id }
-    - agent_partial    { agent_id, delta }
-    - citation         { agent_id, memory_id, tier, snippet }
-    - agent_done       { agent_id }
-    - synthesis_partial{ delta }
-    - plan_proposal    { task_draft: {title, description, owner_suggestion, deps} }
-    - done             { request_id }
-
-# Internal (called by router during fanout, not exposed)
-POST   /agents/{id}/answer
-  body: { question, retrieved_chunks: [...] }
-  -> { answer, citations, confidence, out_of_scope }
-```
-
-Auth for the hackathon: single header `X-Workspace-Asker: <person_id>`. No login flow.
-
-## 3. Agent persona — owned by Jorf
-
-`packages/contracts/agent_persona.json`:
+Suggested memory entry shape:
 
 ```json
 {
-  "agent_id": "uuid",
-  "display_name": "string",
-  "voice": {
-    "tone": "string",
-    "first_person": true,
-    "signature_phrases": ["string"]
+  "id": "uuid",
+  "layer": "worker_agent|project|project_agent",
+  "project_id": "uuid|null",
+  "agent_id": "uuid|null",
+  "task_id": "uuid|null",
+  "content": "string",
+  "kind": "fact|decision|rule|preference|progress|blocker|handoff|artifact_summary",
+  "source": {
+    "type": "prompt|agent_message|artifact|review|manual|timeline",
+    "id": "uuid|null"
   },
-  "domain": {
-    "primary": "string",
-    "tags": ["string"],
-    "expertise_summary": "string (1-2 sentences, used by router)"
-  }
+  "tags": ["string"],
+  "subjects": ["settings", "api-key", "security"],
+  "valid_from": "timestamp",
+  "supersedes": ["memory_id"],
+  "created_at": "timestamp"
 }
 ```
 
-`prompts/agent_system.md` (skeleton — Jorf iterates, but contract is fixed):
+Graph shape: do not start with a graph database. Store memory in Postgres and
+add a small `memory_edge` table for graph-like retrieval. Useful edge types:
+`supersedes`, `supports`, `contradicts`, `belongs_to_task`, `about_file`,
+`mentions_agent`, `handoff_to`, `caused_by`, `depends_on`, `conflicts_with`.
 
-```
-You are {display_name}'s personal agent. You speak in their first-person voice.
+Context bringup should use retrieval, not manual stuffing:
 
-Voice: {voice.tone}
-Use first-person ("I", "we") only for claims grounded in personal-tier memory.
-For pool-tier facts, use neutral voice. For timeline, narrate.
+1. Build a query from the prompt, selected project, current member/agent, task,
+   active claims, and recent messages.
+2. Retrieve top candidates from all three memory layers using keyword + vector
+   search, filtered by project/agent/task scope.
+3. Expand one hop through `memory_edge` for closely related decisions, claims,
+   files, and superseding facts.
+4. Rerank and budget the context by importance: project rules and active claims
+   first, then task-specific memory, then project memory, then worker-agent
+   global memory.
+5. Pass citations into the agent run and require any project-changing claim to
+   cite the memory/rule/task it relied on.
 
-Domain: {domain.expertise_summary}
+The old `pool` tier maps to project memory. If keeping the existing enum is
+faster, use `pool` internally in V0/V1 and label it "Project Memory" in the UI.
 
-If the question is outside your domain or your memory has no relevant content,
-respond with {"out_of_scope": true, "suggest": ["agent_name", ...]} and stop.
+## 4. API surface
 
-Cite every claim with [memory_id|tier]. Output strictly:
-{
-  "answer": "string",
-  "citations": [{"claim": "...", "memory_id": "...", "tier": "personal|pool|timeline"}],
-  "confidence": 0.0-1.0
-}
+Use `/api/v1/projects` in the product contract. If the existing code already
+has `/workspaces`, keep it as an alias or internal naming shortcut, but the app
+copy should say project.
 
-Retrieved memory:
-{retrieved_chunks}
+```text
+GET    /health
 
-Question:
-{question}
-```
+POST   /projects
+GET    /projects
+GET    /projects/{id}
+GET    /projects/{id}/members
+GET    /projects/{id}/agents
+GET    /projects/{id}/rules
+POST   /projects/{id}/rules
 
-## 4. Router & eval — owned by Jerf
+GET    /projects/{id}/tasks
+POST   /projects/{id}/tasks
+PATCH  /tasks/{id}
+POST   /tasks/{id}/claim
+DELETE /claims/{id}
 
-`prompts/router_system.md` (skeleton):
+POST   /worker-agents/{id}/memory                 # worker-agent memory
+POST   /projects/{id}/memory                      # project memory
+POST   /projects/{id}/agents/{agent_id}/memory    # project-agent memory
+GET    /memory/{id}
+GET    /projects/{id}/memory/graph?seed_id=
+GET    /projects/{id}/timeline?cursor=
 
-```
-You route questions across three memory tiers and a roster of personal agents.
+POST   /projects/{id}/prompt
+  body: { member_id, prompt, target_agent_id?, target_task_id? }
+  creates an agent_run for that member's agent unless target_agent_id is set
 
-Tiers: pool (current truths), personal (individual experiential), timeline (history & state).
-Heuristics:
-- "what is / how do we" factual    -> [pool, personal-of-domain-owner]
-- "why / how did we decide"        -> [personal-of-decider, pool]
-- "when / who / status of"         -> [timeline, personal-of-owner]
-- cross-cutting ("add X to Y and Z") -> fanout: multiple personals + synthesis
+GET    /runs/{id}
+GET    /runs/{id}/messages
+GET    /runs/{id}/artifacts
 
-Roster:
-{agent_directory}
-
-Output:
-{ "tiers": [...], "agents": [agent_id...], "mode": "single"|"fanout", "rationale": "..." }
-```
-
-`eval/router_cases.yaml` — **20 cases by h4, 30 by h22**. Format:
-
-```yaml
-- id: r_001
-  question: "How do we deploy?"
-  expected_tiers: [pool, personal]
-  expected_agents_any_of: [<infra_owner>]
-  forbidden_agents: []
-  must_mention_any_of: ["runbook", "migration", "deploy"]
-  category: factual
-
-- id: r_007
-  question: "Why did we pick Postgres over Mongo?"
-  expected_tiers: [personal]
-  expected_agents_any_of: [<db_decider>]
-  must_mention_any_of: ["relational", "transactions", "vector"]
-  category: rationale
+POST   /runs/{id}/message                 # agent/person message into a run
+POST   /runs/{id}/approve-artifact
+POST   /runs/{id}/stage-as-task
 ```
 
-Pass bar: **router agent-selection precision ≥ 0.80, recall ≥ 0.85** on the eval set. Below that, V3 is not done.
+Primary SSE events:
 
-## 5. Frontend structure — owned by Marf
-
-State management: **zustand** (3 stores: chat, workspace, attribution). Server state via **TanStack Query**. Streaming via native `EventSource` wrapped.
-
-Component tree:
-
-```
-<App>
-  <TopBar />                              {/* asker identity, workspace switcher */}
-  <Sidebar>
-    <AgentRoster />                       {/* AgentCard × N: name, domain tag, status dot */}
-  </Sidebar>
-  <MainPane>
-    <Tabs>
-      <ChatView>                          {/* primary surface */}
-        <MessageList />
-        <RoutingVisualizer />             {/* animates fanout, lights up agents */}
-        <AgentResponsePanels />           {/* parallel cards, stream into them */}
-        <SynthesisPanel />
-        <PlanProposalCard />              {/* renders if SSE emits plan_proposal */}
-        <Composer />
-      </ChatView>
-      <PoolView />                        {/* memory list, filter by tag/source */}
-      <TimelineView />                    {/* chronological, virtualized */}
-      <TasksView />                       {/* kanban: 6 columns by status */}
-    </Tabs>
-  </MainPane>
-  <AttributionDrawer />                   {/* slide-in on citation click */}
-</App>
+```text
+project_selected
+routing_decision
+rule_check
+claim_created
+claim_conflict
+task_created
+task_updated
+agent_started
+agent_message
+memory_used
+artifact_created
+review_requested
+review_result
+timeline_event
+run_done
+run_failed
 ```
 
-Citation chip: `[J · personal]` style. Click → drawer with full memory entry, related events, agent.
+Hackathon auth stays simple: a single header such as
+`X-Project-Member: <member_id>`.
 
-Tier color tokens (lock these now, do not bikeshed during build):
-- personal: `#E8A87C` (warm)
-- pool: `#9CA3AF` (neutral)
-- timeline: `#6FA8DC` (cool)
+## 5. Coordination contract
 
-## 6. Versions — concrete deliverables per converge
+This is the product's center of gravity. Agents are useful because they work,
+but Relevo is useful because it keeps multiple agents from turning a group
+project into chaos.
 
-### V0 — Contracts & scaffold (h0–h4)
+Every agent run must receive:
 
-| Owner | Concrete deliverables |
+- the current project rules;
+- the task backlog and current statuses;
+- active work claims by other agents;
+- relevant worker-agent memory for that personal agent;
+- relevant project memory;
+- relevant project-agent memory for that agent in this project;
+- recent timeline events;
+- any direct messages from other agents.
+
+Before producing an artifact, an agent should:
+
+1. say what task or project area it is acting on;
+2. check whether another agent already owns or claims that area;
+3. ask or notify the other agent when work overlaps;
+4. cite the project rule or memory it is following;
+5. append what changed, what remains, and what future agents should know.
+
+For V1/V2 this can be deterministic and schema-driven. For V3 it becomes the
+visible multi-agent coordination demo.
+
+## 6. Version plan
+
+### V0 — Contracts and scaffold (h0-h4)
+
+V0 proves that the repo, deploy, contracts, seeds, eval harness, and desktop
+shell exist.
+
+| Lane | Concrete deliverables |
 |---|---|
-| Narf | GitHub repo created, Railway project linked, `/health` returns `{status:"ok", sha, models:{agent:"sonnet-4-6", router:"haiku-4-5-20251001"}}` at the public URL by **h3**. URL posted in team chat. |
-| Sarf | `migrations/0001_init.sql` merged. Local `docker-compose.yml` runs Postgres+pgvector. `seeds/loader.py` skeleton that loads YAML → DB. |
-| Jorf | `prompts/agent_system.md` v1 + `packages/contracts/agent_persona.json` schema. One reference persona file: `seeds/personas.yaml` with one fully-specified persona. |
-| Jerf | `eval/router_cases.yaml` with 20 cases, `eval/run_eval.py` skeleton (loads cases, calls a stub router, computes precision/recall, outputs report). |
-| Marf | Electron app builds locally on each dev's machine. Three-pane layout shell. Hits Railway `/health`. Renders fixtures from `apps/desktop/src/fixtures/`. |
+| Narf | FastAPI app deployed. `/health` returns status, sha, and model versions. Railway URL posted. |
+| Sarf | Initial migration merged. Local Postgres/pgvector compose works. Seed loader skeleton exists. |
+| Jorf | Personal-agent contract and `agent_system.md` v1. One complete seeded project member + agent. |
+| Jerf | Router eval harness with 20 cases and a deliberately failing stub router. |
+| Marf | Electron shell boots, shows project tabs, people/agents, task fixture data, and hits `/health`. |
 
-**Converge h4:** PRs merged, `pnpm dev` launches the app, app shows fixture data, `/health` is green. Smoke #1 = app boots + backend reachable + migration applied.
+Converge h4:
 
-### V1 — Single-agent end-to-end (h4–h12)
+- App boots.
+- Backend is reachable.
+- Migration applies locally.
+- Eval harness runs.
+- Everyone can develop from the same contracts.
 
-| Owner | Concrete deliverables |
+### V1 — Project tab command center MVP (h4-h10)
+
+Working product at V1: a teammate opens a project tab, sees people and their
+agents, prompts their own agent, and watches the prompt become a durable task,
+run, agent message, timeline event, and project memory entry. The agent may
+still return a structured stub, but the project loop is real.
+
+| Lane | Concrete deliverables |
 |---|---|
-| Narf | `POST /workspaces/{id}/ask` with single-agent path. SSE handler emits `routing_decision`, `agent_partial`, `citation`, `done`. Request logging by `request_id`. |
-| Sarf | `MemoryEntry` repository: insert, hybrid retrieval (`SELECT … ORDER BY embedding <=> $1` joined with BM25 via `tsvector`), top-k=5. Embedding writes async. Loader populates **one agent's 30 personal memories**. |
-| Jorf | Single-agent answer pipeline working: persona + retrieved chunks → Claude Sonnet 4.6 → JSON parsed → SSE events. Citations validated (every cited id must exist). |
-| Jerf | Retrieval eval: 20 `(question, expected_memory_ids)` cases. Tune chunking + hybrid weight until top-5 recall ≥ 0.7. |
-| Marf | Live chat, streaming render, citation chips clickable, AttributionDrawer pulls from `GET /memory/{id}`. Loading & error states. |
+| Narf | Design and implement the full V1 endpoint contract below. `POST /projects/{id}/prompt` creates `agent_run`, emits SSE, and writes task/run/message/timeline records. Deterministic fallback response if agent runtime is unavailable. |
+| Sarf | Persist `person`, `worker_agent`, `project`, `project_member`, `project_rule`, `task`, `agent_run`, `agent_message`, `memory_entry`, and `timeline_event`. Seed one project, three members, and three personal agents. |
+| Jorf | Prompt-to-task contract: from a member prompt produce `{title, description, acceptance_criteria, suggested_owner_agent, project_memory_to_append, project_agent_memory_to_append}`. Stub and LLM paths share the same schema. |
+| Jerf | Router v1 selects the prompting member's agent by default and can suggest another agent when the prompt clearly belongs to someone else's domain. Eval covers at least 20 project prompts. |
+| Marf | Project-tab UI: tab list, selected project header, member/agent roster, prompt box scoped to current member, task list, run stream, and timeline feed. |
 
-**Converge h12:** Smoke #2 — ask one rationale-style question, get a streaming first-person answer with at least one valid citation, drawer renders the source. V0 still passes.
+V1 Narf endpoint design:
 
-### V2 — Three-tier memory (h12–h22)
+```text
+GET /api/v1/projects
+  -> { projects: [{id, name, description, status, updated_at}] }
+  Used by Marf to render project tabs.
 
-| Owner | Concrete deliverables |
+GET /api/v1/projects/{project_id}
+  -> { id, name, description, status, created_at, updated_at,
+       counts: {members, agents, open_tasks, timeline_events} }
+  Used by the selected project header.
+
+GET /api/v1/projects/{project_id}/members
+  -> { members: [{id, display_name, role, agent: {id, name, status, summary}}] }
+  This is the V1 people/agent roster. One member has one personal agent.
+
+GET /api/v1/projects/{project_id}/rules
+  -> { rules: [{id, title, content, severity, created_at}] }
+  Read-only in V1 unless Sarf finishes rule writes early.
+
+GET /api/v1/projects/{project_id}/tasks?status=&owner_agent_id=
+  -> { tasks: [{id, title, description, status, owner_agent_id,
+                acceptance_criteria, created_at, updated_at}] }
+
+POST /api/v1/projects/{project_id}/tasks
+  body: { title, description?, owner_agent_id?, acceptance_criteria? }
+  -> Task
+  Appends timeline_event: task_created.
+
+PATCH /api/v1/tasks/{task_id}
+  body: { title?, description?, status?, owner_agent_id?,
+          acceptance_criteria? }
+  -> Task
+  Appends timeline_event: task_updated.
+
+GET /api/v1/projects/{project_id}/timeline?cursor=&limit=
+  -> { events: [{id, event_type, actor_agent_id, subject_type, subject_id,
+                 payload, occurred_at}], next_cursor }
+
+POST /api/v1/projects/{project_id}/memory
+  body: { content, kind, tags?, subjects?, source? }
+  -> MemoryEntry(layer="project")
+  Appends timeline_event: memory_appended.
+
+POST /api/v1/projects/{project_id}/agents/{agent_id}/memory
+  body: { content, kind, task_id?, tags?, subjects?, source? }
+  -> MemoryEntry(layer="project_agent")
+  Appends timeline_event: memory_appended.
+
+GET /api/v1/memory/{memory_id}
+  -> MemoryEntry
+
+POST /api/v1/projects/{project_id}/prompt
+  headers: X-Project-Member: <member_id>
+  body: { prompt, target_agent_id?, target_task_id? }
+  -> text/event-stream
+  Creates an agent_run for the member's agent unless target_agent_id is set.
+  V1 events, in order when possible:
+    routing_decision {run_id, selected_agent_id, rationale}
+    task_created {task}
+    agent_started {run_id, agent_id}
+    agent_message {message}
+    memory_used {memory_ids}
+    timeline_event {event}
+    run_done {run_id, task_id}
+    run_failed {run_id, error_code, message}
+
+GET /api/v1/runs/{run_id}
+  -> { id, project_id, prompt, status, started_by_member_id,
+       primary_agent_id, task_id, created_at, completed_at }
+
+GET /api/v1/runs/{run_id}/messages
+  -> { messages: [{id, run_id, from_agent_id, to_agent_id,
+                   audience, content, created_at}] }
+```
+
+V1 deliberately excludes claims, artifacts, memory graph expansion, and
+approval endpoints. Those start in V2, but the V1 response shapes should leave
+room for those IDs to appear later without breaking Marf.
+
+Converge h10 smoke:
+
+1. Open the seeded project tab.
+2. Select a member and prompt their agent: "Add a settings page where users can
+   update their API key."
+3. App creates a task, starts that member's agent run, streams an agent message,
+   and appends one timeline event plus one project memory entry.
+4. Refresh the app and the task/run/message/memory are still there.
+
+Parallelism goal:
+
+- Frontend can build against project/member/agent fixtures while API lands.
+- Router can run against seeded member-agent summaries before real LLM routing.
+- Agent prompt can be validated with stored fixture prompts.
+
+### V2 — Single-agent progress and boundaries MVP (h10-h18)
+
+Working product at V2: one member's agent performs a small SWE task while
+respecting project rules, current task ownership, and relevant memory. It
+returns progress or an artifact and stores what future agents need to know.
+
+| Lane | Concrete deliverables |
 |---|---|
-| Narf | Tasks CRUD endpoints. Trigger-driven `timeline_event` insertion. `GET /timeline` paginated. SSE event subscription endpoint for live timeline. |
-| Sarf | Pool & timeline storage. Cross-tier retrieval API: `retrieve(workspace_id, query, tiers=[…], agent_ids=[…], k_per_tier=5) -> [chunks]`. Seeded pool (~40 entries) + timeline (~60 events) + tasks (~14 across statuses). |
-| Jorf | Agent prompt v2: voice differentiation per tier (first-person personal, neutral pool, narrative timeline). Citation-by-tier required. |
-| Jerf | Router heuristic v1 (single-agent mode): tier prioritization. Eval expanded to 30 cases covering all three tiers. Pass bar: 0.80 precision. |
-| Marf | PoolView, TimelineView, TasksView. Tier-color-coded citations. Tab navigation. Timeline virtualization (`react-virtuoso`). |
+| Narf | Run lifecycle states: `queued`, `checking_rules`, `running`, `artifact_ready`, `review`, `done`, `blocked`, `failed`. Endpoints for run details, messages, artifacts, approval, and task/file claims. |
+| Sarf | Retrieval API returns worker-agent + project + project-agent memory for a run, plus relevant timeline events. Store work claims, artifacts, memory citations, and rule-check results. Add seeds for project rules and a tiny target codebase/task history. |
+| Jorf | Coder agent v1: reads task, project rules, active claims, and retrieved memory; produces structured artifact JSON with summary, files_changed, patch_or_content, tests_to_run, rule_checks, and memory appends. |
+| Jerf | Eval checks whether prompts choose the right personal agent, identify overlaps, and select the right memory scopes. Add retrieval cases where expected memory appears in top-k. |
+| Marf | Run detail panel with live states, rule checks, active claims, memory citations, artifact/diff viewer, approve button, and blocked/conflict state. |
 
-**Converge h22:** Smoke #3 — three test questions, one per tier-priority, all return cited answers with correct dominant tier. V0+V1 still pass.
+Converge h18 smoke:
 
-### V3 — Multi-agent fanout & synthesis (h22–h30)
+1. A member prompts their agent for a small code change.
+2. The agent checks project rules and active claims.
+3. The agent creates a claim, retrieves at least one relevant project memory,
+   emits an artifact or progress report, and appends project-agent memory.
+4. Approving the artifact updates task state and timeline.
+5. A follow-up prompt can cite the previous run from memory.
 
-| Owner | Concrete deliverables |
+Parallelism goal:
+
+- Jorf can ship coder output against static rule/memory/claim fixtures.
+- Sarf can ship retrieval and claims against static prompts.
+- Marf can render artifact and conflict fixtures before live runs are wired.
+
+### V3 — Multi-agent communication MVP (h18-h28)
+
+Working product at V3: multiple people have agents working in the same project.
+When work overlaps, the agents can see each other's progress, communicate, avoid
+overstepping, and produce a shared project update.
+
+| Lane | Concrete deliverables |
 |---|---|
-| Narf | Fanout orchestration: parallel calls to `/agents/{id}/answer`, merged stream. Plan-proposal endpoint emits `task_draft` SSE event when synthesis flags cross-cutting. Timeout per agent: 8s. |
-| Sarf | All seed data complete: full cast loaded across personal × pool × timeline × tasks. Dataset lockfile `seeds/LOCK.md` documenting every memory and which demo question hits it. |
-| Jorf | `prompts/synthesis_system.md`: takes N agent responses → unified answer with merged citations + optional plan proposal. Synthesis uses Sonnet 4.6. |
-| Jerf | Router fanout mode + ask-all fallback. Full eval at 30 cases passing 0.80 precision / 0.85 recall. Eval report committed. |
-| Marf | RoutingVisualizer animation. Parallel AgentResponsePanels stream simultaneously. SynthesisPanel. PlanProposalCard with "stage as task" button → calls `POST /tasks`. |
+| Narf | Multi-agent run orchestration and real-time project stream. Supports agent-to-agent messages, chain/fanout runs, claim conflicts, and handoff messages in one project timeline. |
+| Sarf | Worker-agent memory, project memory, and project-agent memory are fully separated. Timeline automatically records task state changes, claims, agent messages, artifacts, approvals, and conflicts. Add `memory_edge` indexing for graph-like context expansion. |
+| Jorf | Personal agent prompts for planning, coding, reviewing, and coordination. Handoff format: concern -> message/claim -> response -> artifact/review -> memory update. Synthesis prompt produces project-facing update. |
+| Jerf | Router v2 supports default-to-my-agent, ask-another-agent, chain, and fanout modes. Overlap detector flags prompts that touch another agent's active claim. Eval expands to 30 cases with precision >= 0.80 and recall >= 0.85. |
+| Marf | Live agent communication view: project activity stream, routing visualizer, active claims board, per-agent messages, synthesis panel, and "stage follow-up task" action. |
 
-**Converge h30:** Smoke #4 — cross-cutting demo question fans to ≥2 agents, synthesizes, proposes a task, task lands in TasksView. All prior smokes pass. **FEATURE FREEZE.**
+Converge h28 smoke:
 
-### V4 — Polish, dataset, rehearsal (h30–h36)
+1. Member A's agent is working on API-key settings and claims the settings files.
+2. Member B prompts their agent: "Update API-key storage and make sure we do
+   not leak secrets."
+3. Router detects overlap and surfaces Member A's agent/claim.
+4. Agents exchange visible messages instead of silently duplicating work.
+5. Reviewer or second agent creates a comment, approval, or follow-up task.
+6. Worker-agent memory, project memory, project-agent memories, claims, task
+   state, and timeline show what happened after refresh.
 
-| Owner | Concrete deliverables |
+Parallelism goal:
+
+- Prompt/handoff schemas can be developed independently from orchestration.
+- UI can use fixture event streams while backend orchestration lands.
+- Eval can advance independently from the actual LLM runtime.
+
+### V4 — Demo-ready continuous project MVP (h28-h36)
+
+Working product at V4: the app survives demo conditions and tells a coherent
+story about a group project where each person has an agent. It has one scripted
+software project, one real or fallback-backed agent work loop, and enough
+worker/project/task memory to answer "what happened, who owns it, and why?"
+questions.
+
+| Lane | Concrete deliverables |
 |---|---|
-| Narf | Stability sweep, error boundaries, retry on 5xx for Anthropic. Backup deploy on second Railway service with DB snapshot restored. |
-| Sarf | Dataset polish round 2 with the team. `seeds/LOCK.md` finalized. DB snapshot committed for fallback restore. |
-| Jorf | Pre-cache the 4–5 demo answers as static JSON in `apps/desktop/src/fallbacks/`. Composer prefers live; if `done` event doesn't fire in 10s, plays fallback transparently. |
-| Jerf | Final eval pass against the demo script's exact questions. If any case fails, that's the only thing being fixed. |
-| Marf | Visual polish, animation timings, empty states. Demo-mode toggle that disables editing. |
-| All | **h30–h32:** dataset jam together. **h32–h34:** rehearse demo 5×. **h34–h36:** sleep/buffer. |
+| Narf | Stability sweep: retries, timeouts, graceful run failure, deploy verification, backup fallback endpoint/data. |
+| Sarf | Final seed dataset and DB snapshot. `seeds/LOCK.md` documents demo project, members, agents, rules, three-layer memories, graph edges, tasks, claims, runs, and which prompts hit them. |
+| Jorf | Demo-safe fallbacks for 4-5 exact prompts. Live path preferred; fallback plays the same SSE/artifact/message contract if live agent stalls. |
+| Jerf | Final eval pass on exact demo prompts and two unscripted-style coordination prompts. Commit report. |
+| Marf | Demo mode, visual polish, empty/loading/error states, readable live project activity, and no layout breaks on projector dimensions. |
+| All | h28-h30 dataset jam. h30-h32 integration hardening. h32-h34 rehearse. h34-h36 buffer/submission. |
 
-## 7. Build-right discipline (terse reminders)
+Converge h36 smoke:
 
-- **No new feature work during a converge window.** Converges are 30 min, all hands at machines.
-- **Smoke tests cumulate.** A V3-era PR that breaks V1's smoke is the highest-priority fix in the room.
-- **One owner per contract.** Schema = Sarf. API = Narf. Persona = Jorf. Router = Jerf. UI = Marf. Disagreements escalate to whoever has tiebreak (you, presumably).
-- **Mock first, wire at converge.** Marf uses `fixtures/` until h12; switches to live API at the V1 converge. AI side uses synthetic retrieval until h12 too.
-- **Feature freeze h30, no exceptions.**
+- Run the scripted demo from a clean app launch.
+- Switch between project tabs or show the selected project tab clearly.
+- Ask one follow-up question that depends on previous worker-agent, project, and
+  project-agent memory.
+- Show people, personal agents, active tasks, claims, messages, timeline, and
+  memory source.
+- Use fallback only if the live run exceeds the timeout.
 
-## 8. Demo cast — pick one
+## 7. Demo narrative
 
-Three options. My recommendation is **C**.
+Primary demo: a small software project with multiple people, where each person
+has a personal coding agent inside the project tab.
 
-**A. Recursive — the team itself.** Agents are Narf/Sarf/Jorf/Jerf/Marf. Personal memory is real entries deposited during the build (each person spends 5 min/converge writing 2-3 memory entries about their work — decisions, blockers, why-X-not-Y). Pool is the project's actual architecture. Timeline is the actual hackathon timeline. **Pro:** authenticity is unfakeable, judges can ask any unscripted question. **Con:** requires dogfooding from h12, less narrative arc, weaker if the system is buggy.
+Suggested flow:
 
-**B. Fictional company.** Replace SocialNet with a different fictional setting. Suggested: **Mate** (fictional Argentine fintech) — relatable to a Buenos Aires audience, broader than pure software (compliance ops, customer support, eng). Cast TBD. **Pro:** scripted, controlled, rehearsable, demonstrates "this isn't just for devs." **Con:** all the SocialNet criticisms apply — judges can smell strawmen.
+1. Open the "Relevo Demo App" project tab.
+2. Show people and their agents: frontend owner, backend owner, security/review
+   owner.
+3. Show project rules: do not touch claimed files, cite memory, protect API
+   keys, update task state after work.
+4. Member A prompts their agent to add API-key settings.
+5. Agent A claims the relevant task/files and starts work.
+6. Member B prompts their agent about API-key storage/security.
+7. Agent B sees Agent A's claim, messages Agent A, reviews the risk, and avoids
+   overwriting the same work.
+8. The app shows live messages, task progress, artifact/review, and timeline.
+9. A teammate asks: "What has been done on API keys, who owns the remaining
+   work, and why are we storing it this way?"
+10. The app answers from project memory, Agent A's project-agent memory, Agent
+    B's project-agent memory, relevant worker-agent memory, and the timeline,
+    with citations.
 
-**C. Hybrid (recommended).** B is the spine of the 90-second demo (controlled, rehearsed). A is the closer: in the last 15 seconds you say *"by the way — this same system has been ingesting our team's own work for the last 36 hours. Ask us anything about how we built it."* Then you take an unscripted judge question and let the team's own agents answer. **Pro:** rehearsable + authenticity moment + dogfooding flex. **Con:** slightly more work (need to seed Mate cast AND deposit team memories during build), but the team-memory deposition is ~3 min per person per converge.
+Optional closer: use the team's own hackathon project as a second tab. If we
+dogfood during converges, the app can answer how we built Relevo and what each
+person's agent worked on.
 
----
+## 8. Build discipline
 
-**Three things I need from you to pin this down:**
+- A workspace is a project tab. Keep that mental model everywhere.
+- Each project has people; each person has one personal agent in that project.
+- Memory is append-only. Corrections and changed decisions create new memories
+  that supersede old ones.
+- Worker-agent memory travels with the personal agent across projects.
+- Project memory is shared by everyone in the project tab.
+- Project-agent memory is scoped to one worker agent's work inside one project.
+- Retrieval, not raw transcript stuffing, is the context bringup mechanism.
+- Graph edges are an index over memory, not the canonical source of truth.
+- Every run should make coordination visible: rules checked, ownership/claims,
+  memory used, messages sent, artifact produced, and state changed.
+- Stubs are acceptable only when they preserve the real contract.
+- Smoke tests cumulate. A V3 change that breaks the V1 project prompt loop is a
+  stop-the-room bug.
+- Feature freeze at h28. After that, only demo data, bug fixes, fallbacks, and
+  polish.
 
-1. Project codename — `relevo` or your pick.
-2. Demo cast — A, B, or C (and if B or C, the fictional setting; I propose Mate, change at will).
-3. Confirm the role pairings: Narf=API/deploy, Sarf=data/memory, Jorf=agent runtime, Jerf=router/eval. Swap if their actual strengths point differently.
+## 9. Immediate next decisions
 
-Once those three land, I'll pin every TBD and produce the seed-data spec (exactly which memories, exactly which demo questions hit them).
+1. Confirm codename: keep `Relevo` unless someone has a stronger name.
+2. Confirm team lane mapping: Narf/API, Sarf/data, Jorf/agents, Jerf/router,
+   Marf/frontend.
+3. Pick the demo project and the three people/agents in it.
+4. Pick the project rules that make coordination legible in the demo.
+5. Pick the first 8-12 memory edge types for graph-like context bringup.
+6. Decide how real V2 coding should be:
+   - safest: deterministic fallback diff plus optional live LLM;
+   - stronger: live LLM generates patch artifacts;
+   - riskiest: agent applies patches to a real git worktree during demo.
+
+Recommendation for the hackathon: use live LLM output when available, but always
+store and replay fallback artifacts through the same run/artifact/message/SSE
+contract.
