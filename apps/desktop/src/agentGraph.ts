@@ -1,5 +1,6 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
+import { createLogger, previewText as previewTextShared } from "./logger.js";
 import type {
   ContextPacket,
   ConversationMessage,
@@ -7,6 +8,8 @@ import type {
   MemoryUpdateResponse,
   RetrieverRequest,
 } from "./types.js";
+
+const agentNetworkLogger = createLogger("relevo.agent-network");
 
 export const AGENT_NETWORK_NODE_ORDER = [
   "preflightRetriever",
@@ -43,16 +46,10 @@ export type AgentNetworkDependencies = {
   runUpdater: (input: UpdaterInput) => Promise<MemoryUpdateResponse>;
 };
 
-function previewText(text: string, maxLength = 120): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength - 1)}…`;
-}
+const previewText = previewTextShared;
 
 function logAgentNetwork(event: string, details: Record<string, unknown>): void {
-  console.info("[relevo.agent-network]", event, details);
+  agentNetworkLogger.info(event, details);
 }
 
 const AgentNetworkAnnotation = Annotation.Root({
@@ -301,11 +298,14 @@ export async function* runAgentNetwork(
     for (const update of Object.values(chunk)) {
       const events = (update as Partial<AgentNetworkState>).events ?? [];
       for (const event of events) {
-        logAgentNetwork("graph:event", {
+        agentNetworkLogger.debug("graph:event", {
           chatSessionId: input.chatSessionId,
           eventType: event.type,
           toolName: "toolName" in event ? event.toolName : undefined,
+          toolUseId: "toolUseId" in event ? event.toolUseId : undefined,
           status: "status" in event ? event.status : undefined,
+          textPreview:
+            event.type === "assistant_text" ? previewText(event.text, 200) : undefined,
         });
         yield event;
       }
