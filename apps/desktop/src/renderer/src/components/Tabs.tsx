@@ -1,3 +1,7 @@
+import { Activity, LayoutGrid, MessageSquare, SquareCheck, Users } from 'lucide-react'
+import type { LucideProps } from 'lucide-react'
+import type { ComponentType } from 'react'
+
 type TabKey = 'chat' | 'pool' | 'timeline' | 'responsibilities' | 'tasks'
 
 type TabsProps = {
@@ -5,44 +9,35 @@ type TabsProps = {
   onTabChange: (tab: TabKey) => void
 }
 
+const TAB_ICON_SIZE = 15
+
+const TAB_DEFS: Array<{ key: TabKey; label: string; Icon: ComponentType<LucideProps> }> = [
+  { key: 'chat', label: 'chat', Icon: MessageSquare },
+  { key: 'pool', label: 'pool', Icon: LayoutGrid },
+  { key: 'timeline', label: 'timeline', Icon: Activity },
+  { key: 'responsibilities', label: 'team', Icon: Users },
+  { key: 'tasks', label: 'tasks', Icon: SquareCheck }
+]
+
 function Tabs({ activeTab, onTabChange }: TabsProps): React.JSX.Element {
   return (
-    <nav className="tabs">
-      <button
-        className={`settings-form__button ${activeTab === 'chat' ? 'settings-form__button--primary' : ''}`}
-        type="button"
-        onClick={() => onTabChange('chat')}
-      >
-        chat
-      </button>
-      <button
-        className={`settings-form__button ${activeTab === 'pool' ? 'settings-form__button--primary' : ''}`}
-        type="button"
-        onClick={() => onTabChange('pool')}
-      >
-        pool
-      </button>
-      <button
-        className={`settings-form__button ${activeTab === 'timeline' ? 'settings-form__button--primary' : ''}`}
-        type="button"
-        onClick={() => onTabChange('timeline')}
-      >
-        timeline
-      </button>
-      <button
-        className={`settings-form__button ${activeTab === 'responsibilities' ? 'settings-form__button--primary' : ''}`}
-        type="button"
-        onClick={() => onTabChange('responsibilities')}
-      >
-        responsibilities
-      </button>
-      <button
-        className={`settings-form__button ${activeTab === 'tasks' ? 'settings-form__button--primary' : ''}`}
-        type="button"
-        onClick={() => onTabChange('tasks')}
-      >
-        tasks
-      </button>
+    <nav className="tabs" role="tablist">
+      {TAB_DEFS.map(({ key, label, Icon }) => {
+        const isActive = activeTab === key
+        return (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            className={`tab${isActive ? ' tab--active' : ''}`}
+            onClick={() => onTabChange(key)}
+          >
+            <Icon size={TAB_ICON_SIZE} />
+            <span className="tab__label">{label}</span>
+          </button>
+        )
+      })}
     </nav>
   )
 }

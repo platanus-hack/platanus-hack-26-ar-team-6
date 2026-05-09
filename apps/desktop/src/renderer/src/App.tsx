@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
-import Sidebar, { type SidebarAgent } from './components/Sidebar'
 import SettingsPanel from './components/SettingsPanel'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
@@ -381,7 +380,7 @@ function MemberManagement({
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
-  const [isDark, setIsDark] = useState(false)
+  const [isDark, setIsDark] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(true)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
@@ -547,12 +546,6 @@ function App(): React.JSX.Element {
       ? 'live'
       : 'loading'
   const bootstrapError = bootstrapQuery.error instanceof Error ? `bootstrap failed: ${bootstrapQuery.error.message}` : null
-  const roster: SidebarAgent[] =
-    bootstrapQuery.data?.roster.map((user) => ({
-      id: user.id,
-      display_name: user.display_name,
-      domain_summary: user.domain_summary
-    })) ?? []
   const hasAnthropicApiKey = Boolean(desktopSettings.hasAnthropicApiKey)
   const activeUserId = bootstrapQuery.data?.user.id ?? selectedProject.user_id
   const selectedProjectFolderPath = desktopSettings.selectedProjectFolderPath
@@ -615,8 +608,6 @@ function App(): React.JSX.Element {
       />
 
       <div className="app-body">
-        <Sidebar agents={roster} currentUserId={activeUserId} />
-
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
           {folderMessage && <div className="content-status">{folderMessage}</div>}
