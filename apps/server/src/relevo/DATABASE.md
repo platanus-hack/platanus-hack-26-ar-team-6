@@ -17,11 +17,14 @@ Jerf depend on. If you change anything here, sync with them.
    `user_id` whenever `/request-context` resolves a per-user target.
    The same transaction writes a `qa_ledger` row for simple audit/demo
    queries.
-4. **Embedding model: `text-embedding-3-small`** (Jorf V2 default). The
-   current migration still has nullable `embedding vector(1024)` columns on
-   both context tables. Sarf should migrate them to `vector(1536)` before
-   pgvector search is enabled. **No HNSW index exists yet**; create it after
-   the dimension migration/backfill.
+4. **Embedding model: `text-embedding-3-small`** (Jorf V2 default). Nullable
+   embedding columns on both context tables use `vector(1536)`. **No HNSW
+   index exists yet**; create it only after embeddings are backfilled.
+5. **Project-target Q&A storage: both `project_context_entry` and
+   `project_qa_ledger`**. `target="project"` writes
+   `project_context_entry(kind='project_qa')` plus an audit row in
+   `project_qa_ledger`. The user-target `qa_ledger` FK constraints stay
+   unchanged.
 
 ## Schema
 
@@ -30,17 +33,22 @@ See [`migrations/0001_init.sql`](../../../../migrations/0001_init.sql).
 Tables:
 
 - **`project`** — one row for the demo. Other tables FK to it.
+- **`schema_migration`** — versioned SQL migration history. Existing demo DBs
+  that predate this table are baselined at `0001`, then receive `0002` and
+  later migrations through `AUTO_MIGRATE=1`.
 - **`app_user`** — one row per user. Holds `auth_token` (Narf's bearer
   auth), `domain_summary` (one-line role description), and `profile`
   JSONB (denormalized voice + domain blocks for Jorf's on-demand agent).
 - **`context_entry`** — per-user content. `kind` is one of `seed`,
-  `prompt_answer`, `cross_user_qa`. Append-only.
+  `prompt_answer`, `cross_user_qa`, `project_qa`. Append-only. `project_qa`
+  is only used by `project_context_entry`.
 - **`project_context_entry`** — same shape as `context_entry`, but
-  scoped to the project. Read by V3's `target="project"` flow; V2 just
-  seeds rows.
+  scoped to the project. Read and appended by V3's `target="project"` flow.
 - **`qa_ledger`** — append-only cross-user Q&A audit table. Each row points
   at the materialized target-user `context_entry` through
   `context_entry_id`.
+- **`project_qa_ledger`** — append-only project-target Q&A audit table. Each
+  row points at the materialized project `project_context_entry`.
 
 ## Data-access layer
 
@@ -65,6 +73,14 @@ Key functions and their return shapes:
   user's `context_entry(kind='cross_user_qa')`, creates the `qa_ledger`
   row, annotates the context metadata with `qa_ledger_id`, commits, and
   returns the context entry id.
+- `retrieve_project_context(conn, project_id, question, limit) -> list[dict]`
+  — lexical fallback retrieval over `project_context_entry` while embeddings
+  remain nullable.
+- `write_project_qa_entry(conn, project_id, asker_user_id, question, answer, …) -> UUID`
+  — `POST /request-context` with `target="project"` writes through this.
+  It creates `project_context_entry(kind='project_qa')`, creates the
+  `project_qa_ledger` row, annotates metadata with `project_qa_ledger_id`,
+  commits, and returns the project context entry id.
 
 ## Seeds
 
@@ -100,10 +116,12 @@ The loader TRUNCATEs all data tables before inserting; pass
 ## Remaining Retrieval Upgrade
 
 These are not blocking the V2 demo path, which currently uses lexical
-retrieval over `context_entry` while preserving the target-user filter and
-closure-write contract.
+retrieval over `context_entry`/`project_context_entry` while preserving the
+target filter and closure-write contract.
 
-1. Sarf migrates `embedding vector(1024)` to `vector(1536)` for
+1. Add a backfill pass that re-embeds existing rows with
    `text-embedding-3-small`.
-2. Create the HNSW index on `embedding`.
-3. Add a backfill pass that re-embeds existing rows.
+2. Create HNSW indexes on the user and project `embedding` columns after
+   backfill.
+3. Replace the lexical fallback at the isolated retrieval functions with
+   vector-first ranking while keeping lexical fallback deterministic.

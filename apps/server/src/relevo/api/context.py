@@ -11,10 +11,13 @@ from relevo.agent import answer_from_context
 from relevo.db import (
     connect,
     get_bootstrap,
+    get_project,
     get_user,
     get_user_by_token,
+    retrieve_project_context,
     retrieve_user_context,
     write_cross_user_qa_entry,
+    write_project_qa_entry,
     write_prompt_answer_entry,
 )
 
@@ -63,7 +66,7 @@ class WriteContextEntryResponse(BaseModel):
 class RequestContextRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    target: str | None = Field(default=None, description="Target user id. P0 only.")
+    target: str | None = Field(default=None, description='Target user id or "project".')
     target_user_id: UUID | None = None
     question: str = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -80,8 +83,12 @@ class RetrievedContextEntry(BaseModel):
 class RequestContextResponse(BaseModel):
     answer: str
     source_user_ids: list[UUID]
-    target_user_id: UUID
-    context_entry_id: UUID
+    source_context_entry_ids: list[UUID]
+    target: str
+    target_user_id: UUID | None = None
+    target_project_id: UUID | None = None
+    context_entry_id: UUID | None = None
+    project_context_entry_id: UUID | None = None
     retrieved_context_entries: list[RetrievedContextEntry]
 
 
@@ -100,6 +107,7 @@ def _extract_token(
         if authorization.strip():
             return authorization.strip()
     return x_user_token or x_auth_token
+
 
 def get_db() -> Iterator[psycopg.Connection]:
     with connect() as conn:
@@ -178,7 +186,12 @@ def request_context(
     conn: Annotated[psycopg.Connection, Depends(get_db)],
     current_user: Annotated[dict[str, Any], Depends(require_user)],
 ) -> RequestContextResponse:
-    target_user_id = _resolve_target_user_id(body)
+    target_kind, target_user_id = _resolve_target(body)
+    if target_kind == "project":
+        return _request_project_context(body, request, conn, current_user)
+    if target_user_id is None:
+        raise HTTPException(status_code=422, detail="target user id is required")
+
     target_user = get_user(conn, target_user_id)
     if target_user is None:
         raise HTTPException(status_code=404, detail=f"Target user not found: {target_user_id}")
@@ -209,20 +222,66 @@ def request_context(
     return RequestContextResponse(
         answer=answer,
         source_user_ids=[target_user_id],
+        source_context_entry_ids=[row["id"] for row in retrieved],
+        target="user",
         target_user_id=target_user_id,
         context_entry_id=context_entry_id,
         retrieved_context_entries=[RetrievedContextEntry(**row) for row in retrieved],
     )
 
 
-def _resolve_target_user_id(body: RequestContextRequest) -> UUID:
+def _request_project_context(
+    body: RequestContextRequest,
+    request: Request,
+    conn: psycopg.Connection,
+    current_user: dict[str, Any],
+) -> RequestContextResponse:
+    project_id = current_user["project_id"]
+    project = get_project(conn, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    retrieved = retrieve_project_context(conn, project_id, body.question, limit=6)
+    answer = answer_from_context(
+        question=body.question,
+        target_user={
+            "id": project["id"],
+            "display_name": f"{project['name']} project",
+        },
+        context_entries=retrieved,
+        config=request.app.state.config,
+    )
+    project_context_entry_id = write_project_qa_entry(
+        conn,
+        project_id=project_id,
+        asker_user_id=current_user["id"],
+        question=body.question,
+        answer=answer,
+        extra_metadata={
+            **body.metadata,
+            "retrieved_project_context_entry_ids": [str(row["id"]) for row in retrieved],
+        },
+    )
+    return RequestContextResponse(
+        answer=answer,
+        source_user_ids=[],
+        source_context_entry_ids=[row["id"] for row in retrieved],
+        target="project",
+        target_project_id=project_id,
+        project_context_entry_id=project_context_entry_id,
+        retrieved_context_entries=[RetrievedContextEntry(**row) for row in retrieved],
+    )
+
+
+def _resolve_target(body: RequestContextRequest) -> tuple[str, UUID | None]:
     if body.target_user_id is not None:
-        return body.target_user_id
+        return "user", body.target_user_id
     if body.target is None:
         raise HTTPException(status_code=422, detail="target or target_user_id is required")
-    if body.target == "project":
-        raise HTTPException(status_code=400, detail='target="project" is V3/stretch')
+    target = body.target.strip()
+    if target.lower() == "project":
+        return "project", None
     try:
-        return UUID(body.target)
+        return "user", UUID(target)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail="target must be a user UUID") from exc
+        raise HTTPException(status_code=422, detail='target must be a user UUID or "project"') from exc

@@ -44,13 +44,18 @@ postgresql://relevo:relevo@localhost:5432/relevo
 
 These creds are fine for local dev only. Never reuse them anywhere shared.
 
-## Apply migrations manually
+## Apply migrations
 
-If the container was already initialized (volume already exists), the auto-init **will not re-run**. Apply migrations by hand:
+The server can apply versioned migrations automatically on startup when
+`AUTO_MIGRATE=1` is set. For a local one-off run without starting the server:
 
 ```bash
-docker exec -i relevo-postgres psql -U relevo -d relevo < migrations/0001_init.sql
+cd apps/server
+uv run python -c "from relevo.admin import ensure_schema; ensure_schema()"
 ```
+
+Existing demo DBs without `schema_migration` are baselined at `0001`, then
+receive later migrations such as `0002_v3_project_context.sql`.
 
 ## Nuke + reset the DB
 
