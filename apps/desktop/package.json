@@ -2,7 +2,8 @@
   "name": "@relevo/desktop",
   "version": "0.0.0",
   "private": true,
-  "description": "An Electron application with React and TypeScript",
+  "description": "Relevo desktop app",
+  "author": "team 6",
   "main": "./out/main/index.js",
   "homepage": "https://electron-vite.org",
   "scripts": {
@@ -17,7 +18,7 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {

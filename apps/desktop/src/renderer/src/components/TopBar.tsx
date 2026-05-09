@@ -6,7 +6,7 @@ type HealthResponse = {
 }
 
 function TopBar(): React.JSX.Element {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://creative-possibility-production-f2af.up.railway.app'
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
   const { data, isError } = useQuery({
