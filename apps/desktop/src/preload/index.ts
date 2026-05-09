@@ -5,13 +5,19 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   getHealth: (apiBaseUrl: string) => ipcRenderer.invoke('health:check', apiBaseUrl),
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveServerBaseUrl: (serverBaseUrl: string) => ipcRenderer.invoke('settings:server-url:save', serverBaseUrl),
   saveAnthropicApiKey: (apiKey: string) => ipcRenderer.invoke('settings:anthropic-key:save', apiKey),
   clearAnthropicApiKey: () => ipcRenderer.invoke('settings:anthropic-key:clear'),
-  getBootstrap: (request: { apiBaseUrl: string; authToken: string; userId: string }) =>
-    ipcRenderer.invoke('bootstrap:load', request),
+  startGoogleLogin: (request: { serverBaseUrl?: string }) => ipcRenderer.invoke('auth:login:start', request),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+  refreshProjects: () => ipcRenderer.invoke('auth:projects:refresh'),
+  selectProject: (projectId: string) => ipcRenderer.invoke('project:select', projectId),
+  createProject: (request: { name: string; description?: string | null; domainSummary?: string | null }) =>
+    ipcRenderer.invoke('project:create', request),
+  addProjectMember: (request: { projectId: string; email: string; domainSummary: string }) =>
+    ipcRenderer.invoke('project:member:add', request),
+  getBootstrap: () => ipcRenderer.invoke('bootstrap:load'),
   savePromptAnswer: (request: {
-    apiBaseUrl: string
-    authToken: string
     prompt: string
     finalAnswer: string
     metadata?: Record<string, unknown>
@@ -20,12 +26,18 @@ const api = {
     prompt: string
     cwd: string
     bootstrap: unknown
-    serverUrl: string
     userId: string
-    authToken?: string
     model?: string
     maxTurns?: number
   }) => ipcRenderer.invoke('assistant:run:start', payload),
+  onAuthEvent: (callback: (event: unknown) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
+    ipcRenderer.on('auth:event', listener)
+
+    return () => {
+      ipcRenderer.removeListener('auth:event', listener)
+    }
+  },
   onAssistantEvent: (callback: (event: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
     ipcRenderer.on('assistant:event', listener)

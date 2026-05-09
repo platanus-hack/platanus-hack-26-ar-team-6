@@ -1,16 +1,28 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { join, resolve } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runLocalAssistant } from '../runner.js'
-import type { RunLocalAssistantOptions } from '../types.js'
+import type { BootstrapContext, RunLocalAssistantOptions } from '../types.js'
 import {
   clearAnthropicApiKey,
+  clearRelevoSession,
   getDesktopSettings,
   readAnthropicApiKey,
+  readRelevoSessionToken,
   saveAnthropicApiKey,
+  saveRelevoAuthState,
+  saveRelevoSession,
+  saveSelectedProjectId,
+  saveServerBaseUrl,
+  type DesktopAccountSummary,
+  type DesktopProjectMembership,
   type DesktopSettingsResponse
 } from './settings.js'
+
+const DEFAULT_API_BASE_URL =
+  process.env['VITE_API_BASE_URL'] || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
+const DESKTOP_REDIRECT_URI = 'relevo://auth/callback'
 
 type HealthResponse = {
   status?: string
@@ -22,6 +34,8 @@ type BootstrapUser = {
   display_name: string
   domain_summary: string
   profile: Record<string, unknown>
+  role?: string | null
+  account_id?: string | null
 }
 
 type BootstrapProject = {
@@ -46,15 +60,7 @@ type BootstrapResponse = {
   project_context: BootstrapContextEntry[]
 }
 
-type BootstrapRequest = {
-  apiBaseUrl: string
-  authToken: string
-  userId: string
-}
-
 type SavePromptAnswerRequest = {
-  apiBaseUrl: string
-  authToken: string
   prompt: string
   finalAnswer: string
   metadata?: Record<string, unknown>
@@ -65,10 +71,55 @@ type SavePromptAnswerResponse = {
   kind: string
 }
 
-type StartAssistantRunPayload = Omit<RunLocalAssistantOptions, 'anthropicApiKey'>
+type AuthStateResponse = {
+  account: DesktopAccountSummary
+  projects: DesktopProjectMembership[]
+}
+
+type DesktopExchangeResponse = AuthStateResponse & {
+  session_token: string
+}
+
+type StartAssistantRunPayload = {
+  prompt: string
+  cwd: string
+  bootstrap: BootstrapContext
+  userId: string
+  model?: string
+  maxTurns?: number
+}
+
+type CreateProjectPayload = {
+  name: string
+  description?: string | null
+  domainSummary?: string | null
+}
+
+type AddProjectMemberPayload = {
+  projectId: string
+  email: string
+  domainSummary: string
+}
+
+type AuthEvent =
+  | { type: 'login:pending' }
+  | { type: 'login:succeeded'; settings: DesktopSettingsResponse }
+  | { type: 'login:failed'; message: string }
+  | { type: 'logout:succeeded'; settings: DesktopSettingsResponse }
+  | { type: 'projects:updated'; settings: DesktopSettingsResponse }
+  | { type: 'project:selected'; settings: DesktopSettingsResponse }
+
+type SessionContext = {
+  serverBaseUrl: string
+  sessionToken: string
+  selectedProjectId: string
+}
+
+let mainWindow: BrowserWindow | null = null
+let pendingProtocolUrls: string[] = []
 
 function normalizeBaseUrl(apiBaseUrl: string): string {
-  return apiBaseUrl.replace(/\/+$/, '')
+  return apiBaseUrl.trim().replace(/\/+$/, '')
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -82,9 +133,132 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+function notifyAuthEvent(event: AuthEvent): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('auth:event', event)
+  }
+}
+
+function focusMainWindow(): void {
+  const window = mainWindow ?? BrowserWindow.getAllWindows()[0]
+  if (!window) {
+    return
+  }
+  if (window.isMinimized()) {
+    window.restore()
+  }
+  window.show()
+  window.focus()
+}
+
+function configureProtocolClient(): void {
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('relevo', process.execPath, [resolve(process.argv[1])])
+    return
+  }
+
+  app.setAsDefaultProtocolClient('relevo')
+}
+
+async function exchangeDesktopLoginCode(code: string): Promise<DesktopSettingsResponse> {
+  const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
+  const exchangeUrl = new URL('/auth/desktop/exchange', settings.serverBaseUrl)
+  const exchange = await fetchJson<DesktopExchangeResponse>(exchangeUrl.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ code })
+  })
+
+  return saveRelevoSession(
+    {
+      sessionToken: exchange.session_token,
+      account: exchange.account,
+      projects: exchange.projects
+    },
+    DEFAULT_API_BASE_URL
+  )
+}
+
+async function handleProtocolUrl(rawUrl: string): Promise<void> {
+  if (!app.isReady()) {
+    pendingProtocolUrls.push(rawUrl)
+    return
+  }
+
+  focusMainWindow()
+  notifyAuthEvent({ type: 'login:pending' })
+
+  try {
+    const callbackUrl = new URL(rawUrl)
+    const isAuthCallback = callbackUrl.protocol === 'relevo:' && callbackUrl.hostname === 'auth'
+    if (!isAuthCallback) {
+      throw new Error('Unsupported Relevo callback URL.')
+    }
+
+    const error = callbackUrl.searchParams.get('error')
+    if (error) {
+      throw new Error(`Google login failed: ${error}`)
+    }
+
+    const code = callbackUrl.searchParams.get('code')
+    if (!code) {
+      throw new Error('Google login callback did not include a code.')
+    }
+
+    const settings = await exchangeDesktopLoginCode(code)
+    notifyAuthEvent({ type: 'login:succeeded', settings })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    notifyAuthEvent({ type: 'login:failed', message })
+  }
+}
+
+function flushPendingProtocolUrls(): void {
+  const urls = pendingProtocolUrls
+  pendingProtocolUrls = []
+  for (const url of urls) {
+    void handleProtocolUrl(url)
+  }
+}
+
+async function getSessionContext(requireProject = true): Promise<SessionContext> {
+  const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
+  const sessionToken = await readRelevoSessionToken()
+
+  if (!sessionToken) {
+    throw new Error('Sign in with Google before using the Relevo API.')
+  }
+  if (requireProject && !settings.selectedProjectId) {
+    throw new Error('Select a project before using the Relevo API.')
+  }
+
+  return {
+    serverBaseUrl: settings.serverBaseUrl,
+    sessionToken,
+    selectedProjectId: settings.selectedProjectId ?? ''
+  }
+}
+
+async function refreshProjectsFromServer(): Promise<DesktopSettingsResponse> {
+  const { serverBaseUrl, sessionToken } = await getSessionContext(false)
+  const stateUrl = new URL('/me/projects', serverBaseUrl)
+  const state = await fetchJson<AuthStateResponse>(stateUrl.toString(), {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`
+    }
+  })
+  return saveRelevoAuthState(state, DEFAULT_API_BASE_URL)
+}
+
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusMainWindow()
+    return
+  }
+
+  const window = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -95,35 +269,54 @@ function createWindow(): void {
       sandbox: false
     }
   })
+  mainWindow = window
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null
+    }
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  window.on('ready-to-show', () => {
+    window.show()
+  })
+
+  window.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    window.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    window.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
+configureProtocolClient()
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
+
+app.on('second-instance', (_event, argv) => {
+  const protocolUrl = argv.find((arg) => arg.startsWith('relevo://'))
+  if (protocolUrl) {
+    void handleProtocolUrl(protocolUrl)
+  } else {
+    focusMainWindow()
+  }
+})
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  void handleProtocolUrl(url)
+})
+
 app.whenReady().then(() => {
-  // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
@@ -140,25 +333,113 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('settings:get', async (): Promise<DesktopSettingsResponse> => {
-    return getDesktopSettings()
+    return getDesktopSettings(DEFAULT_API_BASE_URL)
+  })
+
+  ipcMain.handle('settings:server-url:save', async (_, serverBaseUrl: string): Promise<DesktopSettingsResponse> => {
+    return saveServerBaseUrl(serverBaseUrl, DEFAULT_API_BASE_URL)
   })
 
   ipcMain.handle('settings:anthropic-key:save', async (_, apiKey: string): Promise<DesktopSettingsResponse> => {
-    return saveAnthropicApiKey(apiKey)
+    return saveAnthropicApiKey(apiKey, DEFAULT_API_BASE_URL)
   })
 
   ipcMain.handle('settings:anthropic-key:clear', async (): Promise<DesktopSettingsResponse> => {
-    return clearAnthropicApiKey()
+    return clearAnthropicApiKey(DEFAULT_API_BASE_URL)
   })
 
-  ipcMain.handle('bootstrap:load', async (_, request: BootstrapRequest): Promise<BootstrapResponse> => {
-    const normalizedBaseUrl = normalizeBaseUrl(request.apiBaseUrl)
-    const bootstrapUrl = new URL(`${normalizedBaseUrl}/bootstrap`)
-    bootstrapUrl.searchParams.set('user_id', request.userId)
+  ipcMain.handle(
+    'auth:login:start',
+    async (_, request: { serverBaseUrl?: string } = {}): Promise<DesktopSettingsResponse> => {
+      const baseUrl = request.serverBaseUrl
+        ? (await saveServerBaseUrl(request.serverBaseUrl, DEFAULT_API_BASE_URL)).serverBaseUrl
+        : (await getDesktopSettings(DEFAULT_API_BASE_URL)).serverBaseUrl
+      const loginUrl = new URL('/auth/google/start', baseUrl)
+      loginUrl.searchParams.set('desktop_redirect_uri', DESKTOP_REDIRECT_URI)
+      await shell.openExternal(loginUrl.toString())
+      return getDesktopSettings(DEFAULT_API_BASE_URL)
+    }
+  )
+
+  ipcMain.handle('auth:logout', async (): Promise<DesktopSettingsResponse> => {
+    const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
+    const sessionToken = await readRelevoSessionToken()
+
+    if (sessionToken) {
+      const logoutUrl = new URL('/auth/logout', settings.serverBaseUrl)
+      await fetch(logoutUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionToken}`
+        }
+      }).catch(() => undefined)
+    }
+
+    const nextSettings = await clearRelevoSession(DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'logout:succeeded', settings: nextSettings })
+    return nextSettings
+  })
+
+  ipcMain.handle('auth:projects:refresh', async (): Promise<DesktopSettingsResponse> => {
+    const settings = await refreshProjectsFromServer()
+    notifyAuthEvent({ type: 'projects:updated', settings })
+    return settings
+  })
+
+  ipcMain.handle('project:select', async (_, projectId: string): Promise<DesktopSettingsResponse> => {
+    const settings = await saveSelectedProjectId(projectId, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'project:selected', settings })
+    return settings
+  })
+
+  ipcMain.handle('project:create', async (_, request: CreateProjectPayload): Promise<DesktopSettingsResponse> => {
+    const { serverBaseUrl, sessionToken } = await getSessionContext(false)
+    const createUrl = new URL('/projects', serverBaseUrl)
+    const created = await fetchJson<DesktopProjectMembership>(createUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: request.name,
+        description: request.description ?? null,
+        domain_summary: request.domainSummary ?? null
+      })
+    })
+    await refreshProjectsFromServer()
+    const settings = await saveSelectedProjectId(created.project_id, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'projects:updated', settings })
+    return settings
+  })
+
+  ipcMain.handle(
+    'project:member:add',
+    async (_, request: AddProjectMemberPayload): Promise<DesktopProjectMembership> => {
+      const { serverBaseUrl, sessionToken } = await getSessionContext(false)
+      const memberUrl = new URL(`/projects/${request.projectId}/members`, serverBaseUrl)
+      return fetchJson<DesktopProjectMembership>(memberUrl.toString(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: request.email,
+          domain_summary: request.domainSummary
+        })
+      })
+    }
+  )
+
+  ipcMain.handle('bootstrap:load', async (): Promise<BootstrapResponse> => {
+    const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+    const bootstrapUrl = new URL('/bootstrap', serverBaseUrl)
+    bootstrapUrl.searchParams.set('project_id', selectedProjectId)
 
     return fetchJson<BootstrapResponse>(bootstrapUrl.toString(), {
       headers: {
-        Authorization: `Bearer ${request.authToken}`
+        Authorization: `Bearer ${sessionToken}`
       }
     })
   })
@@ -166,12 +447,13 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'context-entry:save',
     async (_, request: SavePromptAnswerRequest): Promise<SavePromptAnswerResponse> => {
-      const normalizedBaseUrl = normalizeBaseUrl(request.apiBaseUrl)
-      return fetchJson<SavePromptAnswerResponse>(`${normalizedBaseUrl}/context-entries`, {
+      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+      return fetchJson<SavePromptAnswerResponse>(`${serverBaseUrl}/context-entries`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${request.authToken}`,
-          'Content-Type': 'application/json'
+          Authorization: `Bearer ${sessionToken}`,
+          'Content-Type': 'application/json',
+          'X-Project-Id': selectedProjectId
         },
         body: JSON.stringify({
           prompt: request.prompt,
@@ -188,28 +470,30 @@ app.whenReady().then(() => {
       throw new Error('Anthropic API key is not configured. Open settings and save a key.')
     }
 
-    for await (const assistantEvent of runLocalAssistant({ ...payload, anthropicApiKey })) {
+    const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+    const runOptions: RunLocalAssistantOptions = {
+      ...payload,
+      anthropicApiKey,
+      serverUrl: serverBaseUrl,
+      authToken: sessionToken,
+      projectId: selectedProjectId
+    }
+
+    for await (const assistantEvent of runLocalAssistant(runOptions)) {
       event.sender.send('assistant:event', assistantEvent)
     }
   })
 
   createWindow()
+  flushPendingProtocolUrls()
 
   app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

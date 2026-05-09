@@ -32,11 +32,12 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 48px;
+  min-height: 48px;
   padding: 0 16px;
   border-bottom: 1px solid #dddddd;
   background: #ffffff;
   font-weight: 500;
+  overflow: hidden;
 }
 
 .topbar-back,
@@ -49,12 +50,30 @@ button {
 }
 
 .topbar-button {
-  margin-left: auto;
+  white-space: nowrap;
 }
 
 .topbar-back:hover,
 .topbar-button:hover {
   background: #ebebeb;
+}
+
+.topbar-select {
+  max-width: 180px;
+  border: 1px solid #d8d8d8;
+  background: #ffffff;
+  color: #111111;
+  padding: 5px 8px;
+  font: inherit;
+}
+
+.topbar-account {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #555555;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .health-indicator {
@@ -170,6 +189,127 @@ button {
 .content-row__meta {
   color: #111111;
   font-size: 14px;
+}
+
+.auth-page,
+.project-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: #f5f5f5;
+}
+
+.auth-panel,
+.project-panel {
+  width: min(560px, 100%);
+  border: 1px solid #d8d8d8;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.auth-panel__header,
+.project-panel__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid #eeeeee;
+}
+
+.auth-panel__header h1,
+.project-panel__header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.auth-panel__header p,
+.project-panel__header p {
+  margin: 4px 0 0;
+  color: #666666;
+  font-size: 13px;
+}
+
+.auth-form,
+.project-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 24px 24px;
+}
+
+.auth-status {
+  padding: 0 24px 20px;
+  color: #555555;
+  font-size: 12px;
+}
+
+.project-panel__actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 24px 0;
+}
+
+.project-list__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid #e5e5e5;
+  background: #fafafa;
+  color: #111111;
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.project-list__item:hover {
+  background: #f2f2f2;
+}
+
+.project-list__name {
+  font-weight: 600;
+}
+
+.project-list__meta {
+  color: #666666;
+  font-size: 12px;
+}
+
+.member-management {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #eeeeee;
+  background: #fafafa;
+}
+
+.member-management__title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.member-management__input {
+  min-width: 0;
+  border: 1px solid #d8d8d8;
+  padding: 7px 8px;
+  font: inherit;
+}
+
+.member-management__status {
+  color: #555555;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .citation-chip {
@@ -379,7 +519,7 @@ button {
 }
 
 .settings-panel {
-  width: min(420px, 100%);
+  width: min(480px, 100%);
   border: 1px solid #d8d8d8;
   border-radius: 6px;
   background: #ffffff;
@@ -420,6 +560,10 @@ button {
   flex-direction: column;
   gap: 10px;
   padding: 18px 20px 20px;
+}
+
+.settings-form--stacked {
+  border-top: 1px solid #eeeeee;
 }
 
 .settings-form__label {
@@ -467,6 +611,10 @@ button {
   font-size: 12px;
 }
 
+.settings-form__status--panel {
+  padding: 0 20px 20px;
+}
+
 @media (max-width: 720px) {
   .app-body {
     flex-direction: column;
@@ -486,8 +634,14 @@ button {
     padding: 12px 16px;
   }
 
-  .topbar-button {
+  .topbar-button,
+  .topbar-account {
     margin-left: 0;
+  }
+
+  .member-management {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .settings-form__actions {

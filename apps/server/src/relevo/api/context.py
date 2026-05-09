@@ -7,6 +7,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from relevo.api.auth import require_auth, require_project_membership
 from relevo.agent import answer_from_context
 from relevo.agents import (
     ContextSliceEntry,
@@ -43,6 +44,8 @@ class UserOut(BaseModel):
     display_name: str
     domain_summary: str
     profile: dict[str, Any]
+    role: str | None = None
+    account_id: UUID | None = None
 
 
 class ProjectOut(BaseModel):
@@ -166,9 +169,11 @@ def _ensure_user_matches_auth(
 @router.get("/bootstrap", response_model=BootstrapResponse)
 def bootstrap(
     conn: Annotated[psycopg.Connection, Depends(get_db)],
-    current_user: Annotated[dict[str, Any], Depends(require_user)],
+    current_auth: Annotated[dict[str, Any], Depends(require_auth)],
     user_id: Annotated[UUID | None, Query()] = None,
+    project_id: Annotated[UUID | None, Query()] = None,
 ) -> dict[str, Any]:
+    current_user = require_project_membership(conn, current_auth, project_id)
     resolved_user_id = _ensure_user_matches_auth(user_id, current_user)
     try:
         return get_bootstrap(conn, resolved_user_id)
@@ -181,8 +186,10 @@ def bootstrap(
 def write_context_entry(
     body: WriteContextEntryRequest,
     conn: Annotated[psycopg.Connection, Depends(get_db)],
-    current_user: Annotated[dict[str, Any], Depends(require_user)],
+    current_auth: Annotated[dict[str, Any], Depends(require_auth)],
+    x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
 ) -> WriteContextEntryResponse:
+    current_user = require_project_membership(conn, current_auth, x_project_id)
     user_id = _ensure_user_matches_auth(body.user_id, current_user)
     entry_id = write_prompt_answer_entry(
         conn,
@@ -200,8 +207,10 @@ def request_context(
     body: RequestContextRequest,
     request: Request,
     conn: Annotated[psycopg.Connection, Depends(get_db)],
-    current_user: Annotated[dict[str, Any], Depends(require_user)],
+    current_auth: Annotated[dict[str, Any], Depends(require_auth)],
+    x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
 ) -> RequestContextResponse:
+    current_user = require_project_membership(conn, current_auth, x_project_id)
     target_kind, target_user_id = _resolve_target(body)
     if target_kind == "project":
         return _request_project_context(body, request, conn, current_user)

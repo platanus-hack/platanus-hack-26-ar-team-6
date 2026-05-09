@@ -8,50 +8,49 @@ npm install
 npm run dev
 ```
 
+build:
+
+```sh
+cd apps/desktop
+npm run build
+npm run build:mac
+```
+
 config:
-
-create `apps/desktop/.env` from `apps/desktop/.env.example`.
-
-required vars:
 
 ```env
 VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app
 VITE_ENABLE_HEALTHCHECK=true
-VITE_USER_ID=b1a0c7d9-9fce-4f76-afec-e0ac8eff4180
-VITE_AUTH_TOKEN=dev-token-user1
 VITE_LOCAL_REPO_PATH=/absolute/path/to/your/repo
 ```
 
-Configure the Anthropic API key from the app's settings panel. It is not read from
-`.env`.
+`VITE_API_BASE_URL` is only the default server URL shown by the app. Users can
+edit and persist the server URL from the login screen or settings panel.
+
+Relevo login no longer uses `VITE_AUTH_TOKEN` or `VITE_USER_ID`. The app opens
+Google login in the system browser, receives `relevo://auth/callback`, exchanges
+the one-time code with the server, and stores the session in Electron
+main-process settings. The raw session token is not exposed to the renderer.
+
+Configure the Anthropic API key from the app's settings panel. It is encrypted
+with Electron `safeStorage` when the OS supports it.
 
 notes:
 
-- the app calls `/bootstrap` on launch using `VITE_AUTH_TOKEN`
-- the chat saves `{prompt, final_answer}` through `/context-entries`
+- logged-out state shows server URL and Google sign-in
+- logged-in state shows projects; selecting or creating one enters the chat
+- chat saves `{prompt, final_answer}` through `/context-entries` with the
+  selected project id
+- the local assistant's `request_context` tool sends the selected project id as
+  `X-Project-Id`
 - the runner uses `VITE_LOCAL_REPO_PATH` as its working directory
-- the runner uses the Anthropic API key saved in app settings
-- the health indicator uses `VITE_API_BASE_URL/health`
+- the health indicator checks the persisted server URL
 
 manual smoke:
 
-1. start the app with the user1 token and user1 uuid above
-2. confirm the top bar shows:
-   - `bootstrap: live`
-   - `status: online`
-3. confirm the sidebar shows:
-   - `User1 (Frontend)` with `you`
-   - `User2 (Deployment)`
-4. send this locked v2 prompt from [seeds/LOCK.md](/Users/maria/IdeaProjects/platanus-hack-26-ar-team-6/seeds/LOCK.md:12):
-
-```text
-How is the shared server deployed, what auth does the local app use, and what health endpoint should I check before the demo?
-```
-
-5. confirm the trace shows:
-   - `request_context`
-   - target `User2 (Deployment)`
-   - a running state
-   - a succeeded state with an answer preview
-6. confirm the final assistant answer appears once, without duplicated streamed text
-7. confirm the chat shows `saved`
+1. start the server with Google OAuth configured
+2. launch the desktop app
+3. enter the server URL and sign in through the browser
+4. select or create a project
+5. configure the Anthropic key in settings
+6. send a chat message and confirm the answer saves
