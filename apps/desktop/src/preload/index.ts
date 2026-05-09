@@ -30,8 +30,7 @@ const api = {
     return () => {
       ipcRenderer.removeListener('assistant:event', listener)
     }
-  },
-  runAgentPrompt: (request: unknown) => ipcRenderer.invoke('runner:query', request)
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

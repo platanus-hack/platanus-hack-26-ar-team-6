@@ -88,21 +88,8 @@ type LocalAssistantEvent =
       type: 'raw'
       messageType: string
       message: unknown
-    };
-
-type LocalRunnerPromptRequest = {
-  apiBaseUrl: string
-  authToken: string
-  cwd: string
-  maxTurns?: number
-  model?: string
-  prompt: string
-}
-
-type LocalRunnerPromptResponse = {
-  result: string
-  messages: unknown[]
-}
+    }
+;
 
 type SavePromptAnswerResponse = {
   id: string
@@ -121,7 +108,6 @@ interface DesktopApi {
   }) => Promise<SavePromptAnswerResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
-  runAgentPrompt: (request: LocalRunnerPromptRequest) => Promise<LocalRunnerPromptResponse>
 }
 
 declare global {
