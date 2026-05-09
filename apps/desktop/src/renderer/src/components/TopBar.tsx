@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { getProjectFolderDisplayName } from '../projectFolders'
 
 type HealthResponse = {
   status?: string
@@ -11,11 +12,13 @@ type TopBarProps = {
   projects?: Array<{ project_id: string; project_name: string }>
   selectedProjectId?: string | null
   accountEmail?: string | null
+  projectFolderPath?: string | null
   onBack?: () => void
   bootstrapStatus?: 'live' | 'loading' | 'error'
   anthropicKeyConfigured?: boolean
   onSettings?: () => void
   onProjectSelect?: (projectId: string) => void
+  onChangeFolder?: () => void
   onLogout?: () => void
 }
 
@@ -25,11 +28,13 @@ function TopBar({
   projects = [],
   selectedProjectId,
   accountEmail,
+  projectFolderPath,
   onBack,
   bootstrapStatus,
   anthropicKeyConfigured,
   onSettings,
   onProjectSelect,
+  onChangeFolder,
   onLogout
 }: TopBarProps): React.JSX.Element {
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
@@ -66,6 +71,14 @@ function TopBar({
             </option>
           ))}
         </select>
+      )}
+      <span className="topbar-folder" title={projectFolderPath ?? ''}>
+        folder: {projectFolderPath ? getProjectFolderDisplayName(projectFolderPath) : 'missing'}
+      </span>
+      {onChangeFolder && (
+        <button className="topbar-button" type="button" onClick={onChangeFolder}>
+          change folder
+        </button>
       )}
       {bootstrapStatus && (
         <>

@@ -205,6 +205,7 @@ export async function* runLocalAssistant(
       model: options.model,
       maxTurns: options.maxTurns,
       includePartialMessages: true,
+      permissionMode: "acceptEdits",
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
@@ -214,7 +215,16 @@ export async function* runLocalAssistant(
         type: "preset",
         preset: "claude_code",
       },
-      allowedTools: ["mcp__relevo-context__request_context"],
+      allowedTools: [
+        "Read",
+        "Grep",
+        "Glob",
+        "LS",
+        "Edit",
+        "MultiEdit",
+        "Write",
+        "mcp__relevo-context__request_context",
+      ],
       mcpServers: {
         "relevo-context": requestContextServer,
       },

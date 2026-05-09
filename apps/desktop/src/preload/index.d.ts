@@ -43,7 +43,7 @@ type BootstrapPayload = {
 
 type StartAssistantRunPayload = {
   prompt: string
-  cwd: string
+  cwd?: string
   bootstrap: BootstrapPayload
   userId: string
   model?: string
@@ -104,6 +104,8 @@ type DesktopSettingsResponse = {
   account: DesktopAccountSummary | null
   projects: DesktopProjectMembership[]
   selectedProjectId: string | null
+  projectFolders: Record<string, string>
+  selectedProjectFolderPath: string | null
 }
 
 type DesktopAccountSummary = {
@@ -131,6 +133,7 @@ type AuthEvent =
   | { type: 'logout:succeeded'; settings: DesktopSettingsResponse }
   | { type: 'projects:updated'; settings: DesktopSettingsResponse }
   | { type: 'project:selected'; settings: DesktopSettingsResponse }
+  | { type: 'project:folder:updated'; settings: DesktopSettingsResponse }
 
 type CreateProjectRequest = {
   name: string
@@ -153,6 +156,8 @@ interface DesktopApi {
   logout: () => Promise<DesktopSettingsResponse>
   refreshProjects: () => Promise<DesktopSettingsResponse>
   selectProject: (projectId: string) => Promise<DesktopSettingsResponse>
+  chooseProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
+  clearProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
   createProject: (request: CreateProjectRequest) => Promise<DesktopSettingsResponse>
   deleteProject: (projectId: string) => Promise<DesktopSettingsResponse>
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>

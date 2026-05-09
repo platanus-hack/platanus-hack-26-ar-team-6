@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
@@ -19,6 +20,8 @@ type ChatViewProps = {
   bootstrap: RunnerBootstrapPayload
   isAssistantConfigured: boolean
   onConfigureAssistant: () => void
+  projectFolderPath: string | null
+  onReconnectFolder: () => void
 }
 
 type ToolCallInput = {
@@ -47,7 +50,7 @@ function toRunStatusMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
 
   if (message.includes('cwd must be a directory')) {
-    return 'invalid repo path'
+    return 'project folder unavailable; reconnect it'
   }
 
   return `runner error: ${message}`
@@ -86,7 +89,9 @@ function ChatView({
   userId,
   bootstrap,
   isAssistantConfigured,
-  onConfigureAssistant
+  onConfigureAssistant,
+  projectFolderPath,
+  onReconnectFolder
 }: ChatViewProps): React.JSX.Element {
   const messagesByWorkspace = useChatStore((state) => state.messagesByWorkspace)
   const toolTraceByWorkspace = useChatStore((state) => state.toolTraceByWorkspace)
@@ -112,6 +117,13 @@ function ChatView({
   const saveStatus = saveStatusByWorkspace[workspaceId] ?? null
   const runStatus = runStatusByWorkspace[workspaceId] ?? null
   const rosterById = Object.fromEntries(bootstrap.project_context.roster.map((user) => [user.id, user.display_name]))
+  const hasProjectFolder = hasConnectedProjectFolder(projectFolderPath)
+  const inputPlaceholder = !hasProjectFolder
+    ? 'connect project folder before chatting'
+    : isAssistantConfigured
+      ? 'type a message...'
+      : 'configure Anthropic API key in settings'
+  const sendButtonLabel = isRunning ? 'running...' : !hasProjectFolder ? 'folder' : isAssistantConfigured ? 'send' : 'settings'
 
   useEffect(() => {
     return window.api.onAssistantEvent((event) => {
@@ -227,8 +239,16 @@ function ChatView({
   }, [messages, runStatus, saveStatus, toolTrace])
 
   function handleSend(): void {
+    if (isRunning) return
+
+    if (!hasProjectFolder) {
+      setRunStatus(workspaceId, 'connect project folder before running assistant')
+      onReconnectFolder()
+      return
+    }
+
     const text = input.trim()
-    if (!text || isRunning) return
+    if (!text) return
 
     if (!isAssistantConfigured) {
       setRunStatus(workspaceId, 'configure Anthropic API key in settings')
@@ -238,7 +258,6 @@ function ChatView({
 
     const userMessageId = Date.now().toString()
     const assistantMessageId = `${userMessageId}-assistant`
-    const repoPath = import.meta.env.VITE_LOCAL_REPO_PATH || '.'
 
     addMessage(workspaceId, { id: userMessageId, role: 'user', text })
     startAssistantMessage(workspaceId, assistantMessageId)
@@ -255,7 +274,6 @@ function ChatView({
     void window.api
       .startAssistantRun({
         prompt: text,
-        cwd: repoPath,
         bootstrap,
         userId
       })
@@ -314,20 +332,29 @@ function ChatView({
           ))}
         </div>
       )}
-      {runStatus && <div className="chat-run-status">{runStatus}</div>}
+      {runStatus && (
+        <div className="chat-run-status">
+          <span>{runStatus}</span>
+          {runStatus.includes('folder') && (
+            <button className="chat-run-status__button" type="button" onClick={onReconnectFolder}>
+              reconnect
+            </button>
+          )}
+        </div>
+      )}
       {saveStatus && <div className="chat-save-status">{saveStatus}</div>}
       <div className="chat-input-row">
         <textarea
           className="chat-input"
           rows={2}
-          placeholder={isAssistantConfigured ? 'type a message...' : 'configure Anthropic API key in settings'}
+          placeholder={inputPlaceholder}
           value={input}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isRunning}
+          disabled={isRunning || !hasProjectFolder}
         />
         <button className="chat-send" type="button" onClick={handleSend} disabled={isRunning}>
-          {isRunning ? 'running...' : isAssistantConfigured ? 'send' : 'settings'}
+          {sendButtonLabel}
         </button>
       </div>
     </section>
