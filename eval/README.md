@@ -52,8 +52,9 @@ Fields:
 - `question`: user-facing question to route.
 - `expected_tiers`: memory tiers the router should consider. Use an empty list
   for out-of-scope cases.
-- `expected_agents_any_of`: expected agent placeholder set. In V0 these are
-  placeholders; later `agent_directory.yaml` can resolve them to real IDs.
+- `expected_agents_any_of`: acceptable agent placeholder set. Any one matching
+  predicted agent satisfies recall. In V0 these are placeholders; later
+  `agent_directory.yaml` can resolve them to real IDs.
 - `forbidden_agents`: agents that must not be selected.
 - `must_mention_any_of`: diagnostic terms expected in router rationale. These
   are reported but do not affect the V0 precision/recall gate.
@@ -80,7 +81,8 @@ seeded personas, replace `null` with the real IDs.
 Per case:
 
 - Agent precision = correct predicted agents / predicted agents.
-- Agent recall = correct predicted agents / expected agents.
+- Agent recall = `1.0` when at least one acceptable expected agent is predicted,
+  or when both expected and predicted agents are empty.
 - Tier match passes when at least one expected tier is predicted.
 - Out-of-scope tier match passes only when no tiers are predicted.
 - Forbidden check passes when no forbidden agent is predicted.

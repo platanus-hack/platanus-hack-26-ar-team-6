@@ -235,10 +235,10 @@ def agent_precision(expected_agents: list[str], predicted_agents: list[str]) -> 
 
 
 def agent_recall(expected_agents: list[str], predicted_agents: list[str]) -> float:
+    """Score recall for expected_agents_any_of: one acceptable match is enough."""
     if not expected_agents:
         return 1.0 if not predicted_agents else 0.0
-    correct = len(set(expected_agents) & set(predicted_agents))
-    return correct / len(set(expected_agents))
+    return 1.0 if set(expected_agents) & set(predicted_agents) else 0.0
 
 
 def tiers_match(expected_tiers: list[str], predicted_tiers: list[str]) -> bool:
@@ -266,7 +266,7 @@ def score_case(case: dict[str, Any], decision: RouterDecision, directory: dict[s
         directory,
     )
     predicted_tiers = list(decision.tiers)
-    predicted_agents = list(decision.agents)
+    predicted_agents = resolve_agents(list(decision.agents), directory)
     precision = agent_precision(expected_agents, predicted_agents)
     recall = agent_recall(expected_agents, predicted_agents)
     tier_ok = tiers_match(expected_tiers, predicted_tiers)

@@ -123,6 +123,59 @@ class RouterEvalTest(unittest.TestCase):
         self.assertEqual(result.precision, 1.0)
         self.assertEqual(result.recall, 1.0)
 
+    def test_score_case_treats_expected_agents_as_any_of(self) -> None:
+        case = make_case()
+        case["expected_agents_any_of"] = ["<api_owner>", "<infra_owner>"]
+
+        result = run_eval.score_case(
+            case,
+            run_eval.RouterDecision(
+                tiers=["pool"],
+                agents=["<infra_owner>"],
+                mode="single",
+                rationale="route",
+            ),
+            {},
+        )
+
+        self.assertEqual(result.precision, 1.0)
+        self.assertEqual(result.recall, 1.0)
+        self.assertTrue(result.passed)
+
+    def test_score_case_resolves_predicted_agent_placeholders(self) -> None:
+        result = run_eval.score_case(
+            make_case(),
+            run_eval.RouterDecision(
+                tiers=["pool"],
+                agents=["<api_owner>"],
+                mode="single",
+                rationale="route",
+            ),
+            {"<api_owner>": "api-real"},
+        )
+
+        self.assertEqual(result.expected_agents, ["api-real"])
+        self.assertEqual(result.predicted_agents, ["api-real"])
+        self.assertEqual(result.precision, 1.0)
+        self.assertEqual(result.recall, 1.0)
+
+    def test_score_case_resolves_predicted_forbidden_agent_placeholders(self) -> None:
+        case = make_case()
+        case["forbidden_agents"] = ["<api_owner>"]
+
+        result = run_eval.score_case(
+            case,
+            run_eval.RouterDecision(
+                tiers=["pool"],
+                agents=["<api_owner>"],
+                mode="single",
+                rationale="route",
+            ),
+            {"<api_owner>": "api-real"},
+        )
+
+        self.assertFalse(result.forbidden_ok)
+
     def test_main_reports_validation_error_without_traceback(self) -> None:
         stderr = StringIO()
         with redirect_stderr(stderr):
