@@ -974,7 +974,6 @@ button {
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
   user-select: text;
@@ -983,6 +982,7 @@ button {
 .chat-msg--user .chat-msg__text {
   background: var(--bubble-user);
   color: var(--bubble-user-text);
+  white-space: pre-wrap;
 }
 
 .chat-msg__paragraph {
@@ -991,6 +991,48 @@ button {
 
 .chat-msg__paragraph + .chat-msg__paragraph {
   margin-top: 10px;
+}
+
+/* Inline code */
+.md-inline-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85em;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* Fenced code block */
+.md-code-block {
+  margin: 8px 0 !important;
+  border-radius: 6px !important;
+  font-size: 0.82em;
+  overflow-x: auto;
+}
+
+/* Normalize pre margin injected by react-syntax-highlighter */
+.chat-msg__text pre {
+  margin: 0;
+}
+
+/* Markdown lists */
+.chat-msg__text ul,
+.chat-msg__text ol {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+}
+
+.chat-msg__text li {
+  margin: 2px 0;
+}
+
+/* Markdown headings */
+.chat-msg__text h1,
+.chat-msg__text h2,
+.chat-msg__text h3 {
+  margin: 8px 0 4px;
+  font-size: 1em;
+  font-weight: 600;
 }
 
 .chat-input-row {
