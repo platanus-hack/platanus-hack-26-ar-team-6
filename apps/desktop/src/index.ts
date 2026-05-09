@@ -10,7 +10,6 @@ export {
 } from "./memoryTools.js";
 export {
   AGENT_NETWORK_NODE_ORDER,
-  MEMORY_UPDATE_MESSAGE_THRESHOLD,
   createAgentNetworkGraph,
   runAgentNetwork,
 } from "./agentGraph.js";
