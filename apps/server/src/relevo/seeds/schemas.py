@@ -1,12 +1,12 @@
-"""Pydantic schemas for V1 seed YAML files.
+"""Pydantic schemas for demo seed YAML files.
 
 These models lock the YAML shape so authors of seed files get a clear error
 when shapes drift instead of silent garbage at insert time.
 
-V1 storage (recap, see migrations/0001_init.sql):
-  - Single project per V1 install.
+Storage recap (see migrations/0001_init.sql):
+  - Single project per demo install.
   - app_user rows hold per-user identity, auth token, and a domain_summary.
-  - context_entry holds per-user content, partitioned by user_id; the V1 seed
+  - context_entry holds per-user content, partitioned by user_id; the seed
     file contributes kind='seed' rows.
   - project_context_entry holds shared project-scoped content (read by V3).
 """

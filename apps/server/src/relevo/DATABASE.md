@@ -1,24 +1,25 @@
-# Database (V1) — Sarf
+# Database (V2) — Sarf
 
-This document records the V1 storage decisions and the contract Narf and
+This document records the storage decisions and the contract Narf and
 Jerf depend on. If you change anything here, sync with them.
 
-## Decisions locked in V1
+## Decisions locked for the demo
 
 1. **Backend: Postgres + pgvector**, single store. No graph DB, no graph
-   table. Graph-RAG is a V2/V3 question, not a V1 one.
+   table. Graph-RAG is a V3 question, not a V2 blocker.
 2. **Per-user partitioning: single table + `user_id` discriminator**. One
    `context_entry` table with a `user_id` foreign key. pgvector indexes
    cover all users; queries filter by `user_id`. Schema-per-user was
    considered and rejected (it makes roster queries cross-schema).
-3. **Cross-user Q&A storage: `kind='cross_user_qa'` on `context_entry`**.
-   No separate ledger table. The closure invariant is satisfied by writing
-   a `context_entry` row on the *queried* user's `user_id` whenever V2's
-   `/request-context` resolves a per-user target. The asker's id is in
-   `metadata.asker_user_id`. Audit = filtered SELECT.
+3. **Cross-user Q&A storage: both `context_entry` and `qa_ledger`**.
+   The closure invariant is satisfied by writing a
+   `context_entry(kind='cross_user_qa')` row on the *queried* user's
+   `user_id` whenever `/request-context` resolves a per-user target.
+   The same transaction writes a `qa_ledger` row for simple audit/demo
+   queries.
 4. **Embedding model: deferred to V2** (joint with Jorf). The
    `embedding vector(1024)` column exists on both context tables and is
-   nullable. **No HNSW index is created in V1** because the dimension may
+   nullable. **No HNSW index is created yet** because the dimension may
    change in V2; V2's first task is to lock the model, run a migration to
    set the correct dimension, and create the index.
 
@@ -35,8 +36,11 @@ Tables:
 - **`context_entry`** — per-user content. `kind` is one of `seed`,
   `prompt_answer`, `cross_user_qa`. Append-only.
 - **`project_context_entry`** — same shape as `context_entry`, but
-  scoped to the project. Read by V3's `target="project"` flow; V1 just
+  scoped to the project. Read by V3's `target="project"` flow; V2 just
   seeds rows.
+- **`qa_ledger`** — append-only cross-user Q&A audit table. Each row points
+  at the materialized target-user `context_entry` through
+  `context_entry_id`.
 
 ## Data-access layer
 
@@ -57,8 +61,10 @@ Key functions and their return shapes:
 - `write_prompt_answer_entry(conn, user_id, prompt, final_answer, …) -> UUID`
   — Narf's `POST /context-entries` writes through this.
 - `write_cross_user_qa_entry(conn, target_user_id, asker_user_id, question, answer, …) -> UUID`
-  — V2 wires this into `POST /request-context`. Provided in V1 so the
-  signature is final and Jerf's eval can exercise it.
+  — `POST /request-context` writes through this. It creates the target
+  user's `context_entry(kind='cross_user_qa')`, creates the `qa_ledger`
+  row, annotates the context metadata with `qa_ledger_id`, commits, and
+  returns the context entry id.
 
 ## Seeds
 
@@ -71,6 +77,8 @@ Seed YAMLs live under [`seeds/`](../../../../seeds):
   shipped: `user1.yaml` (frontend) and `user2.yaml` (deployment). They
   are deliberately non-overlapping so V2's cross-user `request_context`
   flow has something to demonstrate.
+- `seeds/LOCK.md` — demo prompt, routing expectation, and SQL snippets for
+  proving the closure write.
 
 ## How to load seeds
 
@@ -89,13 +97,11 @@ uv run python -m relevo.seeds.loader
 The loader TRUNCATEs all data tables before inserting; pass
 `--keep-existing` to skip the wipe.
 
-## V1 → V2 handoff
+## Remaining V2 handoff
 
-When V2 starts:
-
-1. Sarf+Jorf lock the embedding model. Add a migration that, if needed,
+1. Sarf+Jorf lock the embedding model. Edit the migration before deploy, if needed,
    alters `vector(1024)` to the correct dimension.
 2. Create the HNSW index on `embedding`.
 3. Add a backfill pass that re-embeds existing rows.
-4. Wire `write_cross_user_qa_entry` into Narf's now-real
-   `/request-context` route.
+4. Narf wires `write_cross_user_qa_entry` into the real `/request-context`
+   route after Jorf returns an answer.
