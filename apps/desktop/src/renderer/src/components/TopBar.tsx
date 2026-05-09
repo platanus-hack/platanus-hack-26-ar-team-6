@@ -1,10 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
-
-type HealthResponse = {
-  status?: string
-  sha?: string
-}
-
 type TopBarProps = {
   workspaceName: string
   serverBaseUrl: string
@@ -14,10 +7,8 @@ type TopBarProps = {
   projectFolderPath?: string | null
   onBack?: () => void
   showProjectsButton?: boolean
-  bootstrapStatus?: 'live' | 'loading' | 'error'
   isDark: boolean
   onToggleTheme: () => void
-  anthropicKeyConfigured?: boolean
   onSettings?: () => void
   onProjectSelect?: (projectId: string) => void
   onChangeFolder?: () => void
@@ -64,10 +55,8 @@ function TopBar({
   projectFolderPath: _projectFolderPath,
   onBack,
   showProjectsButton = false,
-  bootstrapStatus,
   isDark,
   onToggleTheme,
-  anthropicKeyConfigured,
   onSettings,
   onProjectSelect,
   onChangeFolder,
@@ -76,19 +65,6 @@ function TopBar({
   isProjectCreateOpen,
   onRefresh
 }: TopBarProps): React.JSX.Element {
-  const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
-
-  const { data, isError } = useQuery({
-    queryKey: ['health', serverBaseUrl],
-    enabled: isHealthcheckEnabled,
-    queryFn: (): Promise<HealthResponse> => window.api.getHealth(serverBaseUrl)
-  })
-
-  const isHealthy = isHealthcheckEnabled && data?.status === 'ok' && !isError
-  const healthText = isHealthy ? 'status: online' : 'status: offline'
-  const bootstrapClassName =
-    bootstrapStatus === 'live' ? 'health-indicator--ok' : bootstrapStatus === 'loading' ? 'health-indicator--pending' : 'health-indicator--off'
-
   return (
     <header className="topbar">
       <div className="topbar-group">
@@ -132,24 +108,6 @@ function TopBar({
         )}
       </div>
       <div className="topbar-group">
-        {bootstrapStatus && (
-          <div className="topbar-status">
-            <span className={`health-indicator ${bootstrapClassName}`} />
-            <span>bootstrap: {bootstrapStatus}</span>
-          </div>
-        )}
-        {typeof anthropicKeyConfigured === 'boolean' && (
-          <div className="topbar-status">
-            <span
-              className={`health-indicator ${anthropicKeyConfigured ? 'health-indicator--ok' : 'health-indicator--off'}`}
-            />
-            <span>ai: {anthropicKeyConfigured ? 'configured' : 'missing key'}</span>
-          </div>
-        )}
-        <div className="topbar-status">
-          <span className={`health-indicator ${isHealthy ? 'health-indicator--ok' : 'health-indicator--off'}`} />
-          <span title={data?.sha || ''}>{healthText}</span>
-        </div>
         {accountEmail && <span className="topbar-account">{accountEmail}</span>}
         {onSettings && (
           <button className="topbar-button" type="button" onClick={onSettings}>

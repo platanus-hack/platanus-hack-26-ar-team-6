@@ -61,7 +61,11 @@ function LoginScreen({
       <section className="auth-panel">
         <h1 className="auth-panel__title">omni</h1>
         <form className="auth-form" onSubmit={handleSubmit}>
-          <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSubmitting}>
+          <button
+            className="settings-form__button settings-form__button--primary auth-form__button--google"
+            type="submit"
+            disabled={isSubmitting}
+          >
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
           </button>
         </form>
@@ -392,6 +396,14 @@ function App(): React.JSX.Element {
     queryFn: (): Promise<DesktopSettings> => window.api.getSettings()
   })
 
+  useEffect(() => {
+    document.body.classList.toggle('app-theme-dark', isDark)
+    document.body.classList.toggle('app-theme-light', !isDark)
+    return () => {
+      document.body.classList.remove('app-theme-dark', 'app-theme-light')
+    }
+  }, [isDark])
+
   const desktopSettings = settingsQuery.data
   const selectedProjectId = desktopSettings?.selectedProjectId ?? null
   const bootstrapQuery = useQuery({
@@ -488,7 +500,7 @@ function App(): React.JSX.Element {
 
   if (!desktopSettings.isLoggedIn) {
     return (
-      <>
+      <div className={`app-shell ${isDark ? 'app-shell--dark' : 'app-shell--light'}`}>
         <LoginScreen authMessage={authMessage} onSettingsChange={handleSettingsChange} />
         {isSettingsOpen && (
           <SettingsPanel
@@ -497,7 +509,7 @@ function App(): React.JSX.Element {
             onSettingsChange={handleSettingsChange}
           />
         )}
-      </>
+      </div>
     )
   }
 
@@ -513,7 +525,6 @@ function App(): React.JSX.Element {
           showProjectsButton
           isDark={isDark}
           onToggleTheme={() => setIsDark((value) => !value)}
-          anthropicKeyConfigured={desktopSettings.hasAnthropicApiKey}
           onSettings={() => setIsSettingsOpen(true)}
           onLogout={() => void handleLogout()}
           onNewProject={() => setIsProjectCreateOpen((v) => !v)}
@@ -540,11 +551,6 @@ function App(): React.JSX.Element {
   }
 
   const workspaceName = selectedProject.project_name
-  const bootstrapStatus: 'live' | 'loading' | 'error' = bootstrapQuery.isError
-    ? 'error'
-    : bootstrapQuery.data
-      ? 'live'
-      : 'loading'
   const bootstrapError = bootstrapQuery.error instanceof Error ? `bootstrap failed: ${bootstrapQuery.error.message}` : null
   const roster: SidebarAgent[] =
     bootstrapQuery.data?.roster.map((user) => ({
@@ -600,10 +606,8 @@ function App(): React.JSX.Element {
         selectedProjectId={selectedProjectId}
         accountEmail={desktopSettings.account?.email}
         projectFolderPath={selectedProjectFolderPath}
-        bootstrapStatus={bootstrapStatus}
         isDark={isDark}
         onToggleTheme={() => setIsDark((value) => !value)}
-        anthropicKeyConfigured={hasAnthropicApiKey}
         onBack={() => setIsProjectSelectorOpen(true)}
         onProjectSelect={(projectId) => void handleProjectSelect(projectId)}
         onChangeFolder={() => void handleChooseProjectFolder(selectedProjectId)}

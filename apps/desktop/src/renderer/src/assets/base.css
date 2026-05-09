@@ -1,6 +1,6 @@
 :root {
-  --color-background: #ffffff;
-  --color-text: #111111;
+  --color-background: #efeff1;
+  --color-text: #171717;
   --tier-personal: #e8a87c;
   --tier-pool: #9ca3af;
   --tier-timeline: #6fa8dc;
@@ -27,4 +27,14 @@ body {
     Arial,
     Helvetica,
     sans-serif;
+}
+
+body.app-theme-light {
+  --color-background: #efeff1;
+  --color-text: #171717;
+}
+
+body.app-theme-dark {
+  --color-background: #252525;
+  --color-text: #f3f3f3;
 }
