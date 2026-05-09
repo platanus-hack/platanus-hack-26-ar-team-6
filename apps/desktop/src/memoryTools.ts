@@ -1,7 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
-import { createLogger, previewText as previewTextShared, serializeError } from "./logger.js";
+import { createLogger, serializeError } from "./logger.js";
 import type {
   ContextPacket,
   MemoryResult,
