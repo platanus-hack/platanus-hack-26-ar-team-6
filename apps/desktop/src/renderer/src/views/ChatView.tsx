@@ -1,3 +1,4 @@
+import { Send } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import useChatStore from '../stores/chatStore'
 import useWorkspaceStore from '../stores/workspaceStore'
@@ -319,7 +320,7 @@ function ChatView({ apiBaseUrl, authToken, bootstrap }: ChatViewProps): React.JS
       <div className="chat-input-row">
         <textarea
           className="chat-input"
-          rows={2}
+          rows={1}
           placeholder="type a message..."
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -327,7 +328,7 @@ function ChatView({ apiBaseUrl, authToken, bootstrap }: ChatViewProps): React.JS
           disabled={isRunning}
         />
         <button className="chat-send" type="button" onClick={handleSend} disabled={isRunning}>
-          {isRunning ? 'running...' : 'send'}
+          {isRunning ? 'running...' : <Send size={16} strokeWidth={2} />}
         </button>
       </div>
     </section>

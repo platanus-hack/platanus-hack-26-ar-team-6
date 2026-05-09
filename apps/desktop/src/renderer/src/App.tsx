@@ -33,6 +33,7 @@ const fixtureRoster: SidebarAgent[] = (agents as Array<{ id: string; display_nam
 
 function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
+  const [isDark, setIsDark] = useState(true)
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const authToken = import.meta.env.VITE_AUTH_TOKEN || ''
   const userId = import.meta.env.VITE_USER_ID || 'user1'
@@ -109,8 +110,14 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app-shell">
-      <TopBar workspaceName={workspaceName} onBack={goHome} bootstrapStatus={bootstrapStatus} />
+    <div className={`app-shell ${isDark ? 'app-shell--dark' : 'app-shell--light'}`}>
+      <TopBar
+        workspaceName={workspaceName}
+        onBack={goHome}
+        bootstrapStatus={bootstrapStatus}
+        isDark={isDark}
+        onToggleTheme={() => setIsDark((value) => !value)}
+      />
 
       <div className="app-body">
         <Sidebar agents={roster} currentUserId={userId} />

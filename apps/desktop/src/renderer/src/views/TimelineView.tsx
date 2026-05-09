@@ -15,7 +15,7 @@ function TimelineView(): React.JSX.Element {
         return (
           <div className="content-row" key={item.id}>
             <div className="content-row__title">{item.time}</div>
-            <div>{item.text}</div>
+            <div className="content-row__meta">{item.text}</div>
           </div>
         )
       })}
