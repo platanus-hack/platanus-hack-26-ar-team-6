@@ -20,10 +20,23 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from relevo.vector_retrieval import (
+    OpenAIEmbeddingClient,
+    OpenAIEmbeddingConfig,
+    QUERY_EMBEDDING_CACHE,
+    chunk_text,
+    content_hash,
+    vector_literal,
+)
+
 DEFAULT_DATABASE_URL = "postgresql://relevo:relevo@localhost:5432/relevo"
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 5
 SESSION_TOKEN_PREFIX = "rlv_"
 MAX_RETRIEVED_CONTENT_CHARS = 4000
+POOL_CONFIDENCE_THRESHOLD = 0.78
+AGENT_CONFIDENCE_THRESHOLD = 0.74
+ROUTE_MARGIN = 0.04
+VECTOR_CANDIDATE_LIMIT = 24
 
 _pool: ConnectionPool | None = None
 
@@ -766,7 +779,7 @@ def _with_memory_metadata(
     }
 
 
-def retrieve_agent_memory(
+def _retrieve_agent_memory_lexical(
     conn: psycopg.Connection,
     project_id: UUID,
     agent_id: UUID,
@@ -783,63 +796,81 @@ def retrieve_agent_memory(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, importance, document_key, content, metadata, updated_at AS created_at
-            FROM agent_memory_document
-            WHERE project_id = %s AND author_agent_id = %s
-            ORDER BY updated_at DESC
-            LIMIT %s
-            """,
-            (project_id, agent_id, scan_limit),
-        )
-        rows.extend(
-            _with_memory_metadata(
-                dict(row),
-                source_table="agent_memory_document",
-                importance=row["importance"],
-                author_agent_id=agent_id,
-                document_key=row["document_key"],
+            WITH docs AS (
+              SELECT
+                id,
+                'agent_memory_document'::text AS source_table,
+                importance,
+                document_key,
+                content,
+                metadata,
+                updated_at AS created_at,
+                author_agent_id
+              FROM agent_memory_document
+              WHERE project_id = %s AND author_agent_id = %s
+              ORDER BY updated_at DESC
+              LIMIT %s
+            ),
+            events AS (
+              SELECT
+                id,
+                'agent_memory_event'::text AS source_table,
+                importance,
+                NULL::text AS document_key,
+                content,
+                metadata,
+                created_at,
+                author_agent_id
+              FROM agent_memory_event
+              WHERE project_id = %s AND author_agent_id = %s
+              ORDER BY created_at DESC
+              LIMIT %s
+            ),
+            legacy AS (
+              SELECT
+                id,
+                'context_entry:' || kind::text AS source_table,
+                'local'::text AS importance,
+                NULL::text AS document_key,
+                content,
+                metadata,
+                created_at,
+                user_id AS author_agent_id
+              FROM context_entry
+              WHERE user_id = %s
+                AND kind = 'seed'
+              ORDER BY created_at DESC
+              LIMIT %s
             )
-            for row in cur.fetchall()
-        )
-        cur.execute(
-            """
-            SELECT id, importance, content, metadata, created_at
-            FROM agent_memory_event
-            WHERE project_id = %s AND author_agent_id = %s
-            ORDER BY created_at DESC
-            LIMIT %s
+            SELECT * FROM docs
+            UNION ALL
+            SELECT * FROM events
+            UNION ALL
+            SELECT * FROM legacy
             """,
-            (project_id, agent_id, scan_limit),
+            (
+                project_id,
+                agent_id,
+                scan_limit,
+                project_id,
+                agent_id,
+                scan_limit,
+                agent_id,
+                scan_limit,
+            ),
         )
-        rows.extend(
-            _with_memory_metadata(
-                dict(row),
-                source_table="agent_memory_event",
-                importance=row["importance"],
-                author_agent_id=agent_id,
-            )
-            for row in cur.fetchall()
+        fetched_rows = [dict(row) for row in cur.fetchall()]
+
+    rows.extend(
+        _with_memory_metadata(
+            row,
+            source_table=row["source_table"],
+            importance=row["importance"],
+            author_agent_id=row.get("author_agent_id"),
+            document_key=row.get("document_key"),
         )
-        cur.execute(
-            """
-            SELECT id, kind, content, metadata, created_at
-            FROM context_entry
-            WHERE user_id = %s
-              AND kind = 'seed'
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            (agent_id, scan_limit),
-        )
-        rows.extend(
-            _with_memory_metadata(
-                dict(row),
-                source_table=f"context_entry:{row['kind']}",
-                importance="local",
-                author_agent_id=agent_id,
-            )
-            for row in cur.fetchall()
-        )
+        for row in fetched_rows
+    )
 
     return _rank_context_rows(
         _sort_memory_rows(rows),
@@ -849,7 +880,7 @@ def retrieve_agent_memory(
     )
 
 
-def retrieve_global_memory(
+def _retrieve_global_memory_lexical(
     conn: psycopg.Connection,
     project_id: UUID,
     query: str,
@@ -861,62 +892,79 @@ def retrieve_global_memory(
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, author_agent_id, document_key, content, metadata, updated_at AS created_at
-            FROM agent_memory_document
-            WHERE project_id = %s AND importance = 'global'
-            ORDER BY updated_at DESC
-            LIMIT %s
-            """,
-            (project_id, scan_limit),
-        )
-        rows.extend(
-            _with_memory_metadata(
-                dict(row),
-                source_table="agent_memory_document",
-                importance="global",
-                author_agent_id=row["author_agent_id"],
-                document_key=row["document_key"],
+            WITH docs AS (
+              SELECT
+                id,
+                'agent_memory_document'::text AS source_table,
+                'global'::text AS importance,
+                document_key,
+                content,
+                metadata,
+                updated_at AS created_at,
+                author_agent_id
+              FROM agent_memory_document
+              WHERE project_id = %s AND importance = 'global'
+              ORDER BY updated_at DESC
+              LIMIT %s
+            ),
+            events AS (
+              SELECT
+                id,
+                'agent_memory_event'::text AS source_table,
+                'global'::text AS importance,
+                NULL::text AS document_key,
+                content,
+                metadata,
+                created_at,
+                author_agent_id
+              FROM agent_memory_event
+              WHERE project_id = %s AND importance = 'global'
+              ORDER BY created_at DESC
+              LIMIT %s
+            ),
+            legacy AS (
+              SELECT
+                id,
+                'project_context_entry:' || kind::text AS source_table,
+                'global'::text AS importance,
+                NULL::text AS document_key,
+                content,
+                metadata,
+                created_at,
+                NULL::uuid AS author_agent_id
+              FROM project_context_entry
+              WHERE project_id = %s
+                AND kind = 'seed'
+              ORDER BY created_at DESC
+              LIMIT %s
             )
-            for row in cur.fetchall()
-        )
-        cur.execute(
-            """
-            SELECT id, author_agent_id, content, metadata, created_at
-            FROM agent_memory_event
-            WHERE project_id = %s AND importance = 'global'
-            ORDER BY created_at DESC
-            LIMIT %s
+            SELECT * FROM docs
+            UNION ALL
+            SELECT * FROM events
+            UNION ALL
+            SELECT * FROM legacy
             """,
-            (project_id, scan_limit),
+            (
+                project_id,
+                scan_limit,
+                project_id,
+                scan_limit,
+                project_id,
+                scan_limit,
+            ),
         )
-        rows.extend(
-            _with_memory_metadata(
-                dict(row),
-                source_table="agent_memory_event",
-                importance="global",
-                author_agent_id=row["author_agent_id"],
-            )
-            for row in cur.fetchall()
+        fetched_rows = [dict(row) for row in cur.fetchall()]
+
+    rows.extend(
+        _with_memory_metadata(
+            row,
+            source_table=row["source_table"],
+            importance=row["importance"],
+            author_agent_id=row.get("author_agent_id"),
+            document_key=row.get("document_key"),
         )
-        cur.execute(
-            """
-            SELECT id, kind, content, metadata, created_at
-            FROM project_context_entry
-            WHERE project_id = %s
-              AND kind = 'seed'
-            ORDER BY created_at DESC
-            LIMIT %s
-            """,
-            (project_id, scan_limit),
-        )
-        rows.extend(
-            _with_memory_metadata(
-                dict(row),
-                source_table=f"project_context_entry:{row['kind']}",
-                importance="global",
-            )
-            for row in cur.fetchall()
-        )
+        for row in fetched_rows
+    )
 
     return _rank_context_rows(
         _sort_memory_rows(rows),
@@ -924,6 +972,376 @@ def retrieve_global_memory(
         closure_kind="agent_memory_event",
         limit=limit,
     )
+
+
+def _embedding_config() -> OpenAIEmbeddingConfig:
+    return OpenAIEmbeddingConfig.from_env()
+
+
+def _query_embedding(query: str) -> tuple[list[float] | None, str]:
+    config = _embedding_config()
+    if not config.enabled:
+        return None, config.model
+    try:
+        embedding = list(
+            QUERY_EMBEDDING_CACHE.embed_query(query, OpenAIEmbeddingClient(config))
+        )
+    except Exception:
+        return None, config.model
+    return embedding, config.model
+
+
+def _memory_chunk_result(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(row.get("metadata") or {})
+    source_table = str(row.get("source_table") or "memory_chunk")
+    source_id = row.get("source_id")
+    metadata.update(
+        {
+            "source_table": "memory_chunk",
+            "source_source_table": source_table,
+            "source_id": str(source_id) if source_id is not None else None,
+            "importance": row.get("importance"),
+            "similarity_score": row.get("similarity_score"),
+            "chunk_index": row.get("chunk_index"),
+        }
+    )
+    author_agent_id = row.get("author_agent_id")
+    if author_agent_id is not None:
+        metadata["author_agent_id"] = str(author_agent_id)
+    document_key = row.get("document_key")
+    if document_key is not None:
+        metadata["document_key"] = str(document_key)
+    return {
+        "id": row["id"],
+        "kind": source_table,
+        "content": row["content"],
+        "metadata": metadata,
+        "created_at": row.get("updated_at") or row.get("created_at"),
+    }
+
+
+def _rank_vector_rows(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            float(row.get("similarity_score") or 0),
+            str(row.get("updated_at") or row.get("created_at") or ""),
+        ),
+        reverse=True,
+    )[:limit]
+
+
+def _selected_agent_ids(rows: list[dict[str, Any]]) -> list[UUID]:
+    selected: list[UUID] = []
+    seen: set[UUID] = set()
+    for row in rows:
+        agent_id = row.get("author_agent_id")
+        if isinstance(agent_id, UUID) and agent_id not in seen:
+            seen.add(agent_id)
+            selected.append(agent_id)
+    return selected
+
+
+def _legacy_retrieve_context(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    query: str,
+    *,
+    target_agent_ids: list[UUID],
+    limit: int,
+    force_route: str | None,
+    embedding_model: str,
+) -> dict[str, Any]:
+    if force_route == "agents" or target_agent_ids:
+        rows: list[dict[str, Any]] = []
+        for agent_id in target_agent_ids[:4]:
+            rows.extend(
+                _retrieve_agent_memory_lexical(
+                    conn,
+                    project_id,
+                    agent_id,
+                    query,
+                    limit=limit,
+                )
+            )
+        results = _rank_context_rows(
+            _sort_memory_rows(rows),
+            query,
+            closure_kind="agent_memory_event",
+            limit=limit,
+        )
+        route = "lexical_fallback"
+        return {
+            "query": query,
+            "route": route,
+            "selected_agent_ids": target_agent_ids[:4],
+            "results": results,
+            "diagnostics": {
+                "pool_top_score": 0.0,
+                "agent_top_score": 0.0,
+                "embedding_model": embedding_model,
+                "lexical_fallback": True,
+            },
+        }
+
+    results = _retrieve_global_memory_lexical(conn, project_id, query, limit=limit)
+    return {
+        "query": query,
+        "route": "lexical_fallback",
+        "selected_agent_ids": [],
+        "results": results,
+        "diagnostics": {
+            "pool_top_score": 0.0,
+            "agent_top_score": 0.0,
+            "embedding_model": embedding_model,
+            "lexical_fallback": True,
+        },
+    }
+
+
+def _fetch_vector_candidates(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    query_vector: list[float],
+    target_agent_ids: list[UUID],
+    candidate_limit: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    vector = vector_literal(query_vector)
+    with conn.cursor() as cur:
+        if target_agent_ids:
+            cur.execute(
+                """
+                WITH pool AS (
+                  SELECT id, project_id, author_agent_id, importance, source_table, source_id,
+                         source_kind AS document_key, chunk_index, content, metadata,
+                         created_at, updated_at, 1 - (embedding <=> %s::vector) AS similarity_score
+                  FROM memory_chunk
+                  WHERE project_id = %s AND importance = 'global' AND embedding IS NOT NULL
+                  ORDER BY embedding <=> %s::vector
+                  LIMIT %s
+                ),
+                agents AS (
+                  SELECT id, project_id, author_agent_id, importance, source_table, source_id,
+                         source_kind AS document_key, chunk_index, content, metadata,
+                         created_at, updated_at, 1 - (embedding <=> %s::vector) AS similarity_score
+                  FROM memory_chunk
+                  WHERE project_id = %s
+                    AND importance = 'local'
+                    AND embedding IS NOT NULL
+                    AND author_agent_id = ANY(%s)
+                  ORDER BY embedding <=> %s::vector
+                  LIMIT %s
+                )
+                SELECT 'pool' AS candidate_group, * FROM pool
+                UNION ALL
+                SELECT 'agent' AS candidate_group, * FROM agents
+                """,
+                (
+                    vector,
+                    project_id,
+                    vector,
+                    candidate_limit,
+                    vector,
+                    project_id,
+                    target_agent_ids,
+                    vector,
+                    candidate_limit,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                WITH pool AS (
+                  SELECT id, project_id, author_agent_id, importance, source_table, source_id,
+                         source_kind AS document_key, chunk_index, content, metadata,
+                         created_at, updated_at, 1 - (embedding <=> %s::vector) AS similarity_score
+                  FROM memory_chunk
+                  WHERE project_id = %s AND importance = 'global' AND embedding IS NOT NULL
+                  ORDER BY embedding <=> %s::vector
+                  LIMIT %s
+                ),
+                agents AS (
+                  SELECT id, project_id, author_agent_id, importance, source_table, source_id,
+                         source_kind AS document_key, chunk_index, content, metadata,
+                         created_at, updated_at, 1 - (embedding <=> %s::vector) AS similarity_score
+                  FROM memory_chunk
+                  WHERE project_id = %s AND importance = 'local' AND embedding IS NOT NULL
+                  ORDER BY embedding <=> %s::vector
+                  LIMIT %s
+                )
+                SELECT 'pool' AS candidate_group, * FROM pool
+                UNION ALL
+                SELECT 'agent' AS candidate_group, * FROM agents
+                """,
+                (
+                    vector,
+                    project_id,
+                    vector,
+                    candidate_limit,
+                    vector,
+                    project_id,
+                    vector,
+                    candidate_limit,
+                ),
+            )
+        rows = [dict(row) for row in cur.fetchall()]
+    pool_rows = [row for row in rows if row["candidate_group"] == "pool"]
+    agent_rows = [row for row in rows if row["candidate_group"] == "agent"]
+    return pool_rows, agent_rows
+
+
+def retrieve_context(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    query: str,
+    *,
+    target_agent_ids: list[UUID] | None = None,
+    limit: int = 6,
+    force_route: str | None = None,
+) -> dict[str, Any]:
+    target_ids = target_agent_ids or []
+    query_vector, model = _query_embedding(query)
+    if query_vector is None:
+        return _legacy_retrieve_context(
+            conn,
+            project_id,
+            query,
+            target_agent_ids=target_ids,
+            limit=limit,
+            force_route=force_route,
+            embedding_model=model,
+        )
+
+    try:
+        pool_rows, agent_rows = _fetch_vector_candidates(
+            conn,
+            project_id=project_id,
+            query_vector=query_vector,
+            target_agent_ids=target_ids,
+            candidate_limit=max(VECTOR_CANDIDATE_LIMIT, limit * 3),
+        )
+    except (
+        psycopg.errors.UndefinedTable,
+        psycopg.errors.UndefinedObject,
+        psycopg.errors.InvalidTextRepresentation,
+    ):
+        conn.rollback()
+        return _legacy_retrieve_context(
+            conn,
+            project_id,
+            query,
+            target_agent_ids=target_ids,
+            limit=limit,
+            force_route=force_route,
+            embedding_model=model,
+        )
+
+    pool_top = float(pool_rows[0]["similarity_score"]) if pool_rows else 0.0
+    agent_top = float(agent_rows[0]["similarity_score"]) if agent_rows else 0.0
+    if not pool_rows and not agent_rows:
+        return _legacy_retrieve_context(
+            conn,
+            project_id,
+            query,
+            target_agent_ids=target_ids,
+            limit=limit,
+            force_route=force_route,
+            embedding_model=model,
+        )
+
+    if force_route == "pool" and not pool_rows:
+        return _legacy_retrieve_context(
+            conn,
+            project_id,
+            query,
+            target_agent_ids=target_ids,
+            limit=limit,
+            force_route=force_route,
+            embedding_model=model,
+        )
+    if force_route == "agents" and not agent_rows:
+        return _legacy_retrieve_context(
+            conn,
+            project_id,
+            query,
+            target_agent_ids=target_ids,
+            limit=limit,
+            force_route=force_route,
+            embedding_model=model,
+        )
+
+    if force_route == "pool":
+        chosen = _rank_vector_rows(pool_rows, limit)
+        route = "pool"
+    elif force_route == "agents":
+        chosen = _rank_vector_rows(agent_rows, limit)
+        route = "agents"
+    elif pool_top >= POOL_CONFIDENCE_THRESHOLD and pool_top >= agent_top - ROUTE_MARGIN:
+        chosen = _rank_vector_rows(pool_rows, limit)
+        route = "pool"
+    elif agent_top >= AGENT_CONFIDENCE_THRESHOLD and pool_top >= POOL_CONFIDENCE_THRESHOLD:
+        chosen = _rank_vector_rows(agent_rows + pool_rows, limit)
+        route = "mixed"
+    elif agent_top >= AGENT_CONFIDENCE_THRESHOLD:
+        chosen = _rank_vector_rows(agent_rows, limit)
+        route = "agents"
+    else:
+        chosen = _rank_vector_rows(pool_rows or agent_rows, limit)
+        route = "pool" if pool_rows else "agents"
+
+    results = [_memory_chunk_result(row) for row in chosen]
+    return {
+        "query": query,
+        "route": route,
+        "selected_agent_ids": _selected_agent_ids(chosen),
+        "results": results,
+        "diagnostics": {
+            "pool_top_score": pool_top,
+            "agent_top_score": agent_top,
+            "embedding_model": model,
+            "lexical_fallback": False,
+        },
+    }
+
+
+def retrieve_agent_memory(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    agent_id: UUID,
+    query: str,
+    limit: int = 6,
+    scan_limit: int = 80,
+) -> list[dict[str, Any]]:
+    del scan_limit
+    result = retrieve_context(
+        conn,
+        project_id,
+        query,
+        target_agent_ids=[agent_id],
+        limit=limit,
+        force_route="agents",
+    )
+    return result["results"]
+
+
+def retrieve_global_memory(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    query: str,
+    limit: int = 6,
+    scan_limit: int = 80,
+) -> list[dict[str, Any]]:
+    del scan_limit
+    result = retrieve_context(
+        conn,
+        project_id,
+        query,
+        target_agent_ids=[],
+        limit=limit,
+        force_route="pool",
+    )
+    return result["results"]
 
 
 def record_context_exchange(
@@ -982,6 +1400,196 @@ def get_context_exchange(conn: psycopg.Connection, exchange_id: UUID) -> dict[st
         )
         row = cur.fetchone()
     return dict(row) if row else None
+
+
+def index_memory_source_chunks(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID,
+    author_agent_id: UUID | None,
+    importance: str,
+    source_table: str,
+    source_id: UUID,
+    content: str,
+    source_kind: str,
+    source_created_at: Any | None = None,
+    source_updated_at: Any | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> int:
+    chunks = chunk_text(content)
+    if not chunks:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.memory_chunk') AS regclass")
+        row = cur.fetchone()
+        exists = row["regclass"] if isinstance(row, dict) else row[0]
+        if exists is None:
+            return 0
+
+    config = _embedding_config()
+    embeddings: list[tuple[float, ...] | None]
+    if config.enabled:
+        try:
+            embeddings = OpenAIEmbeddingClient(config).embed_texts(chunks)
+        except Exception:
+            embeddings = [None for _ in chunks]
+    else:
+        embeddings = [None for _ in chunks]
+
+    rows = []
+    for index, chunk in enumerate(chunks):
+        embedding = embeddings[index] if index < len(embeddings) else None
+        rows.append(
+            (
+                project_id,
+                author_agent_id,
+                importance,
+                source_table,
+                source_id,
+                source_kind,
+                index,
+                chunk,
+                content_hash(chunk),
+                psycopg.types.json.Jsonb(metadata or {}),
+                vector_literal(embedding) if embedding else None,
+                config.model if embedding else None,
+                config.effective_dimensions,
+                datetime.now(timezone.utc) if embedding else None,
+                source_created_at,
+                source_updated_at,
+            )
+        )
+
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO memory_chunk (
+              project_id, author_agent_id, importance, source_table, source_id,
+              source_kind, chunk_index, content, content_hash, metadata, embedding,
+              embedding_model, embedding_dimensions, embedded_at, source_created_at,
+              source_updated_at
+            )
+            VALUES (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s,
+              %s, %s, %s
+            )
+            ON CONFLICT (source_table, source_id, chunk_index)
+            DO UPDATE SET
+              project_id = EXCLUDED.project_id,
+              author_agent_id = EXCLUDED.author_agent_id,
+              importance = EXCLUDED.importance,
+              source_kind = EXCLUDED.source_kind,
+              content = EXCLUDED.content,
+              content_hash = EXCLUDED.content_hash,
+              metadata = EXCLUDED.metadata,
+              embedding = CASE
+                WHEN EXCLUDED.embedding IS NOT NULL THEN EXCLUDED.embedding
+                WHEN memory_chunk.content_hash = EXCLUDED.content_hash THEN memory_chunk.embedding
+                ELSE NULL
+              END,
+              embedding_model = CASE
+                WHEN EXCLUDED.embedding IS NOT NULL THEN EXCLUDED.embedding_model
+                WHEN memory_chunk.content_hash = EXCLUDED.content_hash THEN memory_chunk.embedding_model
+                ELSE NULL
+              END,
+              embedding_dimensions = EXCLUDED.embedding_dimensions,
+              embedded_at = CASE
+                WHEN EXCLUDED.embedding IS NOT NULL THEN EXCLUDED.embedded_at
+                WHEN memory_chunk.content_hash = EXCLUDED.content_hash THEN memory_chunk.embedded_at
+                ELSE NULL
+              END,
+              source_created_at = EXCLUDED.source_created_at,
+              source_updated_at = EXCLUDED.source_updated_at,
+              updated_at = NOW()
+            """,
+            rows,
+        )
+    return len(rows)
+
+
+def backfill_memory_chunks(
+    conn: psycopg.Connection,
+    *,
+    project_id: UUID | None = None,
+    batch_size: int = 50,
+) -> int:
+    filters = [
+        """
+        NOT EXISTS (
+          SELECT 1
+          FROM memory_chunk mc
+          WHERE mc.source_table = src.source_table
+            AND mc.source_id = src.id
+            AND mc.embedding IS NOT NULL
+        )
+        """.strip()
+    ]
+    params: list[Any] = []
+    if project_id is not None:
+        filters.append("src.project_id = %s")
+        params.append(project_id)
+    where_sql = " AND ".join(filters)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                WITH src AS (
+                  SELECT id, project_id, author_agent_id, importance, document_key,
+                         content, metadata, 'agent_memory_document'::text AS source_table,
+                         created_at, updated_at
+                  FROM agent_memory_document
+                  UNION ALL
+                  SELECT id, project_id, author_agent_id, importance, NULL::text AS document_key,
+                         content, metadata, 'agent_memory_event'::text AS source_table,
+                         created_at, created_at AS updated_at
+                  FROM agent_memory_event
+                  UNION ALL
+                  SELECT ce.id, au.project_id, ce.user_id AS author_agent_id,
+                         'local'::text AS importance, ce.kind::text AS document_key,
+                         ce.content, ce.metadata, 'context_entry'::text AS source_table,
+                         ce.created_at, ce.created_at AS updated_at
+                  FROM context_entry ce
+                  JOIN app_user au ON au.id = ce.user_id
+                  WHERE ce.kind = 'seed'
+                  UNION ALL
+                  SELECT pce.id, pce.project_id, NULL::uuid AS author_agent_id,
+                         'global'::text AS importance, pce.kind::text AS document_key,
+                         pce.content, pce.metadata, 'project_context_entry'::text AS source_table,
+                         pce.created_at, pce.created_at AS updated_at
+                  FROM project_context_entry pce
+                  WHERE pce.kind = 'seed'
+                )
+                SELECT *
+                FROM src
+                WHERE {where_sql}
+                ORDER BY source_table, id
+                LIMIT %s
+                """,
+                (*params, batch_size),
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+    except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedObject):
+        conn.rollback()
+        return 0
+
+    indexed = 0
+    for row in rows:
+        importance = str(row["importance"])
+        indexed += index_memory_source_chunks(
+            conn,
+            project_id=row["project_id"],
+            author_agent_id=row["author_agent_id"],
+            importance=importance,
+            source_table=row["source_table"],
+            source_id=row["id"],
+            content=row["content"],
+            source_kind=row.get("document_key") or row["source_table"],
+            source_created_at=row.get("created_at"),
+            source_updated_at=row.get("updated_at") or row.get("created_at"),
+            metadata=row.get("metadata") or {},
+        )
+    conn.commit()
+    return indexed
 
 
 def commit_memory_update(
@@ -1066,7 +1674,19 @@ def commit_memory_update(
                         exchange_id,
                     ),
                 )
-                event_ids.append(str(cur.fetchone()["id"]))
+                event_id = cur.fetchone()["id"]
+                event_ids.append(str(event_id))
+                index_memory_source_chunks(
+                    conn,
+                    project_id=project_id,
+                    author_agent_id=author_agent_id,
+                    importance=importance,
+                    source_table="agent_memory_event",
+                    source_id=event_id,
+                    content=event_content,
+                    source_kind="agent_memory_event",
+                    metadata=metadata,
+                )
 
             canonical_content = str(operation.get("canonical_content") or "").strip()
             if canonical_content:
@@ -1093,6 +1713,18 @@ def commit_memory_update(
                         psycopg.types.json.Jsonb(metadata),
                     ),
                 )
-                document_ids.append(str(cur.fetchone()["id"]))
+                document_id = cur.fetchone()["id"]
+                document_ids.append(str(document_id))
+                index_memory_source_chunks(
+                    conn,
+                    project_id=project_id,
+                    author_agent_id=author_agent_id,
+                    importance=importance,
+                    source_table="agent_memory_document",
+                    source_id=document_id,
+                    content=canonical_content,
+                    source_kind=document_key,
+                    metadata=metadata,
+                )
         conn.commit()
     return {"event_ids": event_ids, "document_ids": document_ids}

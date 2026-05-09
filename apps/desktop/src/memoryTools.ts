@@ -11,6 +11,7 @@ import type {
 } from "./types.js";
 
 const memoryLogger = createLogger("relevo.memory-tools");
+type ContextScope = ContextPacket["scope"];
 
 export type FetchLike = (
   input: string | URL,
@@ -228,12 +229,101 @@ function summarizeResults(results: MemoryResult[]): string {
     .join("\n");
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+function packetData(raw: unknown): Record<string, unknown> {
+  const data = asRecord(raw);
+  const nestedPacket = data.context_packet ?? data.contextPacket ?? data.packet;
+  return asRecord(nestedPacket);
+}
+
+function responseData(raw: unknown): Record<string, unknown> {
+  const data = asRecord(raw);
+  const nestedPacket = packetData(raw);
+  return Object.keys(nestedPacket).length > 0 ? { ...data, ...nestedPacket } : data;
+}
+
+function routeName(rawRoute: unknown): string | undefined {
+  if (typeof rawRoute === "string") {
+    return rawRoute;
+  }
+
+  const route = asRecord(rawRoute);
+  return firstString(route.name, route.tool, route.tool_name, route.endpoint, route.route);
+}
+
+function routeTargetAgentId(rawRoute: unknown): string | undefined {
+  const route = asRecord(rawRoute);
+  return firstString(route.target_agent_id, route.targetAgentId, route.agent_id);
+}
+
+function scopeFromRouteName(name: string | undefined): ContextScope | undefined {
+  const normalized = name?.replace(/-/g, "_").replace(/^\//, "").toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "agent" || normalized.includes("agent_ctx")) {
+    return "agent";
+  }
+  if (normalized === "global" || normalized.includes("global_ctx")) {
+    return "global";
+  }
+  return undefined;
+}
+
+function explicitScope(value: unknown): ContextScope | undefined {
+  return value === "agent" || value === "global" ? value : undefined;
+}
+
+function normalizeRetrieveRoute(
+  raw: unknown,
+  request: RetrieverRequest,
+): {
+  name?: string;
+  scope: ContextScope;
+  targetAgentId?: string;
+  diagnostics?: unknown;
+} {
+  const root = asRecord(raw);
+  const data = responseData(raw);
+  const rawRoute = root.route ?? root.routing ?? data.route ?? data.routing;
+  const name = routeName(rawRoute);
+  const scope =
+    scopeFromRouteName(name) ??
+    explicitScope(root.scope) ??
+    explicitScope(data.scope) ??
+    (request.target_agent_id ? "agent" : "global");
+  const targetAgentId =
+    scope === "agent"
+      ? firstString(
+          data.target_agent_id,
+          root.target_agent_id,
+          routeTargetAgentId(rawRoute),
+          request.target_agent_id,
+        )
+      : undefined;
+
+  return {
+    name,
+    scope,
+    targetAgentId,
+    diagnostics: root.diagnostics ?? data.diagnostics,
+  };
+}
+
 function normalizePacket(
   raw: unknown,
   request: RetrieverRequest,
-  scope: "agent" | "global",
+  scope: ContextScope,
+  targetAgentId = request.target_agent_id,
 ): ContextPacket {
-  const data = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const data = responseData(raw);
   const results = normalizeResults(data.results);
   const contextExchangeId =
     typeof data.context_exchange_id === "string" ? data.context_exchange_id : undefined;
@@ -241,7 +331,7 @@ function normalizePacket(
   return {
     query: request.query,
     scope,
-    target_agent_id: scope === "agent" ? request.target_agent_id : undefined,
+    target_agent_id: scope === "agent" ? targetAgentId : undefined,
     context_exchange_id: contextExchangeId,
     results,
     insufficient_context:
@@ -291,6 +381,37 @@ export async function callGlobalContext(
   const packet = normalizePacket(raw, { query: parsedInput.query }, "global");
   logMemoryTool("global_ctx:packet", {
     ...clientSummary(options),
+    resultCount: packet.results.length,
+    insufficientContext: packet.insufficient_context,
+    contextExchangeId: packet.context_exchange_id,
+  });
+  return packet;
+}
+
+export async function retrieveContext(
+  options: MemoryClientOptions,
+  request: RetrieverRequest,
+): Promise<ContextPacket> {
+  const parsedRequest = retrieverRequestSchema.parse(request);
+  const raw = await postJson<unknown>(
+    options,
+    "/retrieve-context",
+    parsedRequest,
+    "retrieve_context",
+    {
+      queryPreview: previewText(parsedRequest.query),
+      targetAgentId: parsedRequest.target_agent_id,
+      reason: parsedRequest.reason,
+    },
+  );
+  const route = normalizeRetrieveRoute(raw, parsedRequest);
+  const packet = normalizePacket(raw, parsedRequest, route.scope, route.targetAgentId);
+  logMemoryTool("retrieve_context:packet", {
+    ...clientSummary(options),
+    route: route.name,
+    diagnostics: route.diagnostics,
+    scope: packet.scope,
+    targetAgentId: packet.target_agent_id,
     resultCount: packet.results.length,
     insufficientContext: packet.insufficient_context,
     contextExchangeId: packet.context_exchange_id,
@@ -350,7 +471,7 @@ export function createUserRetrieverMcpServer(
     tools: [
       tool(
         "ask_retriever",
-        "Ask the retriever agent for missing local, teammate, or global project context.",
+        "Ask the retrieval client for missing local, teammate, or global project context.",
         {
           query: z.string().min(1),
           target_agent_id: z.string().min(1).optional(),

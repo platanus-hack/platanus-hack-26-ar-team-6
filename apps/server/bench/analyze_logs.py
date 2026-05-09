@@ -26,7 +26,9 @@ from typing import Iterable
 
 STAGE_EVENTS = {
     "preflightRetriever:done": "preflight_ms",
-    "retriever:success": "retriever_ms",
+    "preflightRetrieval:done": "preflight_ms",
+    "retriever:success": "retrieval_client_ms",
+    "retrievalClient:success": "retrieval_client_ms",
     "userAgent:success": "user_agent_ms",
     "updater:success": "updater_ms",
 }
@@ -40,7 +42,7 @@ class Turn:
     mentioned_agent_count: int = 0
     stages: dict[str, float] = field(default_factory=dict)
     total_ms: float | None = None
-    retriever_model: str | None = None
+    retrieval_client_model: str | None = None
     user_agent_ttft_ms: float | None = None
     user_agent_ttat_ms: float | None = None
     finished: bool = False
@@ -62,15 +64,15 @@ def _iter_turns(events: Iterable[dict]) -> list[Turn]:
             )
             open_turns[chat_id] = turn
             continue
-        if scope == "agent" and name == "retriever-agent:start":
-            model = ev.get("model")
+        if name in {"retrieval-client:start", "retriever-agent:start"}:
+            model = ev.get("client") or ev.get("model")
             if chat_id and chat_id in open_turns and model:
-                open_turns[chat_id].retriever_model = model
+                open_turns[chat_id].retrieval_client_model = model
             else:
-                # retriever-agent:start does not always carry chatSessionId; pin
-                # to most recently opened turn as a fallback.
+                # Older runner logs did not always carry chatSessionId; pin to
+                # the most recently opened turn as a fallback.
                 if open_turns and model:
-                    list(open_turns.values())[-1].retriever_model = model
+                    list(open_turns.values())[-1].retrieval_client_model = model
         if scope == "relevo.runner" and name == "user-agent:done":
             ttft = ev.get("timeToFirstSdkMessageMs")
             ttat = ev.get("timeToFirstAssistantTextMs")
@@ -138,7 +140,7 @@ def main() -> None:
     parser.add_argument("--csv", help="Optional CSV output path")
     parser.add_argument(
         "--filter-model",
-        help="Only count turns whose retriever model matches this prefix",
+        help="Only count turns whose retrieval client model/name matches this prefix",
     )
     args = parser.parse_args()
 
@@ -159,7 +161,8 @@ def main() -> None:
     if args.filter_model:
         turns = [
             t for t in turns
-            if t.retriever_model and t.retriever_model.startswith(args.filter_model)
+            if t.retrieval_client_model
+            and t.retrieval_client_model.startswith(args.filter_model)
         ]
 
     print(f"Log: {target}")
@@ -168,15 +171,15 @@ def main() -> None:
     if not turns:
         return
 
-    print(f"{'#':>3} {'preflight':>10} {'retriever':>10} {'user_agent':>11} {'ttat':>7} {'updater':>9} {'total':>8}  retriever_model  prompt")
+    print(f"{'#':>3} {'preflight':>10} {'retrieval':>10} {'user_agent':>11} {'ttat':>7} {'updater':>9} {'total':>8}  retrieval_client  prompt")
     for i, t in enumerate(turns):
         cells = []
-        for key in ("preflight_ms", "retriever_ms", "user_agent_ms"):
+        for key in ("preflight_ms", "retrieval_client_ms", "user_agent_ms"):
             cells.append(f"{int(t.stages.get(key, 0)):>10}" if key in t.stages else f"{'-':>10}")
         ttat = f"{int(t.user_agent_ttat_ms):>7}" if t.user_agent_ttat_ms is not None else f"{'-':>7}"
         updater = f"{int(t.stages.get('updater_ms', 0)):>9}" if "updater_ms" in t.stages else f"{'-':>9}"
         total = f"{int(t.total_ms):>8}" if t.total_ms is not None else f"{'-':>8}"
-        model = (t.retriever_model or "-")[-20:]
+        model = (t.retrieval_client_model or "-")[-20:]
         prompt = (t.prompt_preview or "")[:60]
         print(
             f"{i:>3} {cells[0]} {cells[1]} {cells[2]} {ttat} {updater} {total}  "
@@ -185,7 +188,7 @@ def main() -> None:
 
     print("\nSummary (ms):")
     print(f"{'stage':<14} {'n':>4} {'min':>8} {'p50':>8} {'p95':>8} {'max':>8} {'mean':>8}")
-    for key in ("preflight_ms", "retriever_ms", "user_agent_ms", "updater_ms"):
+    for key in ("preflight_ms", "retrieval_client_ms", "user_agent_ms", "updater_ms"):
         samples = [t.stages[key] for t in turns if key in t.stages]
         s = _percentiles(samples)
         if not s:
@@ -205,10 +208,10 @@ def main() -> None:
 
     by_model: dict[str, list[float]] = {}
     for t in turns:
-        if "retriever_ms" in t.stages and t.retriever_model:
-            by_model.setdefault(t.retriever_model, []).append(t.stages["retriever_ms"])
+        if "retrieval_client_ms" in t.stages and t.retrieval_client_model:
+            by_model.setdefault(t.retrieval_client_model, []).append(t.stages["retrieval_client_ms"])
     if by_model:
-        print("\nRetriever latency by model:")
+        print("\nRetrieval client latency by model/name:")
         for model, samples in sorted(by_model.items()):
             s = _percentiles(samples)
             print(
@@ -220,16 +223,16 @@ def main() -> None:
         csv_path = Path(args.csv)
         with csv_path.open("w") as fh:
             fh.write(
-                "i,started_ts,prompt_preview,retriever_model,preflight_ms,"
-                "retriever_ms,user_agent_ms,user_agent_ttft_ms,user_agent_ttat_ms,"
+                "i,started_ts,prompt_preview,retrieval_client_model,preflight_ms,"
+                "retrieval_client_ms,user_agent_ms,user_agent_ttft_ms,user_agent_ttat_ms,"
                 "updater_ms,total_ms\n"
             )
             for i, t in enumerate(turns):
                 fh.write(
                     f"{i},{t.started_ts},{json.dumps(t.prompt_preview or '')[:120]},"
-                    f"{t.retriever_model or ''},"
+                    f"{t.retrieval_client_model or ''},"
                     f"{t.stages.get('preflight_ms','')},"
-                    f"{t.stages.get('retriever_ms','')},"
+                    f"{t.stages.get('retrieval_client_ms','')},"
                     f"{t.stages.get('user_agent_ms','')},"
                     f"{t.user_agent_ttft_ms or ''},{t.user_agent_ttat_ms or ''},"
                     f"{t.stages.get('updater_ms','')},"

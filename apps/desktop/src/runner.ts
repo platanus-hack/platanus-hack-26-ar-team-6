@@ -27,15 +27,12 @@ const CLAUDE_BINARY_OVERRIDE = resolveClaudeBinary();
 const CLAUDE_BINARY_OPTIONS: { pathToClaudeCodeExecutable?: string } =
   CLAUDE_BINARY_OVERRIDE ? { pathToClaudeCodeExecutable: CLAUDE_BINARY_OVERRIDE } : {};
 
-const DEFAULT_RETRIEVER_MODEL = "claude-haiku-4-5-20251001";
-
 import { runAgentNetwork, type UpdaterInput, type UserAgentInput } from "./agentGraph.js";
 import { createLogger, previewText as previewTextShared } from "./logger.js";
 import {
   commitMemoryUpdate,
-  createRetrieverMcpServer,
-  createUpdaterMcpServer,
   createUserRetrieverMcpServer,
+  retrieveContext,
 } from "./memoryTools.js";
 import { buildLocalAssistantSystemPrompt } from "./prompt.js";
 import type {
@@ -67,10 +64,7 @@ export const USER_AGENT_ALLOWED_TOOLS = [
   "mcp__relevo-user-retriever__set_activity_title",
 ] as const;
 
-export const RETRIEVER_ALLOWED_TOOLS = [
-  "mcp__relevo-memory__agent_ctx",
-  "mcp__relevo-memory__global_ctx",
-] as const;
+export const RETRIEVAL_CLIENT_ALLOWED_TOOLS = [] as const;
 
 export const UPDATER_ALLOWED_TOOLS = [
   "mcp__relevo-updater__commit_memory_update",
@@ -79,6 +73,8 @@ export const UPDATER_ALLOWED_TOOLS = [
 const previewText = previewTextShared;
 
 const runnerLogger = createLogger("relevo.runner");
+const RETRIEVE_CONTEXT_CLIENT_NAME = "retrieve-context-client";
+const MEMORY_UPDATES_CLIENT_NAME = "memory-updates-client";
 
 function logRunner(event: string, details: Record<string, unknown>): void {
   runnerLogger.info(event, details);
@@ -372,25 +368,13 @@ function normalizeSdkMessage(message: SDKMessage): LocalAssistantEvent[] {
   return [{ type: "raw", messageType: message.type, message }];
 }
 
-function packetFromText(text: string): ContextPacket | null {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("{")) {
-    return null;
-  }
-  try {
-    return parseContextPacket(JSON.parse(trimmed));
-  } catch {
-    return null;
-  }
-}
-
 function formatPreflightContext(packet: ContextPacket | null): string {
   if (!packet) {
     return "No preflight context packet was available.";
   }
 
   return [
-    "Preflight retriever context packet:",
+    "Preflight retrieval context packet:",
     "```json",
     JSON.stringify(packet, null, 2),
     "```",
@@ -401,46 +385,88 @@ function buildUserPrompt(prompt: string, packet: ContextPacket | null): string {
   return [formatPreflightContext(packet), "", "User message:", prompt].join("\n");
 }
 
-function buildRetrieverPrompt(userId: string, request: RetrieverRequest): string {
-  const targetInstruction = request.target_agent_id
-    ? `Call agent_ctx with agent_id="${request.target_agent_id}" and query="${request.query}".`
-    : `Call global_ctx with query="${request.query}".`;
+function createEventQueue<T>(): {
+  push: (item: T) => void;
+  close: () => void;
+  fail: (error: unknown) => void;
+  stream: () => AsyncGenerator<T>;
+} {
+  const items: T[] = [];
+  const waiters: Array<{
+    resolve: (result: IteratorResult<T>) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  let closed = false;
+  let failure: unknown = null;
 
-  return [
-    "You are the Relevo retriever agent. You are not a router.",
-    "Only use your server-backed context tools. Return one JSON ContextPacket and no prose.",
-    `The asking agent id is ${userId}.`,
-    request.reason ? `Reason: ${request.reason}` : "",
-    targetInstruction,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
+  function settleNext(): void {
+    const waiter = waiters.shift();
+    if (!waiter) {
+      return;
+    }
+    if (failure) {
+      waiter.reject(failure);
+      return;
+    }
+    const item = items.shift();
+    if (item !== undefined) {
+      waiter.resolve({ value: item, done: false });
+      return;
+    }
+    if (closed) {
+      waiter.resolve({ value: undefined, done: true });
+      return;
+    }
+    waiters.unshift(waiter);
+  }
 
-function buildUpdaterPrompt(input: UpdaterInput, operations: MemoryUpdateOperation[]): string {
-  return [
-    "You are the Relevo updater agent.",
-    "Call commit_memory_update exactly once with the suggested operations unless they are invalid.",
-    "Do not call retrieval tools. Do not write prose before the tool call.",
-    "",
-    "Suggested commit payload:",
-    "```json",
-    JSON.stringify(
-      {
-        chat_session_id: input.chatSessionId,
-        checkpoint_index: input.checkpointIndex,
-        operations,
-      },
-      null,
-      2,
-    ),
-    "```",
-    "",
-    "Finalized messages:",
-    "```json",
-    JSON.stringify(input.finalizedMessages, null, 2),
-    "```",
-  ].join("\n");
+  return {
+    push: (item: T) => {
+      if (closed || failure) {
+        return;
+      }
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter.resolve({ value: item, done: false });
+        return;
+      }
+      items.push(item);
+    },
+    close: () => {
+      closed = true;
+      while (waiters.length > 0) {
+        settleNext();
+      }
+    },
+    fail: (error: unknown) => {
+      failure = error;
+      while (waiters.length > 0) {
+        settleNext();
+      }
+    },
+    stream: async function* () {
+      while (true) {
+        if (failure) {
+          throw failure;
+        }
+        const item = items.shift();
+        if (item !== undefined) {
+          yield item;
+          continue;
+        }
+        if (closed) {
+          return;
+        }
+        const next = await new Promise<IteratorResult<T>>((resolve, reject) => {
+          waiters.push({ resolve, reject });
+        });
+        if (next.done) {
+          return;
+        }
+        yield next.value;
+      }
+    },
+  };
 }
 
 function compactText(text: string, maxLength = 1600): string {
@@ -483,7 +509,7 @@ function buildMemoryOperations(userId: string, input: UpdaterInput): MemoryUpdat
       canonical_content: compactText(`Recent closure exchange with ${userId}:\n${packet.summary}`),
       context_exchange_id: packet.context_exchange_id,
       metadata: {
-        source: "retriever-closure",
+        source: "retrieval-closure",
         asking_agent_id: userId,
       },
     });
@@ -505,84 +531,44 @@ function buildMemoryOperations(userId: string, input: UpdaterInput): MemoryUpdat
   return operations;
 }
 
-async function runRetrieverAgent(
+async function runRetrievalClient(
   options: RunLocalAssistantOptions,
-  cwd: string,
-  anthropicApiKey: string,
   request: RetrieverRequest,
 ): Promise<ContextPacket> {
-  const agentStartMs = performance.now();
-  const retrieverModel = options.retrieverModel ?? DEFAULT_RETRIEVER_MODEL;
-  logRunner("retriever-agent:start", {
+  const clientStartMs = performance.now();
+  logRunner("retrieval-client:start", {
     userId: options.userId,
     projectId: options.projectId,
     scope: request.target_agent_id ? "agent" : "global",
     targetAgentId: request.target_agent_id,
     queryPreview: previewText(request.query),
     reason: request.reason,
-    model: retrieverModel,
+    model: RETRIEVE_CONTEXT_CLIENT_NAME,
+    client: RETRIEVE_CONTEXT_CLIENT_NAME,
+    endpoint: "/retrieve-context",
   });
-  const observedPackets: ContextPacket[] = [];
-  const retrieverServer = createRetrieverMcpServer(
+  const packet = await retrieveContext(
     {
       serverUrl: options.serverUrl,
       userId: options.userId,
       authToken: options.authToken,
       projectId: options.projectId,
     },
-    (packet) => observedPackets.push(packet),
+    request,
   );
-
-  const sdkMessages = query({
-    prompt: buildRetrieverPrompt(options.userId, request),
-    options: {
-      ...CLAUDE_BINARY_OPTIONS,
-      cwd,
-      env: buildSdkEnvironment(anthropicApiKey),
-      model: retrieverModel,
-      maxTurns: 3,
-      includePartialMessages: false,
-      systemPrompt:
-        "You are the retriever agent. Use only agent_ctx and global_ctx. Return JSON only.",
-      tools: [],
-      allowedTools: [...RETRIEVER_ALLOWED_TOOLS],
-      mcpServers: {
-        "relevo-memory": retrieverServer,
-      },
-    },
-  });
-
-  let finalText = "";
-  let firstSdkMessageMs: number | null = null;
-  for await (const sdkMessage of sdkMessages) {
-    if (firstSdkMessageMs === null) {
-      firstSdkMessageMs = performance.now();
-    }
-    if (sdkMessage.type === "result" && sdkMessage.subtype === "success") {
-      finalText = sdkMessage.result;
-    }
-  }
-
-  const packet = packetFromText(finalText) ?? observedPackets.at(-1) ?? {
-    query: request.query,
-    scope: request.target_agent_id ? "agent" : "global",
-    target_agent_id: request.target_agent_id,
-    results: [],
-    insufficient_context: true,
-    summary: "The retriever did not return context.",
-  };
-  logRunner("retriever-agent:done", {
+  logRunner("retrieval-client:done", {
     userId: options.userId,
     scope: packet.scope,
     targetAgentId: packet.target_agent_id,
     resultCount: packet.results.length,
     insufficientContext: packet.insufficient_context,
     contextExchangeId: packet.context_exchange_id,
-    observedPacketCount: observedPackets.length,
-    finalTextLength: finalText.length,
-    timeToFirstSdkMessageMs:
-      firstSdkMessageMs !== null ? Math.round(firstSdkMessageMs - agentStartMs) : null,
-    totalDurationMs: Math.round(performance.now() - agentStartMs),
+    client: RETRIEVE_CONTEXT_CLIENT_NAME,
+    endpoint: "/retrieve-context",
+    observedPacketCount: 1,
+    finalTextLength: packet.summary.length,
+    timeToFirstSdkMessageMs: Math.round(performance.now() - clientStartMs),
+    totalDurationMs: Math.round(performance.now() - clientStartMs),
   });
   return packet;
 }
@@ -594,6 +580,7 @@ async function runUserAgentTurn(
   systemPrompt: string,
   retrieve: (request: RetrieverRequest) => Promise<ContextPacket>,
   input: UserAgentInput,
+  onEvent?: (event: LocalAssistantEvent) => void,
 ): Promise<{
   events: LocalAssistantEvent[];
   finalAnswer: string;
@@ -615,7 +602,7 @@ async function runUserAgentTurn(
   let activityTitle: string | undefined;
   const userRetrieverServer = createUserRetrieverMcpServer(
     async (request) => {
-      logRunner("user-agent:ask-retriever:start", {
+      logRunner("user-agent:ask-retrieval:start", {
         userId: options.userId,
         scope: request.target_agent_id ? "agent" : "global",
         targetAgentId: request.target_agent_id,
@@ -624,7 +611,7 @@ async function runUserAgentTurn(
       });
       const packet = await retrieve(request);
       contextPackets.push(packet);
-      logRunner("user-agent:ask-retriever:done", {
+      logRunner("user-agent:ask-retrieval:done", {
         userId: options.userId,
         scope: packet.scope,
         targetAgentId: packet.target_agent_id,
@@ -713,6 +700,7 @@ async function runUserAgentTurn(
         event: summarizeAssistantEvent(event),
       });
       events.push(event);
+      onEvent?.(event);
     }
   }
 
@@ -735,8 +723,8 @@ async function runUserAgentTurn(
 
 async function runUpdaterAgent(
   options: RunLocalAssistantOptions,
-  cwd: string,
-  anthropicApiKey: string,
+  _cwd: string,
+  _anthropicApiKey: string,
   input: UpdaterInput,
 ): Promise<MemoryUpdateResponse> {
   const agentStartMs = performance.now();
@@ -748,62 +736,11 @@ async function runUpdaterAgent(
     finalizedMessageCount: input.finalizedMessages.length,
     contextPacketCount: input.contextPackets.length,
     finalAnswerLength: input.finalAnswer.length,
-    model: options.model,
+    model: MEMORY_UPDATES_CLIENT_NAME,
+    client: MEMORY_UPDATES_CLIENT_NAME,
+    endpoint: "/memory-updates",
   });
   const operations = buildMemoryOperations(options.userId, input);
-  const observedCommits: MemoryUpdateResponse[] = [];
-  const updaterServer = createUpdaterMcpServer(
-    {
-      serverUrl: options.serverUrl,
-      userId: options.userId,
-      authToken: options.authToken,
-      projectId: options.projectId,
-    },
-    (response) => observedCommits.push(response),
-  );
-
-  const sdkMessages = query({
-    prompt: buildUpdaterPrompt(input, operations),
-    options: {
-      ...CLAUDE_BINARY_OPTIONS,
-      cwd,
-      env: buildSdkEnvironment(anthropicApiKey),
-      model: options.model,
-      maxTurns: 2,
-      includePartialMessages: false,
-      systemPrompt:
-        "You are the updater agent. You may only call commit_memory_update.",
-      tools: [],
-      allowedTools: [...UPDATER_ALLOWED_TOOLS],
-      mcpServers: {
-        "relevo-updater": updaterServer,
-      },
-    },
-  });
-
-  for await (const sdkMessage of sdkMessages) {
-    void sdkMessage;
-    // The updater's useful side effect is captured by the MCP commit callback.
-  }
-
-  if (observedCommits.length > 0) {
-    const response = observedCommits.at(-1)!;
-    logRunner("updater-agent:done", {
-      userId: options.userId,
-      source: "mcp",
-      observedCommitCount: observedCommits.length,
-      eventIds: response.event_ids,
-      documentIds: response.document_ids,
-      totalDurationMs: Math.round(performance.now() - agentStartMs),
-    });
-    return response;
-  }
-
-  logRunner("updater-agent:fallback-commit:start", {
-    userId: options.userId,
-    projectId: options.projectId,
-    operationCount: operations.length,
-  });
   const response = await commitMemoryUpdate(
     {
       serverUrl: options.serverUrl,
@@ -819,7 +756,7 @@ async function runUpdaterAgent(
   );
   logRunner("updater-agent:done", {
     userId: options.userId,
-    source: "fallback",
+    source: MEMORY_UPDATES_CLIENT_NAME,
     eventIds: response.event_ids,
     documentIds: response.document_ids,
     totalDurationMs: Math.round(performance.now() - agentStartMs),
@@ -861,7 +798,8 @@ export async function* runLocalAssistant(
   });
 
   const retrieve = (request: RetrieverRequest): Promise<ContextPacket> =>
-    runRetrieverAgent(options, cwd, anthropicApiKey, request);
+    runRetrievalClient(options, request);
+  const eventQueue = createEventQueue<LocalAssistantEvent>();
 
   const stream = runAgentNetwork(
     {
@@ -872,12 +810,37 @@ export async function* runLocalAssistant(
     },
     {
       retrieve,
-      runUserAgent: (input) =>
-        runUserAgentTurn(options, cwd, anthropicApiKey, systemPrompt, retrieve, input),
+      runUserAgent: async (input) => {
+        const output = await runUserAgentTurn(
+          options,
+          cwd,
+          anthropicApiKey,
+          systemPrompt,
+          retrieve,
+          input,
+          (event) => eventQueue.push(event),
+        );
+        if (output.activityTitle) {
+          eventQueue.push({ type: "activity_title", title: output.activityTitle });
+        }
+        return output;
+      },
       runUpdater: (input) => runUpdaterAgent(options, cwd, anthropicApiKey, input),
     },
+    { suppressUserAgentEvents: true },
   );
-  for await (const event of stream) {
+  const graphTask = (async () => {
+    try {
+      for await (const event of stream) {
+        eventQueue.push(event);
+      }
+      eventQueue.close();
+    } catch (error) {
+      eventQueue.fail(error);
+    }
+  })();
+
+  for await (const event of eventQueue.stream()) {
     runnerLogger.debug("local-assistant:event", {
       userId: options.userId,
       chatSessionId,
@@ -885,6 +848,7 @@ export async function* runLocalAssistant(
     });
     yield event;
   }
+  await graphTask;
   logRunner("local-assistant:done", {
     userId: options.userId,
     chatSessionId,

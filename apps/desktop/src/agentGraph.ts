@@ -12,15 +12,15 @@ import type {
 const agentNetworkLogger = createLogger("relevo.agent-network");
 
 export const AGENT_NETWORK_NODE_ORDER = [
-  "preflightRetriever",
-  "retriever",
+  "preflightRetrieval",
+  "retrievalClient",
   "userAgent",
   "updater",
 ] as const;
 
 const CHECKPOINT_MIN_ELAPSED_MS = 3 * 60 * 1000;
 const CHECKPOINT_MIN_NEW_MESSAGES = 2;
-const CHECKPOINT_HARD_CAP_MESSAGES = 10;
+const CHECKPOINT_HARD_CAP_MESSAGES = 6;
 
 export type UserAgentInput = {
   prompt: string;
@@ -92,7 +92,7 @@ const AgentNetworkAnnotation = Annotation.Root({
   }),
   checkpointIndex: Annotation<number>({
     reducer: (_previous, next) => next,
-    default: () => 0,
+    default: () => 1,
   }),
   conversationStartedAt: Annotation<number>({
     reducer: (_previous, next) => next,
@@ -111,6 +111,9 @@ const AgentNetworkAnnotation = Annotation.Root({
 export type AgentNetworkState = typeof AgentNetworkAnnotation.State;
 export type AgentNetworkUpdate = typeof AgentNetworkAnnotation.Update;
 type AgentNetworkGraph = CompiledStateGraph<AgentNetworkState, AgentNetworkUpdate, string>;
+export type RunAgentNetworkOptions = {
+  suppressUserAgentEvents?: boolean;
+};
 
 function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
   const messageCount = state.conversationMessages.length;
@@ -123,19 +126,28 @@ function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
 
 export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies): AgentNetworkGraph {
   return new StateGraph(AgentNetworkAnnotation)
-    .addNode("preflightRetriever", async (state): Promise<AgentNetworkUpdate> => {
+    .addNode("preflightRetrieval", async (state): Promise<AgentNetworkUpdate> => {
       const stageStartMs = performance.now();
       const targetAgentId = state.mentionedAgentIds[0] ?? undefined;
       const cleanedQuery = targetAgentId
         ? state.prompt.replace(/@\w+/g, "").replace(/\s{2,}/g, " ").trim()
         : state.prompt;
-      logAgentNetwork("preflightRetriever:start", {
+      logAgentNetwork("preflightRetrieval:start", {
         chatSessionId: state.chatSessionId,
         promptPreview: previewText(state.prompt),
         messageCount: state.conversationMessages.length,
         targetAgentId,
         hasMention: Boolean(targetAgentId),
       });
+      if (!targetAgentId) {
+        logAgentNetwork("preflightRetrieval:done", {
+          chatSessionId: state.chatSessionId,
+          stage: "preflightRetrieval",
+          durationMs: Math.round(performance.now() - stageStartMs),
+          reason: "no mention",
+        });
+        return { preflightRequest: null };
+      }
       const result: AgentNetworkUpdate = {
         preflightRequest: {
           query: cleanedQuery || state.prompt,
@@ -143,25 +155,25 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
           reason: "preflight before user-agent turn",
         },
       };
-      logAgentNetwork("preflightRetriever:done", {
+      logAgentNetwork("preflightRetrieval:done", {
         chatSessionId: state.chatSessionId,
-        stage: "preflightRetriever",
+        stage: "preflightRetrieval",
         durationMs: Math.round(performance.now() - stageStartMs),
       });
       return result;
     })
-    .addNode("retriever", async (state): Promise<AgentNetworkUpdate> => {
+    .addNode("retrievalClient", async (state): Promise<AgentNetworkUpdate> => {
       const stageStartMs = performance.now();
       if (!state.preflightRequest) {
-        logAgentNetwork("retriever:skip", {
+        logAgentNetwork("retrievalClient:skip", {
           chatSessionId: state.chatSessionId,
           reason: "missing preflight request",
-          stage: "retriever",
+          stage: "retrievalClient",
           durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {};
       }
-      logAgentNetwork("retriever:start", {
+      logAgentNetwork("retrievalClient:start", {
         chatSessionId: state.chatSessionId,
         scope: state.preflightRequest.target_agent_id ? "agent" : "global",
         targetAgentId: state.preflightRequest.target_agent_id,
@@ -169,14 +181,14 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         reason: state.preflightRequest.reason,
       });
       const packet = await dependencies.retrieve(state.preflightRequest);
-      logAgentNetwork("retriever:success", {
+      logAgentNetwork("retrievalClient:success", {
         chatSessionId: state.chatSessionId,
         scope: packet.scope,
         targetAgentId: packet.target_agent_id,
         resultCount: packet.results.length,
         insufficientContext: packet.insufficient_context,
         contextExchangeId: packet.context_exchange_id,
-        stage: "retriever",
+        stage: "retrievalClient",
         durationMs: Math.round(performance.now() - stageStartMs),
       });
       return {
@@ -185,7 +197,7 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         events: [
           {
             type: "tool_result",
-            toolUseId: "preflightRetriever",
+            toolUseId: "preflightRetrieval",
             result: packet,
           },
         ],
@@ -306,9 +318,9 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         };
       }
     })
-    .addEdge(START, "preflightRetriever")
-    .addEdge("preflightRetriever", "retriever")
-    .addEdge("retriever", "userAgent")
+    .addEdge(START, "preflightRetrieval")
+    .addEdge("preflightRetrieval", "retrievalClient")
+    .addEdge("retrievalClient", "userAgent")
     .addConditionalEdges("userAgent", (state) => (state.shouldUpdate ? "updater" : END), [
       "updater",
       END,
@@ -325,6 +337,7 @@ export async function* runAgentNetwork(
     mentionedAgentIds?: string[];
   },
   dependencies: AgentNetworkDependencies,
+  options: RunAgentNetworkOptions = {},
 ): AsyncGenerator<LocalAssistantEvent> {
   const graphStartMs = performance.now();
   logAgentNetwork("graph:start", {
@@ -344,7 +357,10 @@ export async function* runAgentNetwork(
       chatSessionId: input.chatSessionId,
       nodes: Object.keys(chunk),
     });
-    for (const update of Object.values(chunk)) {
+    for (const [nodeName, update] of Object.entries(chunk)) {
+      if (options.suppressUserAgentEvents && nodeName === "userAgent") {
+        continue;
+      }
       const events = (update as Partial<AgentNetworkState>).events ?? [];
       for (const event of events) {
         agentNetworkLogger.debug("graph:event", {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { AGENT_NETWORK_NODE_ORDER, createAgentNetworkGraph } from '../agentGraph'
+import { AGENT_NETWORK_NODE_ORDER, createAgentNetworkGraph, runAgentNetwork } from '../agentGraph'
 import {
-  RETRIEVER_ALLOWED_TOOLS,
+  RETRIEVAL_CLIENT_ALLOWED_TOOLS,
   UPDATER_ALLOWED_TOOLS,
   USER_AGENT_ALLOWED_TOOLS
 } from '../runner'
@@ -10,8 +10,8 @@ import {
 describe('LangGraph multi-agent runtime', () => {
   it('declares the required multi-agent node order', () => {
     expect(AGENT_NETWORK_NODE_ORDER).toEqual([
-      'preflightRetriever',
-      'retriever',
+      'preflightRetrieval',
+      'retrievalClient',
       'userAgent',
       'updater'
     ])
@@ -25,16 +25,13 @@ describe('LangGraph multi-agent runtime', () => {
     expect(USER_AGENT_ALLOWED_TOOLS).not.toContain('mcp__relevo-memory__agent_ctx')
     expect(USER_AGENT_ALLOWED_TOOLS).not.toContain('mcp__relevo-updater__commit_memory_update')
 
-    expect(RETRIEVER_ALLOWED_TOOLS).toEqual([
-      'mcp__relevo-memory__agent_ctx',
-      'mcp__relevo-memory__global_ctx'
-    ])
+    expect(RETRIEVAL_CLIENT_ALLOWED_TOOLS).toEqual([])
     expect(UPDATER_ALLOWED_TOOLS).toEqual([
       'mcp__relevo-updater__commit_memory_update'
     ])
   })
 
-  it('runs retriever before user agent and skips updater below threshold', async () => {
+  it('skips preflight retrieval for no-mention turns', async () => {
     const calls: string[] = []
     const graph = createAgentNetworkGraph({
       retrieve: async (request) => {
@@ -68,12 +65,89 @@ describe('LangGraph multi-agent runtime', () => {
       conversationMessages: [{ role: 'user', text: 'hello' }]
     })
 
-    expect(calls).toEqual(['retrieve:preflight before user-agent turn', 'user:global'])
+    expect(calls).toEqual(['user:none'])
     expect(result.finalAnswer).toBe('done')
     expect(result.shouldUpdate).toBe(false)
     expect(result.events.at(-1)).toMatchObject({
       type: 'activity_title',
       title: 'Greeting Response'
+    })
+  })
+
+  it('preflights mentioned teammate context before the user agent', async () => {
+    const calls: string[] = []
+    const graph = createAgentNetworkGraph({
+      retrieve: async (request) => {
+        calls.push(`retrieve:${request.target_agent_id}:${request.query}`)
+        return {
+          query: request.query,
+          scope: 'agent',
+          target_agent_id: request.target_agent_id,
+          results: [],
+          insufficient_context: true,
+          summary: 'No context.'
+        }
+      },
+      runUserAgent: async (input) => {
+        calls.push(`user:${input.preflightContext?.target_agent_id ?? 'none'}`)
+        return {
+          finalAnswer: 'done',
+          contextPackets: [],
+          events: [{ type: 'result', result: 'done' }]
+        }
+      },
+      runUpdater: async () => {
+        calls.push('updater')
+        return { event_ids: [], document_ids: [] }
+      }
+    })
+
+    const result = await graph.invoke({
+      prompt: '@Jorf how do we deploy?',
+      chatSessionId: 'workspace-1',
+      mentionedAgentIds: ['agent-jorf'],
+      conversationMessages: [{ role: 'user', text: '@Jorf how do we deploy?' }]
+    })
+
+    expect(calls).toEqual(['retrieve:agent-jorf:how do we deploy?', 'user:agent-jorf'])
+    expect(result.preflightContext?.scope).toBe('agent')
+    expect(result.finalAnswer).toBe('done')
+  })
+
+  it('can suppress buffered user-agent events for live streaming callers', async () => {
+    const events = []
+    for await (const event of runAgentNetwork(
+      {
+        prompt: '@Jorf how do we deploy?',
+        chatSessionId: 'workspace-1',
+        mentionedAgentIds: ['agent-jorf'],
+        conversationMessages: [{ role: 'user', text: '@Jorf how do we deploy?' }]
+      },
+      {
+        retrieve: async (request) => ({
+          query: request.query,
+          scope: 'agent',
+          target_agent_id: request.target_agent_id,
+          results: [],
+          insufficient_context: true,
+          summary: 'No context.'
+        }),
+        runUserAgent: async () => ({
+          finalAnswer: 'done',
+          contextPackets: [],
+          events: [{ type: 'result', result: 'done' }]
+        }),
+        runUpdater: async () => ({ event_ids: [], document_ids: [] })
+      },
+      { suppressUserAgentEvents: true }
+    )) {
+      events.push(event)
+    }
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'tool_result',
+      toolUseId: 'preflightRetrieval'
     })
   })
 

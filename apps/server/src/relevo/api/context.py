@@ -17,6 +17,7 @@ from relevo.db import (
     get_user,
     record_context_exchange,
     retrieve_agent_memory,
+    retrieve_context,
     retrieve_global_memory,
 )
 
@@ -111,6 +112,25 @@ class GlobalContextResponse(BaseModel):
     insufficient_context: bool
 
 
+class RetrieveContextRequest(BaseModel):
+    query: str = Field(min_length=1)
+    target_agent_ids: list[UUID] = Field(default_factory=list)
+    target_agent_id: UUID | None = None
+    mentioned_agent_ids: list[UUID] = Field(default_factory=list)
+    limit: int = Field(default=6, ge=1, le=20)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrieveContextResponse(BaseModel):
+    query: str
+    route: str
+    selected_agent_ids: list[UUID]
+    results: list[MemoryResultOut]
+    context_exchange_id: UUID
+    insufficient_context: bool
+    diagnostics: dict[str, Any]
+
+
 class MemoryUpdateOperation(BaseModel):
     author_agent_id: UUID
     importance: str = Field(default="local", pattern="^(local|global)$")
@@ -166,6 +186,16 @@ def _ensure_agent_in_project(
             detail="Agent is not in the authenticated user's project",
         )
     return agent
+
+
+def _target_agent_ids(body: RetrieveContextRequest) -> list[UUID]:
+    ids: list[UUID] = []
+    for agent_id in [*body.target_agent_ids, *body.mentioned_agent_ids]:
+        if agent_id not in ids:
+            ids.append(agent_id)
+    if body.target_agent_id is not None and body.target_agent_id not in ids:
+        ids.append(body.target_agent_id)
+    return ids
 
 
 @router.get("/bootstrap", response_model=BootstrapResponse)
@@ -329,6 +359,81 @@ def global_ctx(
         total_ms,
         retrieve_ms,
         record_ms,
+    )
+    return response
+
+
+@router.post("/retrieve-context", response_model=RetrieveContextResponse)
+@router.post("/retrieve_context", response_model=RetrieveContextResponse)
+def retrieve_context_route(
+    body: RetrieveContextRequest,
+    conn: Annotated[psycopg.Connection, Depends(get_db)],
+    current_auth: Annotated[dict[str, Any], Depends(require_auth)],
+    x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
+) -> RetrieveContextResponse:
+    handler_started = time.perf_counter()
+    current_user = require_project_membership(conn, current_auth, x_project_id)
+    project_id = current_user["project_id"]
+    target_agent_ids = _target_agent_ids(body)
+    for agent_id in target_agent_ids:
+        _ensure_agent_in_project(conn, agent_id, project_id)
+    logger.info(
+        "retrieve_context:start auth_kind=%s asking_agent_id=%s project_id=%s target_agent_ids=%s limit=%s query=%r metadata_keys=%s",
+        current_auth.get("kind"),
+        current_user["id"],
+        project_id,
+        [str(agent_id) for agent_id in target_agent_ids],
+        body.limit,
+        _preview(body.query),
+        _metadata_keys(body.metadata),
+    )
+    retrieve_started = time.perf_counter()
+    retrieved = retrieve_context(
+        conn,
+        project_id,
+        body.query,
+        target_agent_ids=target_agent_ids,
+        limit=body.limit,
+    )
+    retrieve_ms = round((time.perf_counter() - retrieve_started) * 1000)
+    results = retrieved["results"]
+    selected_agent_ids = retrieved["selected_agent_ids"]
+    target_for_audit = selected_agent_ids[0] if len(selected_agent_ids) == 1 else None
+    exchange_id = record_context_exchange(
+        conn,
+        project_id=project_id,
+        asking_agent_id=current_user["id"],
+        target_agent_id=target_for_audit,
+        query=body.query,
+        tool_name="retrieve_context",
+        results=results,
+        metadata={
+            **body.metadata,
+            "route": retrieved["route"],
+            "selected_agent_ids": [str(agent_id) for agent_id in selected_agent_ids],
+            "diagnostics": retrieved["diagnostics"],
+        },
+    )
+    response = RetrieveContextResponse(
+        query=body.query,
+        route=retrieved["route"],
+        selected_agent_ids=selected_agent_ids,
+        results=[MemoryResultOut(**row) for row in results],
+        context_exchange_id=exchange_id,
+        insufficient_context=len(results) == 0,
+        diagnostics=retrieved["diagnostics"],
+    )
+    logger.info(
+        "retrieve_context:success asking_agent_id=%s project_id=%s route=%s exchange_id=%s result_count=%s selected_agent_ids=%s insufficient_context=%s total_ms=%s retrieve_ms=%s",
+        current_user["id"],
+        project_id,
+        response.route,
+        exchange_id,
+        len(results),
+        [str(agent_id) for agent_id in selected_agent_ids],
+        response.insufficient_context,
+        round((time.perf_counter() - handler_started) * 1000),
+        retrieve_ms,
     )
     return response
 

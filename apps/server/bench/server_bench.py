@@ -1,7 +1,8 @@
 """Server-tier latency bench. No LLM. Drives FastAPI endpoints directly.
 
-Measures handler latency for /agent-ctx, /global-ctx, /memory-updates with a
-warm pool. Reports min/p50/p95/max in milliseconds.
+Measures handler latency for /agent-ctx, /global-ctx, /retrieve-context
+scenarios, and /memory-updates with a warm pool. Reports
+min/p50/p95/max in milliseconds.
 
 Run:
     cd apps/server
@@ -26,6 +27,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -94,16 +96,77 @@ class BenchSamples:
         }
 
 
-def _bootstrap_ids(headers: dict[str, str], port: int) -> tuple[str, str]:
-    url = f"http://127.0.0.1:{port}/bootstrap"
+@dataclass(frozen=True)
+class BenchContext:
+    project_id: str
+    user_id: str
+    target_id: str
+    target_name: str
+
+
+EndpointBodyFactory = Callable[[], dict]
+
+
+def _bootstrap_context(headers: dict[str, str], base_url: str) -> BenchContext:
+    url = f"{base_url}/bootstrap"
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=10.0) as resp:
         payload = json.loads(resp.read())
     project_id = payload["project"]["id"]
     roster = payload.get("roster", [])
     user_id = payload["user"]["id"]
-    target_id = next((m["id"] for m in roster if m["id"] != user_id), user_id)
-    return project_id, target_id
+    target = next((m for m in roster if m["id"] != user_id), payload["user"])
+    return BenchContext(
+        project_id=project_id,
+        user_id=user_id,
+        target_id=target["id"],
+        target_name=target.get("display_name", "teammate"),
+    )
+
+
+def _mention_token(display_name: str) -> str:
+    token = "".join(ch for ch in display_name.split()[0] if ch.isalnum())
+    return token or "teammate"
+
+
+def _retrieve_context_body_factories(
+    bench_context: BenchContext,
+) -> dict[str, tuple[str, EndpointBodyFactory]]:
+    mention = _mention_token(bench_context.target_name)
+    cached_query = "What does the team know about server deployment?"
+
+    return {
+        "retrieve_context_pool": (
+            "/retrieve-context",
+            lambda: {
+                "query": "What shared context is relevant to server deployment?",
+                "limit": 6,
+            },
+        ),
+        "retrieve_context_agent": (
+            "/retrieve-context",
+            lambda: {
+                "query": "How is the backend deployed?",
+                "target_agent_id": bench_context.target_id,
+                "limit": 6,
+            },
+        ),
+        "retrieve_context_mention": (
+            "/retrieve-context",
+            lambda: {
+                "query": f"@{mention} how do we check the Railway deployment?",
+                "mentioned_agent_ids": [bench_context.target_id],
+                "limit": 6,
+            },
+        ),
+        "retrieve_context_cached_query": (
+            "/retrieve-context",
+            lambda: {
+                "query": cached_query,
+                "limit": 6,
+            },
+        ),
+    }
 
 
 def main() -> None:
@@ -120,7 +183,6 @@ def main() -> None:
 
     if args.external_server:
         base_url = args.external_server.rstrip("/")
-        port = int(base_url.rsplit(":", 1)[-1].split("/")[0])
         proc = None
     else:
         port = _free_port()
@@ -155,7 +217,9 @@ def main() -> None:
 
     try:
         headers = {"Authorization": f"Bearer {args.token}"}
-        project_id, target_id = _bootstrap_ids(headers, port)
+        bench_context = _bootstrap_context(headers, base_url)
+        project_id = bench_context.project_id
+        target_id = bench_context.target_id
         headers_with_project = {**headers, "X-Project-Id": project_id}
 
         endpoints = {
@@ -167,6 +231,7 @@ def main() -> None:
                 "/global-ctx",
                 lambda: {"query": "what is the project about?"},
             ),
+            **_retrieve_context_body_factories(bench_context),
             "memory_updates_1op": (
                 "/memory-updates",
                 lambda: {
@@ -228,14 +293,18 @@ def main() -> None:
 
         print(f"\nBench summary (ms, client-observed): n={args.iters} warmup={args.warmup}")
         print(f"server={base_url} pool=psycopg ConnectionPool min=2 max=10")
-        print(f"{'endpoint':<22} {'n':>4} {'min':>8} {'p50':>8} {'p95':>8} {'max':>8} {'mean':>8}")
+        label_width = max(22, *(len(r.label) for r in results))
+        print(
+            f"{'endpoint':<{label_width}} {'n':>4} {'min':>8} {'p50':>8} "
+            f"{'p95':>8} {'max':>8} {'mean':>8}"
+        )
         for r in results:
             s = r.summary()
             if not s:
-                print(f"{r.label:<22} (no successful samples)")
+                print(f"{r.label:<{label_width}} (no successful samples)")
                 continue
             print(
-                f"{r.label:<22} {int(s['n']):>4} "
+                f"{r.label:<{label_width}} {int(s['n']):>4} "
                 f"{s['min']:>8.2f} {s['p50']:>8.2f} {s['p95']:>8.2f} {s['max']:>8.2f} {s['mean']:>8.2f}"
             )
 
