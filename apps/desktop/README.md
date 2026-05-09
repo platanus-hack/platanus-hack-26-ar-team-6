@@ -42,10 +42,10 @@ notes:
   leaders can delete projects, and the top bar can return to the selector
 - each project must be connected to a local folder through the desktop folder
   picker before chat can run
-- chat saves `{prompt, final_answer}` through `/context-entries` with the
-  selected project id
-- the local assistant's `request_context` tool sends the selected project id as
-  `X-Project-Id`
+- LangGraph runs `preflightRetriever`, `retriever`, `userAgent`, and `updater`
+- the user agent can only ask the local `ask_retriever` tool for missing context
+- the retriever calls `/agent-ctx` and `/global-ctx` with the selected project id
+- the updater calls `/memory-updates` after checkpoints
 - the runner uses the selected project's connected local folder as its working
   directory; `VITE_LOCAL_REPO_PATH` is only a deprecated fallback
 - the health indicator checks `VITE_API_BASE_URL`
@@ -57,4 +57,4 @@ manual smoke:
 3. sign in through the browser
 4. select or create a project and connect it to a local folder
 5. configure the Anthropic key in settings
-6. send a chat message and confirm the answer saves
+6. send a chat message and confirm memory checkpoint status appears

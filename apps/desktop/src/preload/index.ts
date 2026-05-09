@@ -19,16 +19,13 @@ const api = {
   addProjectMember: (request: { projectId: string; email: string; domainSummary: string }) =>
     ipcRenderer.invoke('project:member:add', request),
   getBootstrap: () => ipcRenderer.invoke('bootstrap:load'),
-  savePromptAnswer: (request: {
-    prompt: string
-    finalAnswer: string
-    metadata?: Record<string, unknown>
-  }) => ipcRenderer.invoke('context-entry:save', request),
   startAssistantRun: (payload: {
     prompt: string
     cwd?: string
     bootstrap: unknown
     userId: string
+    chatSessionId?: string
+    conversationMessages?: Array<{ role: 'user' | 'assistant'; text: string }>
     model?: string
     maxTurns?: number
   }) => ipcRenderer.invoke('assistant:run:start', payload),

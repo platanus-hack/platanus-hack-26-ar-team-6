@@ -1,0 +1,159 @@
+- id: ret_001
+  question: "How do we deploy the backend to Railway?"
+  expected_tools_any_of: ["agent_ctx"]
+  expected_agents_any_of: ["<infra_owner>", "<api_owner>"]
+  forbidden_agents: ["<frontend_owner>", "<agent_owner>"]
+  must_mention_any_of: ["Railway", "deploy", "health"]
+  category: factual
+
+- id: ret_002
+  question: "Which model sessions are we using for user, retriever, and updater agents?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<api_owner>", "<agent_owner>"]
+  forbidden_agents: ["<frontend_owner>"]
+  must_mention_any_of: ["model", "retriever", "updater"]
+  category: factual
+
+- id: ret_003
+  question: "What are local and global memory for?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<data_owner>", "<retriever_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["local", "global", "importance"]
+  category: factual
+
+- id: ret_004
+  question: "What streaming updates should the desktop assistant run emit?"
+  expected_tools_any_of: ["global_ctx"]
+  expected_agents_any_of: ["<api_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["tool_call", "tool_result", "memory_update"]
+  category: factual
+
+- id: ret_005
+  question: "How should retrieved context be shown in the desktop app?"
+  expected_tools_any_of: ["agent_ctx", "global_ctx"]
+  expected_agents_any_of: ["<agent_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["context", "summary", "tool"]
+  category: factual
+
+- id: ret_006
+  question: "Which tables store append events and canonical memory?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<api_owner>", "<data_owner>"]
+  forbidden_agents: ["<agent_owner>"]
+  must_mention_any_of: ["agent_memory_event", "agent_memory_document", "context_exchange"]
+  category: factual
+
+- id: ret_007
+  question: "Why did we choose append-plus-canonical memory?"
+  expected_tools_any_of: ["agent_ctx", "global_ctx"]
+  expected_agents_any_of: ["<data_owner>"]
+  forbidden_agents: ["<frontend_owner>", "<infra_owner>"]
+  must_mention_any_of: ["append", "canonical", "audit"]
+  category: rationale
+
+- id: ret_008
+  question: "Why are retriever evals using placeholder agent identifiers?"
+  expected_tools_any_of: ["agent_ctx"]
+  expected_agents_any_of: ["<retriever_owner>"]
+  forbidden_agents: ["<api_owner>", "<frontend_owner>"]
+  must_mention_any_of: ["placeholder", "personas", "seed"]
+  category: rationale
+
+- id: ret_009
+  question: "Why should the user agent not call the server directly?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<agent_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["permissions", "retriever", "server"]
+  category: rationale
+
+- id: ret_010
+  question: "Why are we starting lexical-first before vector retrieval?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<product_owner>", "<data_owner>"]
+  forbidden_agents: ["<frontend_owner>"]
+  must_mention_any_of: ["lexical", "vector", "contract"]
+  category: rationale
+
+- id: ret_011
+  question: "Why did we choose LangGraph for orchestration?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<agent_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["LangGraph", "state", "nodes"]
+  category: rationale
+
+- id: ret_012
+  question: "Are we ready for the h4 converge?"
+  expected_tools_any_of: ["global_ctx"]
+  expected_agents_any_of: ["<product_owner>"]
+  forbidden_agents: ["<agent_owner>"]
+  must_mention_any_of: ["h4", "converge", "ready"]
+  category: status
+
+- id: ret_013
+  question: "What is the current status of the memory migration?"
+  expected_tools_any_of: ["agent_ctx"]
+  expected_agents_any_of: ["<data_owner>"]
+  forbidden_agents: ["<frontend_owner>"]
+  must_mention_any_of: ["migration", "schema", "memory"]
+  category: status
+
+- id: ret_014
+  question: "Where does the desktop LangGraph runtime stand right now?"
+  expected_tools_any_of: ["agent_ctx"]
+  expected_agents_any_of: ["<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["desktop", "LangGraph", "runtime"]
+  category: status
+
+- id: ret_015
+  question: "Is the health endpoint deployed and reachable?"
+  expected_tools_any_of: ["agent_ctx"]
+  expected_agents_any_of: ["<api_owner>", "<infra_owner>"]
+  forbidden_agents: ["<agent_owner>"]
+  must_mention_any_of: ["health", "deployed", "Railway"]
+  category: status
+
+- id: ret_016
+  question: "Add a task that requires API, data storage, and UI changes."
+  expected_tools_any_of: ["agent_ctx", "global_ctx"]
+  expected_agents_any_of: ["<api_owner>", "<data_owner>", "<frontend_owner>"]
+  forbidden_agents: []
+  must_mention_any_of: ["task", "API", "UI"]
+  category: cross_cutting
+
+- id: ret_017
+  question: "How should retrieved context and memory updates appear in the desktop drawer?"
+  expected_tools_any_of: ["agent_ctx", "global_ctx"]
+  expected_agents_any_of: ["<agent_owner>", "<data_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["context", "memory", "drawer"]
+  category: cross_cutting
+
+- id: ret_018
+  question: "If a judge asks how we built this, which project memory should we retrieve?"
+  expected_tools_any_of: ["global_ctx", "agent_ctx"]
+  expected_agents_any_of: ["<retriever_owner>", "<agent_owner>", "<data_owner>"]
+  forbidden_agents: []
+  must_mention_any_of: ["team", "global", "built"]
+  category: cross_cutting
+
+- id: ret_019
+  question: "Where should we go for dinner after the hackathon?"
+  expected_tools_any_of: []
+  expected_agents_any_of: []
+  forbidden_agents: ["<api_owner>", "<infra_owner>", "<data_owner>", "<agent_owner>", "<retriever_owner>", "<frontend_owner>", "<product_owner>"]
+  must_mention_any_of: ["out of scope", "unrelated"]
+  category: out_of_scope
+
+- id: ret_020
+  question: "Can you give me personal medical advice for chest pain?"
+  expected_tools_any_of: []
+  expected_agents_any_of: []
+  forbidden_agents: ["<api_owner>", "<infra_owner>", "<data_owner>", "<agent_owner>", "<retriever_owner>", "<frontend_owner>", "<product_owner>"]
+  must_mention_any_of: ["out of scope", "medical"]
+  category: out_of_scope

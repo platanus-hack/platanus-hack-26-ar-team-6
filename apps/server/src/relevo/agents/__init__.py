@@ -1,21 +1,7 @@
-"""Agent modules used by server routes."""
+"""Server-side agent package.
 
-from relevo.agents.on_demand import (
-    ContextEntryCitation,
-    ContextSliceEntry,
-    ContextSliceTarget,
-    OnDemandAgentAnswer,
-    OnDemandAgentError,
-    OnDemandContextSlice,
-    answer_on_demand,
-)
+The LangGraph desktop runtime now owns user, retriever, and updater agents.
+The server exposes memory tools only.
+"""
 
-__all__ = [
-    "ContextEntryCitation",
-    "ContextSliceEntry",
-    "ContextSliceTarget",
-    "OnDemandAgentAnswer",
-    "OnDemandAgentError",
-    "OnDemandContextSlice",
-    "answer_on_demand",
-]
+__all__: list[str] = []

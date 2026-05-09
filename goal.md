@@ -3,10 +3,10 @@
 ## One-line pitch
 
 A workflow where every user on a project can transparently borrow each other's
-context. When your AI assistant doesn't know something, it silently asks a
-teammate's AI (built from that teammate's stored context) and folds the answer
-back into your conversation — without you ever switching tools or pinging
-anyone on Slack.
+context. When your AI assistant does not know something, it asks a dedicated
+retriever agent for teammate or global project memory, folds the returned
+context into the current turn, and keeps you in flow without switching tools or
+interrupting teammates.
 
 ## The problem we are solving
 
@@ -15,130 +15,101 @@ frontend conventions, User2 owns the data model, User3 has the deploy quirks
 in their head. When User1's coding assistant tries to help User1 with
 something that touches User2's domain, it either:
 
-- guesses (and gets it wrong),
-- asks User1 to go ask User2 (which breaks flow), or
-- demands that all context be manually centralized (which never actually
-  happens).
+- guesses and gets it wrong,
+- asks User1 to go ask User2, which breaks flow, or
+- demands that all context be manually centralized, which rarely happens.
 
-We want the assistant itself to know that it is missing context, fetch it
-from the right teammate's accumulated context automatically, and use it.
-The cross-team knowledge handoff becomes an under-the-hood detail of a single
+We want the assistant itself to know that it is missing context, fetch it from
+the right teammate's accumulated context automatically, and use it. The
+cross-team knowledge handoff becomes an under-the-hood detail of a single
 prompt, not a human coordination problem.
 
 ## The shape of the system
 
-There are three components.
+There are three runtime pieces.
 
-### 1. Server (shared, remote)
+### 1. Desktop LangGraph runtime
 
-Exposes endpoints used by every user's local app.
+The local app owns multi-agent orchestration. It runs a LangGraph graph with:
 
-It owns:
+- `preflightRetriever`, which fetches useful context before each user-agent
+  turn;
+- `userAgent`, the user-facing coding assistant session;
+- `retriever`, the only read agent that can ask the server for memory;
+- `updater`, the only write agent that can commit memory updates.
 
-- a database that stores per-user context and a shared "project" context;
-- the ability to spin up an **agent built from a given user's context** on
-  demand (live LLM + retrieval over that user's DB), so it can answer queries
-  *as that user would*, given what they have stored;
-- the routing/retrieval logic that decides what stored context to feed the
-  agent when answering a cross-user query.
+Normal agents do not call the server. The user agent has local coding tools
+and `ask_retriever`. That tool delegates to the retriever agent.
 
-The exact storage shape is an implementation detail. We are leaning toward a
-graph for graph-RAG, but the goal does not depend on that choice.
+### 2. Server memory API
 
-### 2. Local app (per user)
+The server does not spin up teammate agents. It owns shared storage and exposes
+only the primitives that the retriever and updater need:
 
-A standalone chat app that lives on each user's machine. It is the user's
-coding assistant: it has its own chat UI, has access to the local codebase,
-and is the thing the user prompts. It is not a wrapper around an existing
-coding agent — it is the coding agent.
+- `agent_ctx(agent_id, query)` returns author-owned memory for one agent.
+- `global_ctx(query)` returns project memory marked `importance = "global"`.
+- `commit_memory_update(...)` appends memory events and upserts canonical
+  memory documents.
 
-The app is responsible for:
+The server also records every retrieval as a `context_exchange` audit row so
+closure writes can be tied back to the exact retrieval that caused them.
 
-- starting a session and loading bootstrap context;
-- running the conversation loop with the AI;
-- intercepting the AI's "I am missing context" tool calls;
-- talking to the server on the AI's behalf;
-- displaying the final answer to the user;
-- writing the prompt/answer back to the prompting user's DB.
+### 3. Memory model
 
-### 3. The user's AI assistant (inside the local app)
+Memory is append-plus-canonical:
 
-The AI the user actually talks to. It has:
+- immutable `agent_memory_event` rows preserve what happened;
+- `agent_memory_document` rows keep the latest canonical summaries;
+- `importance = "local"` keeps memory scoped to one author agent;
+- `importance = "global"` makes memory available through global project
+  retrieval.
 
-- access to the local codebase,
-- bootstrap context loaded at session start,
-- a tool that lets it explicitly request more context from a named teammate,
-  the project, or both.
-
-It decides, per turn, whether it can answer or whether it needs more context
-before answering.
+Legacy seed context remains readable during the migration, but new writes use
+the memory event/document model.
 
 ## The end-to-end flow
 
-1. **Session start.** User opens the app and begins a new session. A bootstrap
-   skill runs immediately: it hits the server and pulls down (a) a summary of
-   the user's own stored context and (b) the general project context. Both get
-   loaded into the AI's initial context window. The general project context
-   includes the project roster, so the AI knows which teammates exist and
-   roughly what each one owns.
+1. **Session start.** The desktop app calls `/bootstrap` and loads the user's
+   own recent context, shared project context, and project roster.
 
 2. **User prompts.** The user asks a question or requests a change.
 
-3. **AI self-assessment.** The AI considers: "Do I have what I need?" Three
-   possible outcomes:
+3. **Preflight retrieval.** LangGraph runs `preflightRetriever`, then the
+   retriever agent. The retriever may call `agent_ctx` or `global_ctx` until it
+   has a useful context packet or decides context is insufficient.
 
-   - **Yes** → answer.
-   - **No, and I know who can help** → call the missing-context tool, naming
-     the teammate(s) and/or the project, with a question.
-   - **No, but I don't know who** → ask the user, or fall back to a project-
-     scoped query.
+4. **User-agent turn.** The user-facing coding agent receives local context and
+   the preflight context packet. If it still needs more context, it calls
+   `ask_retriever(query, target_agent_id?)`, which delegates back to the same
+   retriever agent.
 
-4. **Missing-context loop (under the hood).** When the AI invokes the tool:
+5. **Iterate if needed.** The user agent may ask the retriever multiple times
+   during a turn. This loops until the user agent judges it has enough context
+   or the retriever reports that the missing context is not available.
 
-   1. The local app receives the tool call with `{target: user_id|"project",
-      question: "..."}`.
-   2. The app hits the server: "I need this from this user/project."
-   3. The server retrieves the relevant slice of that user's stored context
-      (using whatever method best matches the question — graph-RAG, vector
-      search, etc.) and spins up an agent built from that context (live LLM
-      grounded in the retrieved slice).
-   4. That agent answers the question.
-   5. The server returns the answer to the local app.
-   6. The local app feeds the answer back to the user's AI as the tool result.
+6. **User answer.** The user agent produces its final response.
 
-5. **Iterate if needed.** The AI may decide, after seeing the answer, that it
-   now has a new gap (a teammate's answer mentioned a third teammate's
-   decision, etc.). It calls the tool again. This loops until the AI judges
-   it has enough.
-
-6. **AI answers the user.** Once the AI is satisfied, it produces its final
-   answer.
-
-7. **Persist.** The local app does two things, in order:
-
-   - displays the final answer to the user;
-   - writes the **prompt + final answer** to the prompting user's DB as a new
-     context entry.
+7. **Automatic persistence.** After every 6 finalized chat messages,
+   LangGraph sends the checkpoint to the updater. The updater calls
+   `commit_memory_update(...)` to append events and update canonical memory
+   documents.
 
 ## The invariant that makes this work
 
-> When User1's AI queries User2's agent, User2's DB must be updated with the
-> Q&A that User2's agent produced.
+> When User1's agent retrieves context from User2's memory, both User1's memory
+> and User2's memory/audit trail must reflect what was learned.
 
 This is the closure property that keeps everyone's context growing.
 
-- "User2's agent" = the live LLM + retrieval-over-User2's-DB construct that
-  the server built to answer the cross-user query.
-- The full Q&A exchange — the question User1's AI asked, and the answer
-  User2's agent gave — is persisted into User2's DB.
-- Effectively, User2's stored context now contains a record of "I (well, my
-  agent) was asked X and answered Y on behalf of User1." Next time anyone —
-  including User2 themselves — queries User2's context for related material,
-  that exchange is part of the available context.
+- User1 gets memory about what their agent learned and how it was used.
+- User2 gets a closure record that their memory answered a question for
+  another agent.
+- The retrieval itself is recorded in `context_exchange`.
+- A later query by User2 or another teammate can discover the exchange if it is
+  relevant.
 
-This is what turns the system from "everyone's notes in one place" into a
-genuinely compounding shared brain: every cross-user query enriches the
-queried user's context, not just the asking user's.
+This turns the system from "everyone's notes in one place" into a compounding
+shared memory network.
 
 ## What success looks like
 
@@ -147,24 +118,22 @@ A working demo where:
 1. Two or more users have populated context in the system.
 2. User1 prompts their local app with a question that genuinely requires
    knowledge User2 has and User1 does not.
-3. The app produces a correct, grounded answer without User1 ever leaving
-   their session — and without User2 being interrupted.
-4. After the answer, both User1's DB (prompt + answer) and User2's DB
-   (the Q&A exchange that User2's agent produced) are updated.
-5. A subsequent query from User2 about the same topic can pick up what
-   User2's agent told User1 earlier — proving the closure property.
+3. The user agent asks the retriever, the retriever calls `agent_ctx`, and the
+   user agent answers without User1 leaving their session.
+4. After the checkpoint, the updater writes User1's learned context and User2's
+   closure record through `commit_memory_update`.
+5. A subsequent query can retrieve the relevant global, local, or closure
+   memory, proving the loop compounds.
 
 ## Out of scope for this document
 
-This file describes **what** we are building and **why**. It deliberately
-does not specify:
+This file describes what we are building and why. It deliberately does not
+specify:
 
-- the exact storage backend (graph DB, Postgres + pgvector, hybrid, …);
-- the retrieval algorithm;
-- the agent runtime / model choices;
-- the API surface;
-- the local app's tech stack;
-- versioned milestones.
+- the exact retrieval algorithm;
+- vector search or graph-RAG ranking details;
+- model choices for each desktop agent session;
+- versioned milestones;
+- production authorization and rate-limit policy.
 
-Those go in `plan.md`, which we will rewrite together once this goal is
-locked in.
+Those belong in `plan.md` and implementation docs.
