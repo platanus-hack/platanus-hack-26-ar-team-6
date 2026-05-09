@@ -16,11 +16,11 @@ function TopBar(): React.JSX.Element {
   })
 
   const isHealthy = isHealthcheckEnabled && data?.status === 'ok' && !isError
-  const healthText = isHealthy ? 'health: ok' : 'health: offline'
+  const healthText = isHealthy ? 'status: online' : 'status: offline'
 
   return (
     <header className="topbar">
-      <span>asker: demo</span>
+      <span>relevo</span>
       <span>workspace: main</span>
       <span className={`health-indicator ${isHealthy ? 'health-indicator--ok' : 'health-indicator--off'}`} />
       <span title={data?.sha || ''}>{healthText}</span>
