@@ -196,6 +196,9 @@ def request_context(
     current_user: Annotated[dict[str, Any], Depends(require_user)],
 ) -> RequestContextResponse:
     target_user_id = _resolve_target_user_id(body)
+    if target_user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="self-target rejected")
+
     target_user = get_user(conn, target_user_id)
     if target_user is None:
         raise HTTPException(status_code=404, detail=f"Target user not found: {target_user_id}")

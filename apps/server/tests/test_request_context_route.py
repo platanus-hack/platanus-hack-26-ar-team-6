@@ -166,6 +166,24 @@ class RequestContextRouteTest(unittest.TestCase):
         self.assertIn("on-demand agent failed", response.json()["detail"])
         write.assert_not_called()
 
+    def test_self_target_is_rejected_before_retrieval(self) -> None:
+        retrieve = Mock()
+        write = Mock()
+
+        with (
+            patch.object(context_api, "retrieve_user_context", retrieve),
+            patch.object(context_api, "write_cross_user_qa_entry", write),
+        ):
+            response = self.client.post(
+                "/request-context",
+                json={"target": str(ASKER_ID), "question": "What do I know?"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "self-target rejected")
+        retrieve.assert_not_called()
+        write.assert_not_called()
+
     def test_empty_slice_still_writes_insufficient_context_answer(self) -> None:
         answer = OnDemandAgentAnswer(
             answer="No retrieved context entries were provided for User2.",
