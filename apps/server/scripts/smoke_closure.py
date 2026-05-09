@@ -138,6 +138,13 @@ def main() -> None:
             failed_check = "source_user_ids_contains_target"
             raise AssertionError(f"check failed: {failed_check} (got {source_ids})")
 
+        source_context_entry_ids = data.get("source_context_entry_ids")
+        if not isinstance(source_context_entry_ids, list) or not source_context_entry_ids:
+            failed_check = "source_context_entry_ids_non_empty"
+            raise AssertionError(
+                f"check failed: {failed_check} (got {source_context_entry_ids!r})"
+            )
+
         with connect() as conn:
             after_count = _count_cross_user_qa(conn, user2["id"])
             if after_count != before_count + 1:
