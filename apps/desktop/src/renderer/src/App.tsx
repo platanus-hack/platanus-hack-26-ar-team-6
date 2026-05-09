@@ -92,6 +92,7 @@ function ProjectSelection({
   const [status, setStatus] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
+  const [leavingProjectId, setLeavingProjectId] = useState<string | null>(null)
   const [connectingProjectId, setConnectingProjectId] = useState<string | null>(null)
 
   async function connectProjectFolder(projectId: string): Promise<DesktopSettings> {
@@ -145,6 +146,29 @@ function ProjectSelection({
       setStatus(`Delete failed: ${toErrorMessage(error)}`)
     } finally {
       setDeletingProjectId(null)
+    }
+  }
+
+  async function handleLeave(project: DesktopProject): Promise<void> {
+    if (project.role === 'leader') {
+      setStatus('Project leaders must delete the project instead of leaving')
+      return
+    }
+    const confirmed = window.confirm(`Leave "${project.project_name}"?`)
+    if (!confirmed) {
+      return
+    }
+
+    setLeavingProjectId(project.project_id)
+    setStatus(null)
+    try {
+      const nextSettings = await window.api.leaveProject(project.project_id)
+      onSettingsChange(nextSettings)
+      setStatus(`Left ${project.project_name}`)
+    } catch (error) {
+      setStatus(`Leave failed: ${toErrorMessage(error)}`)
+    } finally {
+      setLeavingProjectId(null)
     }
   }
 
@@ -207,26 +231,38 @@ function ProjectSelection({
                       folder: {projectFolder ? getProjectFolderDisplayName(projectFolder) : 'not connected'}
                     </span>
                   </span>
+                </button>
+                <div className="project-list__actions">
                   <span className="project-list__meta">{project.role}</span>
-                </button>
-                <button
-                  className="project-list__folder-button"
-                  type="button"
-                  onClick={() => void connectProjectFolder(project.project_id)}
-                  disabled={isConnectingFolder}
-                >
-                  {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
-                </button>
-                {project.role === 'leader' && (
                   <button
-                    className="project-list__delete"
+                    className="project-list__folder-button"
                     type="button"
-                    onClick={() => void handleDelete(project)}
-                    disabled={deletingProjectId === project.project_id}
+                    onClick={() => void connectProjectFolder(project.project_id)}
+                    disabled={isConnectingFolder}
                   >
-                    {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                    {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
                   </button>
-                )}
+                  {project.role === 'leader' && (
+                    <button
+                      className="project-list__delete"
+                      type="button"
+                      onClick={() => void handleDelete(project)}
+                      disabled={deletingProjectId === project.project_id}
+                    >
+                      {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                    </button>
+                  )}
+                  {project.role !== 'leader' && (
+                    <button
+                      className="project-list__delete"
+                      type="button"
+                      onClick={() => void handleLeave(project)}
+                      disabled={leavingProjectId === project.project_id}
+                    >
+                      {leavingProjectId === project.project_id ? 'leaving...' : 'leave'}
+                    </button>
+                  )}
+                </div>
               </div>
               )
             })}
@@ -344,9 +380,9 @@ function MemberManagement({
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
-  const [isDark, setIsDark] = useState(true)
+  const [isDark, setIsDark] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(false)
+  const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(true)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false)
   const [folderMessage, setFolderMessage] = useState<string | null>(null)

@@ -30,6 +30,7 @@ from relevo.db import (
     get_project_membership_for_account,
     get_project_memberships_for_account,
     get_user_by_token,
+    remove_project_membership_for_account,
     revoke_account_session,
     upsert_account_from_google,
 )
@@ -434,4 +435,31 @@ def delete_project(
     require_project_leader(conn, account, project_id)
     if not delete_project_by_id(conn, project_id):
         raise HTTPException(status_code=404, detail="Project not found")
+    return _auth_state(conn, account)
+
+
+@router.delete("/projects/{project_id}/membership", response_model=AuthStateResponse)
+def leave_project(
+    project_id: UUID,
+    conn: Annotated[psycopg.Connection, Depends(get_db)],
+    account: Annotated[dict[str, Any], Depends(require_account)],
+) -> AuthStateResponse:
+    membership = get_project_membership_for_account(
+        conn,
+        account_id=account["id"],
+        project_id=project_id,
+    )
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Project membership not found")
+    if membership["role"] == "leader":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Project leaders must delete the project instead of leaving it",
+        )
+    if not remove_project_membership_for_account(
+        conn,
+        account_id=account["id"],
+        project_id=project_id,
+    ):
+        raise HTTPException(status_code=404, detail="Project membership not found")
     return _auth_state(conn, account)

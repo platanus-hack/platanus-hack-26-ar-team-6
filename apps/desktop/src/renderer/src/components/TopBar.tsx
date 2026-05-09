@@ -126,7 +126,7 @@ function TopBar({
           </button>
         )}
         {onChangeFolder && (
-          <button className="topbar-button" type="button" onClick={onChangeFolder}>
+          <button className="topbar-button topbar-button--default-font" type="button" onClick={onChangeFolder}>
             change folder
           </button>
         )}

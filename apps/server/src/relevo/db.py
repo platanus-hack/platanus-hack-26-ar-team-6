@@ -106,6 +106,25 @@ def delete_project_by_id(conn: psycopg.Connection, project_id: UUID) -> bool:
     return deleted
 
 
+def remove_project_membership_for_account(
+    conn: psycopg.Connection,
+    *,
+    account_id: UUID,
+    project_id: UUID,
+) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM app_user
+            WHERE account_id = %s AND project_id = %s
+            """,
+            (account_id, project_id),
+        )
+        deleted = cur.rowcount > 0
+        conn.commit()
+    return deleted
+
+
 def normalize_email(email: str) -> str:
     return email.strip().lower()
 

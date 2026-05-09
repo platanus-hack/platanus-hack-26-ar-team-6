@@ -164,6 +164,17 @@ type AddProjectMemberRequest = {
   domainSummary: string
 }
 
+type PersistedConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
+type PersistedConversation = {
+  sessionId: string | null
+  messages: PersistedConversationMessage[]
+}
+
 interface DesktopApi {
   getHealth: (apiBaseUrl: string) => Promise<HealthResponse>
   getSettings: () => Promise<DesktopSettingsResponse>
@@ -177,9 +188,13 @@ interface DesktopApi {
   clearProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
   createProject: (request: CreateProjectRequest) => Promise<DesktopSettingsResponse>
   deleteProject: (projectId: string) => Promise<DesktopSettingsResponse>
+  leaveProject: (projectId: string) => Promise<DesktopSettingsResponse>
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
   getBootstrap: () => Promise<BootstrapResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
+  loadConversation: (workspaceId: string) => Promise<PersistedConversation>
+  saveConversation: (workspaceId: string, data: PersistedConversation) => Promise<void>
+  clearConversation: (workspaceId: string) => Promise<void>
   onAuthEvent: (callback: (event: AuthEvent) => void) => () => void
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
 }

@@ -220,6 +220,29 @@ class AuthProjectsTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_member_can_leave_project(self) -> None:
+        self.app.dependency_overrides[auth_api.require_account] = account
+        with (
+            patch.object(auth_api, "get_project_membership_for_account", Mock(return_value=membership(role="member"))),
+            patch.object(auth_api, "remove_project_membership_for_account", Mock(return_value=True)),
+            patch.object(auth_api, "get_project_memberships_for_account", Mock(return_value=[])),
+        ):
+            response = self.client.delete(f"/projects/{PROJECT_ID}/membership")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["projects"], [])
+
+    def test_leader_cannot_leave_project(self) -> None:
+        self.app.dependency_overrides[auth_api.require_account] = account
+        with patch.object(
+            auth_api,
+            "get_project_membership_for_account",
+            Mock(return_value=membership(role="leader")),
+        ):
+            response = self.client.delete(f"/projects/{PROJECT_ID}/membership")
+
+        self.assertEqual(response.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

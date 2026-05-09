@@ -134,6 +134,10 @@ button {
   background: var(--surface-muted);
 }
 
+.topbar-button--default-font {
+  font-size: 14px;
+}
+
 .theme-toggle svg {
   width: 18px;
   height: 18px;
@@ -488,7 +492,7 @@ button {
 
 .project-list__item {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   width: 100%;
   border-bottom: 1px solid var(--border-soft);
   background: transparent;
@@ -506,7 +510,6 @@ button {
 .project-list__select {
   display: flex;
   flex: 1;
-  justify-content: space-between;
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -535,33 +538,49 @@ button {
 .project-list__folder {
   min-width: 0;
   overflow: hidden;
-  color: #666666;
+  color: var(--text-secondary);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .project-list__meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 60px;
   color: var(--text-secondary);
   font-size: 12px;
+  text-align: right;
+  text-transform: lowercase;
+}
+
+.project-list__actions {
+  display: grid;
+  grid-template-columns: 60px 128px 80px;
+  column-gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .project-list__folder-button {
   border: 0;
-  border-left: 1px solid #e5e5e5;
   background: transparent;
-  color: #111111;
+  color: var(--text-primary);
   cursor: pointer;
-  padding: 10px 12px;
+  min-width: 128px;
+  padding: 14px 16px;
+  text-align: center;
   white-space: nowrap;
+  font-size: 12px;
 }
 
 .project-list__folder-button:hover {
-  background: #eeeeee;
+  text-decoration: underline;
 }
 
 .project-list__folder-button:disabled {
-  color: #777777;
+  color: var(--text-secondary);
   cursor: default;
 }
 
@@ -570,7 +589,9 @@ button {
   background: transparent;
   color: #8a1f1f;
   cursor: pointer;
-  padding: 14px 24px;
+  min-width: 80px;
+  padding: 14px 16px;
+  text-align: left;
   white-space: nowrap;
   font-size: 12px;
 }
