@@ -2,6 +2,8 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { runLocalAssistant } from '../runner.js'
+import type { RunLocalAssistantOptions } from '../types.js'
 import {
   runLocalAgentPrompt,
   type LocalRunnerPromptRequest,
@@ -68,6 +70,12 @@ app.whenReady().then(() => {
     }
 
     return response.json()
+  })
+
+  ipcMain.handle('assistant:run:start', async (event, payload: RunLocalAssistantOptions): Promise<void> => {
+    for await (const assistantEvent of runLocalAssistant(payload)) {
+      event.sender.send('assistant:event', assistantEvent)
+    }
   })
 
   ipcMain.handle(
