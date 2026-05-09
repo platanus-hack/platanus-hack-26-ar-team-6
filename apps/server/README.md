@@ -36,10 +36,31 @@ Expected local response:
   "sha": "dev",
   "models": {
     "user_agent": "claude-code-sdk-session",
-    "retriever": "claude-code-sdk-session",
+    "retriever": "vector-retrieval-client",
     "updater": "claude-code-sdk-session"
   }
 }
+```
+
+## Vector Retrieval Config
+
+Fast retrieval uses pgvector-backed `memory_chunk` rows. Configure embeddings
+with:
+
+```sh
+OPENAI_API_KEY=sk-...
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536
+```
+
+If `OPENAI_API_KEY` is missing, reads fall back to lexical source-table
+retrieval instead of returning 500s.
+
+Backfill existing rows after applying migrations:
+
+```sh
+cd apps/server
+uv run python scripts/backfill_memory_chunks.py --batch-size 25 --max-batches 20
 ```
 
 ## Auth and Endpoints
@@ -87,7 +108,7 @@ curl -H 'Authorization: Bearer <session-token>' \
   'http://localhost:8000/bootstrap?project_id=<project uuid>'
 ```
 
-Agent-owned context for the retriever:
+Agent-owned context compatibility route:
 
 ```sh
 curl -X POST http://localhost:8000/agent-ctx \
@@ -108,6 +129,21 @@ curl -X POST http://localhost:8000/global-ctx \
   -H 'X-Project-Id: <project uuid for account sessions>' \
   -H 'Content-Type: application/json' \
   -d '{"query": "shared deployment decisions"}'
+```
+
+Vector retrieval client:
+
+```sh
+curl -X POST http://localhost:8000/retrieve-context \
+  -H 'Authorization: Bearer <token>' \
+  -H 'X-Project-Id: <project uuid for account sessions>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "How is the server deployed?",
+    "target_agent_ids": ["<optional agent uuid>"],
+    "limit": 6,
+    "metadata": {}
+  }'
 ```
 
 Updater memory commit:
@@ -151,7 +187,8 @@ demo databases that predate migration tracking are baselined at `0001`, then
 receive later migrations. The LangGraph memory tables live in
 `0004_agent_memory_network.sql` because main already has
 `0003_accounts_projects_login.sql` and the migration runner keys applied
-migrations by numeric prefix.
+migrations by numeric prefix. The vector retrieval chunk/index layer lives in
+`0005_vector_retrieval.sql`.
 
 ## Configuration
 

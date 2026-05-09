@@ -110,6 +110,7 @@ export type RunLocalAssistantOptions = {
   conversationMessages?: ConversationMessage[];
   mentionedAgentIds?: string[];
   model?: string;
+  retrieverModel?: string;
   maxTurns?: number;
   resumeSessionId?: string;
 };

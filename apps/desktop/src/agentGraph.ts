@@ -12,8 +12,8 @@ import type {
 const agentNetworkLogger = createLogger("relevo.agent-network");
 
 export const AGENT_NETWORK_NODE_ORDER = [
-  "preflightRetriever",
-  "retriever",
+  "preflightRetrieval",
+  "retrievalClient",
   "userAgent",
   "updater",
 ] as const;
@@ -124,6 +124,9 @@ const AgentNetworkAnnotation = Annotation.Root({
 export type AgentNetworkState = typeof AgentNetworkAnnotation.State;
 export type AgentNetworkUpdate = typeof AgentNetworkAnnotation.Update;
 type AgentNetworkGraph = CompiledStateGraph<AgentNetworkState, AgentNetworkUpdate, string>;
+export type RunAgentNetworkOptions = {
+  suppressUserAgentEvents?: boolean;
+};
 
 export function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
   const messageCount = state.conversationMessages.length;
@@ -140,35 +143,54 @@ export function shouldRunUpdater(state: AgentNetworkState, now: number): boolean
 
 export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies): AgentNetworkGraph {
   return new StateGraph(AgentNetworkAnnotation)
-    .addNode("preflightRetriever", async (state): Promise<AgentNetworkUpdate> => {
+    .addNode("preflightRetrieval", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       const targetAgentId = state.mentionedAgentIds[0] ?? undefined;
       const cleanedQuery = targetAgentId
         ? state.prompt.replace(/@\w+/g, "").replace(/\s{2,}/g, " ").trim()
         : state.prompt;
-      logAgentNetwork("preflightRetriever:start", {
+      logAgentNetwork("preflightRetrieval:start", {
         chatSessionId: state.chatSessionId,
         promptPreview: previewText(state.prompt),
         messageCount: state.conversationMessages.length,
         targetAgentId,
         hasMention: Boolean(targetAgentId),
       });
-      return {
+      if (!targetAgentId) {
+        logAgentNetwork("preflightRetrieval:done", {
+          chatSessionId: state.chatSessionId,
+          stage: "preflightRetrieval",
+          durationMs: Math.round(performance.now() - stageStartMs),
+          reason: "no mention",
+        });
+        return { preflightRequest: null };
+      }
+      const result: AgentNetworkUpdate = {
         preflightRequest: {
           query: cleanedQuery || state.prompt,
           target_agent_id: targetAgentId,
           reason: "preflight before user-agent turn",
         },
       };
+      logAgentNetwork("preflightRetrieval:done", {
+        chatSessionId: state.chatSessionId,
+        stage: "preflightRetrieval",
+        durationMs: Math.round(performance.now() - stageStartMs),
+      });
+      return result;
     })
-    .addNode("retriever", async (state): Promise<AgentNetworkUpdate> => {
+    .addNode("retrievalClient", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       if (!state.preflightRequest) {
-        logAgentNetwork("retriever:skip", {
+        logAgentNetwork("retrievalClient:skip", {
           chatSessionId: state.chatSessionId,
           reason: "missing preflight request",
+          stage: "retrievalClient",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {};
       }
-      logAgentNetwork("retriever:start", {
+      logAgentNetwork("retrievalClient:start", {
         chatSessionId: state.chatSessionId,
         scope: state.preflightRequest.target_agent_id ? "agent" : "global",
         targetAgentId: state.preflightRequest.target_agent_id,
@@ -176,13 +198,15 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         reason: state.preflightRequest.reason,
       });
       const packet = await dependencies.retrieve(state.preflightRequest);
-      logAgentNetwork("retriever:success", {
+      logAgentNetwork("retrievalClient:success", {
         chatSessionId: state.chatSessionId,
         scope: packet.scope,
         targetAgentId: packet.target_agent_id,
         resultCount: packet.results.length,
         insufficientContext: packet.insufficient_context,
         contextExchangeId: packet.context_exchange_id,
+        stage: "retrievalClient",
+        durationMs: Math.round(performance.now() - stageStartMs),
       });
       return {
         preflightContext: packet,
@@ -190,13 +214,14 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         events: [
           {
             type: "tool_result",
-            toolUseId: "preflightRetriever",
+            toolUseId: "preflightRetrieval",
             result: packet,
           },
         ],
       };
     })
     .addNode("userAgent", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       logAgentNetwork("userAgent:start", {
         chatSessionId: state.chatSessionId,
         messageCount: state.conversationMessages.length,
@@ -225,6 +250,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         finalizedMessageCount: finalizedMessages.length,
         shouldUpdate,
         checkpointIndex,
+        stage: "userAgent",
+        durationMs: Math.round(performance.now() - stageStartMs),
       });
       const events = output.activityTitle
         ? output.events.concat({ type: "activity_title", title: output.activityTitle })
@@ -239,11 +266,14 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
       };
     })
     .addNode("updater", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       if (!state.shouldUpdate) {
         logAgentNetwork("updater:skip", {
           chatSessionId: state.chatSessionId,
           messageCount: state.conversationMessages.length,
           checkpointIndex: state.checkpointIndex,
+          stage: "updater",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {
           events: [{ type: "memory_update", status: "skipped" }],
@@ -269,6 +299,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
           checkpointIndex: state.checkpointIndex,
           eventIds: response.event_ids,
           documentIds: response.document_ids,
+          stage: "updater",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {
           events: [
@@ -288,6 +320,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
           chatSessionId: state.chatSessionId,
           checkpointIndex: state.checkpointIndex,
           errorMessage: error instanceof Error ? error.message : String(error),
+          stage: "updater",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {
           events: [
@@ -301,9 +335,9 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         };
       }
     })
-    .addEdge(START, "preflightRetriever")
-    .addEdge("preflightRetriever", "retriever")
-    .addEdge("retriever", "userAgent")
+    .addEdge(START, "preflightRetrieval")
+    .addEdge("preflightRetrieval", "retrievalClient")
+    .addEdge("retrievalClient", "userAgent")
     .addConditionalEdges("userAgent", (state) => (state.shouldUpdate ? "updater" : END), [
       "updater",
       END,
@@ -320,7 +354,9 @@ export async function* runAgentNetwork(
     mentionedAgentIds?: string[];
   },
   dependencies: AgentNetworkDependencies,
+  options: RunAgentNetworkOptions = {},
 ): AsyncGenerator<LocalAssistantEvent> {
+  const graphStartMs = performance.now();
   logAgentNetwork("graph:start", {
     chatSessionId: input.chatSessionId,
     messageCount: input.conversationMessages.length,
@@ -338,7 +374,10 @@ export async function* runAgentNetwork(
       chatSessionId: input.chatSessionId,
       nodes: Object.keys(chunk),
     });
-    for (const update of Object.values(chunk)) {
+    for (const [nodeName, update] of Object.entries(chunk)) {
+      if (options.suppressUserAgentEvents && nodeName === "userAgent") {
+        continue;
+      }
       const events = (update as Partial<AgentNetworkState>).events ?? [];
       for (const event of events) {
         agentNetworkLogger.debug("graph:event", {
@@ -356,5 +395,6 @@ export async function* runAgentNetwork(
   }
   logAgentNetwork("graph:done", {
     chatSessionId: input.chatSessionId,
+    totalDurationMs: Math.round(performance.now() - graphStartMs),
   });
 }

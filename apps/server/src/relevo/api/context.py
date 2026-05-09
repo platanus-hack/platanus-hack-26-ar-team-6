@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Annotated, Any, Iterator
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from relevo.db import (
     get_user,
     record_context_exchange,
     retrieve_agent_memory,
+    retrieve_context,
     retrieve_global_memory,
 )
 
@@ -110,6 +112,25 @@ class GlobalContextResponse(BaseModel):
     insufficient_context: bool
 
 
+class RetrieveContextRequest(BaseModel):
+    query: str = Field(min_length=1)
+    target_agent_ids: list[UUID] = Field(default_factory=list)
+    target_agent_id: UUID | None = None
+    mentioned_agent_ids: list[UUID] = Field(default_factory=list)
+    limit: int = Field(default=6, ge=1, le=20)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrieveContextResponse(BaseModel):
+    query: str
+    route: str
+    selected_agent_ids: list[UUID]
+    results: list[MemoryResultOut]
+    context_exchange_id: UUID
+    insufficient_context: bool
+    diagnostics: dict[str, Any]
+
+
 class MemoryUpdateOperation(BaseModel):
     author_agent_id: UUID
     importance: str = Field(default="local", pattern="^(local|global)$")
@@ -167,6 +188,16 @@ def _ensure_agent_in_project(
     return agent
 
 
+def _target_agent_ids(body: RetrieveContextRequest) -> list[UUID]:
+    ids: list[UUID] = []
+    for agent_id in [*body.target_agent_ids, *body.mentioned_agent_ids]:
+        if agent_id not in ids:
+            ids.append(agent_id)
+    if body.target_agent_id is not None and body.target_agent_id not in ids:
+        ids.append(body.target_agent_id)
+    return ids
+
+
 @router.get("/bootstrap", response_model=BootstrapResponse)
 def bootstrap(
     conn: Annotated[psycopg.Connection, Depends(get_db)],
@@ -213,6 +244,7 @@ def agent_ctx(
     current_auth: Annotated[dict[str, Any], Depends(require_auth)],
     x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
 ) -> AgentContextResponse:
+    handler_started = time.perf_counter()
     current_user = require_project_membership(conn, current_auth, x_project_id)
     project_id = current_user["project_id"]
     logger.info(
@@ -225,7 +257,10 @@ def agent_ctx(
         _preview(body.query),
         _metadata_keys(body.metadata),
     )
+    ensure_agent_started = time.perf_counter()
     _ensure_agent_in_project(conn, body.agent_id, project_id)
+    ensure_agent_ms = round((time.perf_counter() - ensure_agent_started) * 1000)
+    retrieve_started = time.perf_counter()
     results = retrieve_agent_memory(
         conn,
         project_id,
@@ -233,6 +268,8 @@ def agent_ctx(
         body.query,
         limit=body.limit,
     )
+    retrieve_ms = round((time.perf_counter() - retrieve_started) * 1000)
+    record_started = time.perf_counter()
     exchange_id = record_context_exchange(
         conn,
         project_id=project_id,
@@ -243,19 +280,25 @@ def agent_ctx(
         results=results,
         metadata=body.metadata,
     )
+    record_ms = round((time.perf_counter() - record_started) * 1000)
     response = AgentContextResponse(
         results=[MemoryResultOut(**row) for row in results],
         context_exchange_id=exchange_id,
         insufficient_context=len(results) == 0,
     )
+    total_ms = round((time.perf_counter() - handler_started) * 1000)
     logger.info(
-        "agent_ctx:success asking_agent_id=%s project_id=%s target_agent_id=%s exchange_id=%s result_count=%s insufficient_context=%s",
+        "agent_ctx:success asking_agent_id=%s project_id=%s target_agent_id=%s exchange_id=%s result_count=%s insufficient_context=%s total_ms=%s ensure_agent_ms=%s retrieve_ms=%s record_ms=%s",
         current_user["id"],
         project_id,
         body.agent_id,
         exchange_id,
         len(results),
         response.insufficient_context,
+        total_ms,
+        ensure_agent_ms,
+        retrieve_ms,
+        record_ms,
     )
     return response
 
@@ -268,6 +311,7 @@ def global_ctx(
     current_auth: Annotated[dict[str, Any], Depends(require_auth)],
     x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
 ) -> GlobalContextResponse:
+    handler_started = time.perf_counter()
     current_user = require_project_membership(conn, current_auth, x_project_id)
     project_id = current_user["project_id"]
     logger.info(
@@ -279,12 +323,15 @@ def global_ctx(
         _preview(body.query),
         _metadata_keys(body.metadata),
     )
+    retrieve_started = time.perf_counter()
     results = retrieve_global_memory(
         conn,
         project_id,
         body.query,
         limit=body.limit,
     )
+    retrieve_ms = round((time.perf_counter() - retrieve_started) * 1000)
+    record_started = time.perf_counter()
     exchange_id = record_context_exchange(
         conn,
         project_id=project_id,
@@ -295,18 +342,98 @@ def global_ctx(
         results=results,
         metadata=body.metadata,
     )
+    record_ms = round((time.perf_counter() - record_started) * 1000)
     response = GlobalContextResponse(
         results=[MemoryResultOut(**row) for row in results],
         context_exchange_id=exchange_id,
         insufficient_context=len(results) == 0,
     )
+    total_ms = round((time.perf_counter() - handler_started) * 1000)
     logger.info(
-        "global_ctx:success asking_agent_id=%s project_id=%s exchange_id=%s result_count=%s insufficient_context=%s",
+        "global_ctx:success asking_agent_id=%s project_id=%s exchange_id=%s result_count=%s insufficient_context=%s total_ms=%s retrieve_ms=%s record_ms=%s",
         current_user["id"],
         project_id,
         exchange_id,
         len(results),
         response.insufficient_context,
+        total_ms,
+        retrieve_ms,
+        record_ms,
+    )
+    return response
+
+
+@router.post("/retrieve-context", response_model=RetrieveContextResponse)
+@router.post("/retrieve_context", response_model=RetrieveContextResponse)
+def retrieve_context_route(
+    body: RetrieveContextRequest,
+    conn: Annotated[psycopg.Connection, Depends(get_db)],
+    current_auth: Annotated[dict[str, Any], Depends(require_auth)],
+    x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
+) -> RetrieveContextResponse:
+    handler_started = time.perf_counter()
+    current_user = require_project_membership(conn, current_auth, x_project_id)
+    project_id = current_user["project_id"]
+    target_agent_ids = _target_agent_ids(body)
+    for agent_id in target_agent_ids:
+        _ensure_agent_in_project(conn, agent_id, project_id)
+    logger.info(
+        "retrieve_context:start auth_kind=%s asking_agent_id=%s project_id=%s target_agent_ids=%s limit=%s query=%r metadata_keys=%s",
+        current_auth.get("kind"),
+        current_user["id"],
+        project_id,
+        [str(agent_id) for agent_id in target_agent_ids],
+        body.limit,
+        _preview(body.query),
+        _metadata_keys(body.metadata),
+    )
+    retrieve_started = time.perf_counter()
+    retrieved = retrieve_context(
+        conn,
+        project_id,
+        body.query,
+        target_agent_ids=target_agent_ids,
+        limit=body.limit,
+    )
+    retrieve_ms = round((time.perf_counter() - retrieve_started) * 1000)
+    results = retrieved["results"]
+    selected_agent_ids = retrieved["selected_agent_ids"]
+    target_for_audit = selected_agent_ids[0] if len(selected_agent_ids) == 1 else None
+    exchange_id = record_context_exchange(
+        conn,
+        project_id=project_id,
+        asking_agent_id=current_user["id"],
+        target_agent_id=target_for_audit,
+        query=body.query,
+        tool_name="retrieve_context",
+        results=results,
+        metadata={
+            **body.metadata,
+            "route": retrieved["route"],
+            "selected_agent_ids": [str(agent_id) for agent_id in selected_agent_ids],
+            "diagnostics": retrieved["diagnostics"],
+        },
+    )
+    response = RetrieveContextResponse(
+        query=body.query,
+        route=retrieved["route"],
+        selected_agent_ids=selected_agent_ids,
+        results=[MemoryResultOut(**row) for row in results],
+        context_exchange_id=exchange_id,
+        insufficient_context=len(results) == 0,
+        diagnostics=retrieved["diagnostics"],
+    )
+    logger.info(
+        "retrieve_context:success asking_agent_id=%s project_id=%s route=%s exchange_id=%s result_count=%s selected_agent_ids=%s insufficient_context=%s total_ms=%s retrieve_ms=%s",
+        current_user["id"],
+        project_id,
+        response.route,
+        exchange_id,
+        len(results),
+        [str(agent_id) for agent_id in selected_agent_ids],
+        response.insufficient_context,
+        round((time.perf_counter() - handler_started) * 1000),
+        retrieve_ms,
     )
     return response
 
@@ -319,6 +446,7 @@ def memory_updates(
     current_auth: Annotated[dict[str, Any], Depends(require_auth)],
     x_project_id: Annotated[UUID | None, Header(alias="X-Project-Id")] = None,
 ) -> CommitMemoryUpdateResponse:
+    handler_started = time.perf_counter()
     current_user = require_project_membership(conn, current_auth, x_project_id)
     project_id = current_user["project_id"]
     logger.info(
@@ -339,6 +467,7 @@ def memory_updates(
         }
         for operation in body.operations
     ]
+    commit_started = time.perf_counter()
     try:
         result = commit_memory_update(
             conn,
@@ -355,9 +484,11 @@ def memory_updates(
             exc,
         )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    commit_ms = round((time.perf_counter() - commit_started) * 1000)
     response = CommitMemoryUpdateResponse(**result)
+    total_ms = round((time.perf_counter() - handler_started) * 1000)
     logger.info(
-        "memory_updates:success asking_agent_id=%s project_id=%s chat_session_id=%s checkpoint_index=%s event_count=%s document_count=%s event_ids=%s document_ids=%s",
+        "memory_updates:success asking_agent_id=%s project_id=%s chat_session_id=%s checkpoint_index=%s event_count=%s document_count=%s event_ids=%s document_ids=%s total_ms=%s commit_ms=%s",
         current_user["id"],
         project_id,
         body.chat_session_id,
@@ -366,5 +497,7 @@ def memory_updates(
         len(response.document_ids),
         response.event_ids,
         response.document_ids,
+        total_ms,
+        commit_ms,
     )
     return response
