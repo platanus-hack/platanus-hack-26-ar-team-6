@@ -16,11 +16,10 @@ Jerf depend on. If you change anything here, sync with them.
    a `context_entry` row on the *queried* user's `user_id` whenever V2's
    `/request-context` resolves a per-user target. The asker's id is in
    `metadata.asker_user_id`. Audit = filtered SELECT.
-4. **Embedding model: deferred to V2** (joint with Jorf). The
-   `embedding vector(1024)` column exists on both context tables and is
-   nullable. **No HNSW index is created in V1** because the dimension may
-   change in V2; V2's first task is to lock the model, run a migration to
-   set the correct dimension, and create the index.
+4. **Embedding model: `text-embedding-3-small`** (Jorf V2 default). Sarf
+   should migrate the existing `vector(1024)` columns to `vector(1536)`
+   before pgvector search is enabled. **No HNSW index exists yet**; create it
+   after the dimension migration/backfill.
 
 ## Schema
 
@@ -93,9 +92,11 @@ The loader TRUNCATEs all data tables before inserting; pass
 
 When V2 starts:
 
-1. Sarf+Jorf lock the embedding model. Add a migration that, if needed,
-   alters `vector(1024)` to the correct dimension.
+1. Sarf migrates `embedding vector(1024)` to `vector(1536)` for
+   `text-embedding-3-small`.
 2. Create the HNSW index on `embedding`.
 3. Add a backfill pass that re-embeds existing rows.
-4. Wire `write_cross_user_qa_entry` into Narf's now-real
+4. Narf retrieves top 6 rows filtered by target `user_id` and passes them to
+   `relevo.agents.answer_on_demand`.
+5. Wire `write_cross_user_qa_entry` into Narf's now-real
    `/request-context` route.

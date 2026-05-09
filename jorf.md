@@ -58,6 +58,14 @@ Pick defaults that work and document them in the PR. Don't bikeshed.
 - Sub-agent processes / persistent agent state.
 - Eval harness population (P2).
 
+## PR note for V3
+
+- Desktop currently has a renderer-side duplicate guard because the local
+  runner can emit streamed assistant text and then the completed assistant
+  message as another `assistant_text` event. V3 should make the runner event
+  contract explicit, e.g. separate delta/final events or suppress the final
+  full-text event after streaming, so the renderer does not need this heuristic.
+
 ## Done when
 
 V2 converge in plan.md §8 passes: User1 prompts something only User2's
