@@ -1,64 +1,81 @@
-# Jerf — V1 Task: `request_context` Tool + Closure Write
+# Jerf — V2 Task: Wire Real Agent Into `POST /request_context`
 
 > Read [goal.md](goal.md) and [plan.md](plan.md) first. This file scopes
-> Jerf's lane in V1.
+> Jerf's lane in V2.
 
 ## Lane
 
-The seam where the AI's tool call becomes a real cross-user write. Two
-sides of the seam:
+The seam between Jerf's V1 stub answer and Jorf's V2 on-demand agent.
+After V1, `POST /request-context` returns a deterministic placeholder
+and writes a closure entry. After V2, the same handler must:
 
-1. **Client side.** Register `request_context` as a custom tool with the
-   local runner so the AI can call it. Broker the call to the server
-   over HTTP. Return the server's answer as the tool result.
-2. **Server side.** Make `POST /request_context` durably enrich the
-   queried user's DB before returning. This is the closure invariant
-   from plan.md §7. Without it, the demo fails its success criterion.
+1. retrieve a slice of the target user's `context_entries`,
+2. call `answer_on_demand(slice, question)` (Jorf's module),
+3. write the real answer into `qa_ledger` + a `cross_user_qa` row on
+   the target user,
+4. return `{answer, source_user_ids, source_context_entry_ids}`.
 
-You do not own the on-demand LLM call itself (Jorf), retrieval (Jorf +
-Narf), the rest of the server's endpoints (Narf), or the chat UI (Marf).
-You own the tool's existence on the client and the write path on the
-server.
+Same route file, same closure-write call, same MCP tool surface. Only
+the answer source changes.
+
+## V1 baseline you inherit (already on main)
+
+- `apps/server/src/relevo/api/request_context.py` — handler, stub
+  answer, `write_cross_user_qa_entry(...)`.
+- `apps/desktop/src/main/tools/request_context.ts` — MCP tool
+  registration, allowed tool name `mcp__relevo__request_context`.
+- `apps/server/scripts/smoke_closure.py` — closure smoke against the
+  stub answer.
+
+## V2 deliverables
+
+1. **Naive retrieval** inside `POST /request-context`:
+   `SELECT ... FROM context_entry WHERE owner_user_id = $target ORDER
+   BY created_at DESC LIMIT N`. No query-embedding yet — vector ranking
+   is V3 (Jorf/Narf). Build the slice in the shape
+   `OnDemandContextSlice` from `relevo.agents`.
+2. **Replace the stub** with `answer_on_demand(slice, question)`.
+3. **Plumb fields:** add `source_context_entry_ids` to the HTTP
+   response (from Jorf's `citations[].context_entry_id`). Write
+   `confidence`, `insufficient_context`, and `citations` into the
+   `cross_user_qa` row's metadata. The MCP tool result keeps its
+   minimal `{answer, source_user_ids}` shape; client AI does not need
+   the extras yet.
+4. **Error path:** catch `OnDemandAgentError`, return HTTP 502, write
+   nothing. Failure ≠ context.
+5. **`insufficient_context = true`** still writes the Q&A row, with
+   the flag in metadata. Closure invariant holds even when the agent
+   didn't ground.
+6. **Update `smoke_closure.py`:** assert `kind='cross_user_qa'` row
+   exists with the question text and asker metadata. Do not assert
+   exact answer text — the real LLM is non-deterministic now.
+7. **One new smoke case:** empty target user (no `context_entries`)
+   → response carries `insufficient_context=true` in the row metadata,
+   Q&A row still written, no LLM call charged.
 
 ## Coordination
 
-Pair with Narf and Jorf at h0 to lock the `POST /request_context`
-payload shape and response shape. Don't start coding before that 15-min
-sync — three lanes converge on this contract.
-
-## Deliverables
-
-1. `request_context(target, question)` registered as a custom tool with
-   the local runner.
-2. Client broker: tool invocation → HTTP POST → return `{answer,
-   source_user_ids}` as the tool result.
-3. Server-side closure write inside `POST /request_context`:
-   - `qa_ledger` row written.
-   - `context_entries` row owned by `target_user_id` written, containing
-     the Q&A in a form that surfaces in later retrievals.
-   - Both writes synchronous, before the response returns. If either
-     fails, the request fails.
-4. Smoke test for the closure property: cross-user query as User1 →
-   target user's DB has the Q&A → later retrieval against the target
-   user surfaces it.
+- Pair with Jorf at h0 on import path and slice/answer Pydantic shapes
+  (already published in `relevo.agents`).
+- When Narf wakes, hand him the route — vector retrieval upgrade is
+  his lane, not yours. Don't block on him; ship naive retrieval.
 
 ## Decisions you own
 
-Keep it simple. Pick whatever the runner makes easiest for tool
-registration. Pick whatever the schema makes easiest for the
-context_entries write (kind/tag whichever way Sarf's table allows).
-Document the choice inline in the PR description.
+`N` for top-N recency, error response payload shape, exact metadata
+keys for `confidence` / `citations` / `insufficient_context`. Pick
+defaults and document inline.
 
-## Out of scope for V1
+## Out of scope for V2
 
-- Multi-hop loop (V3 stretch).
-- `target = "project"` (V3 stretch).
-- Multi-target consolidation (V3 stretch).
-- Eval cases beyond the closure smoke test.
+- Vector retrieval (V3, Narf/Jorf).
+- `target = "project"` / multi-target / multi-hop (V3 stretch).
+- IPC streaming event contract on the desktop (V3 stretch, Marf).
+- New schema columns (Sarf).
 
 ## Done when
 
-The V2 converge sequence in plan.md §8 passes end-to-end on the deployed
-server: User1 prompts something only User2's context can answer, AI
-calls the tool, server returns a grounded answer, User2's DB shows the
-Q&A entry, a follow-up retrieval as User2 surfaces it.
+`smoke_closure.py` passes against the deployed server with the real
+LLM in the loop, the Q&A row on User2 contains the actual model
+answer, and `OnDemandAgentError` (simulate via bad API key) returns
+502 without a Q&A row.
