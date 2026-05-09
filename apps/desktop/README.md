@@ -42,6 +42,13 @@ notes:
   leaders can delete projects, and the top bar can return to the selector
 - each project must be connected to a local folder through the desktop folder
   picker before chat can run
+- connecting a project folder installs/updates a Claude Code hook in that
+  folder's `.claude` directory so external Claude Code sessions can send
+  prompt, final answer, changed files, and Git diff context back to the server
+- the hook auth config is stored in the desktop app's user-data directory, not
+  in the connected project folder
+- settings shows the selected folder's Claude Code hook status and can disable
+  hook tracking, which removes Relevo hook commands from connected folders
 - LangGraph runs `preflightRetriever`, `retriever`, `userAgent`, and `updater`
 - the user agent can only ask the local `ask_retriever` tool for missing context
 - the retriever calls `/agent-ctx` and `/global-ctx` with the selected project id
