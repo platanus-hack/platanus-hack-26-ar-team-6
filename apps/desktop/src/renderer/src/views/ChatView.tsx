@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import agents from '../fixtures/agents.json'
 import useChatStore from '../stores/chatStore'
+import useWorkspaceStore from '../stores/workspaceStore'
 
 const fixtureBootstrap = {
   user_summary: {
@@ -38,13 +39,22 @@ function renderMessageText(text: string): React.ReactNode {
 }
 
 function ChatView(): React.JSX.Element {
-  const { messages, toolStatus, addMessage, startAssistantMessage, appendMessageText, setMessageText, setToolStatus } =
-    useChatStore()
+  const currentWorkspaceId = useWorkspaceStore((state) => state.currentWorkspaceId)
+  const messagesByWorkspace = useChatStore((state) => state.messagesByWorkspace)
+  const toolStatusByWorkspace = useChatStore((state) => state.toolStatusByWorkspace)
+  const addMessage = useChatStore((state) => state.addMessage)
+  const startAssistantMessage = useChatStore((state) => state.startAssistantMessage)
+  const appendMessageText = useChatStore((state) => state.appendMessageText)
+  const setMessageText = useChatStore((state) => state.setMessageText)
+  const setToolStatus = useChatStore((state) => state.setToolStatus)
   const [input, setInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
   const hasAssistantTextRef = useRef(false)
+  const workspaceId = currentWorkspaceId ?? 'default'
+  const messages = messagesByWorkspace[workspaceId] ?? []
+  const toolStatus = toolStatusByWorkspace[workspaceId] ?? null
 
   useEffect(() => {
     return window.api.onAssistantEvent((event) => {
@@ -56,31 +66,31 @@ function ChatView(): React.JSX.Element {
 
       if (event.type === 'assistant_text') {
         if (!hasAssistantTextRef.current) {
-          setMessageText(activeAssistantId, event.text)
+          setMessageText(workspaceId, activeAssistantId, event.text)
           hasAssistantTextRef.current = true
         } else {
-          appendMessageText(activeAssistantId, event.text)
+          appendMessageText(workspaceId, activeAssistantId, event.text)
         }
         return
       }
 
       if (event.type === 'tool_call') {
-        setToolStatus(`tool: ${event.toolName}`)
+        setToolStatus(workspaceId, `tool: ${event.toolName}`)
         return
       }
 
       if (event.type === 'tool_status') {
         const elapsedSuffix =
           typeof event.elapsedTimeSeconds === 'number' ? ` (${Math.round(event.elapsedTimeSeconds)}s)` : ''
-        setToolStatus(`running ${event.toolName}${elapsedSuffix}`)
+        setToolStatus(workspaceId, `running ${event.toolName}${elapsedSuffix}`)
         return
       }
 
       if (event.type === 'result') {
         if (!hasAssistantTextRef.current) {
-          setMessageText(activeAssistantId, event.result)
+          setMessageText(workspaceId, activeAssistantId, event.result)
         }
-        setToolStatus(null)
+        setToolStatus(workspaceId, null)
         setIsRunning(false)
         activeAssistantIdRef.current = null
         hasAssistantTextRef.current = false
@@ -88,14 +98,14 @@ function ChatView(): React.JSX.Element {
       }
 
       if (event.type === 'error') {
-        setMessageText(activeAssistantId, `error: ${event.message}`)
-        setToolStatus('run failed')
+        setMessageText(workspaceId, activeAssistantId, `error: ${event.message}`)
+        setToolStatus(workspaceId, 'run failed')
         setIsRunning(false)
         activeAssistantIdRef.current = null
         hasAssistantTextRef.current = false
       }
     })
-  }, [appendMessageText, setMessageText, setToolStatus])
+  }, [appendMessageText, setMessageText, setToolStatus, workspaceId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -111,12 +121,12 @@ function ChatView(): React.JSX.Element {
     const repoPath = import.meta.env.VITE_LOCAL_REPO_PATH || '.'
     const userId = import.meta.env.VITE_USER_ID || 'marf'
 
-    addMessage({ id: userMessageId, role: 'user', text })
-    startAssistantMessage(assistantMessageId)
-    setMessageText(assistantMessageId, 'thinking...')
+    addMessage(workspaceId, { id: userMessageId, role: 'user', text })
+    startAssistantMessage(workspaceId, assistantMessageId)
+    setMessageText(workspaceId, assistantMessageId, 'thinking...')
     activeAssistantIdRef.current = assistantMessageId
     hasAssistantTextRef.current = false
-    setToolStatus(null)
+    setToolStatus(workspaceId, null)
     setIsRunning(true)
     setInput('')
 
@@ -130,8 +140,8 @@ function ChatView(): React.JSX.Element {
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'unknown runner error'
-        setMessageText(assistantMessageId, `error: ${message}`)
-        setToolStatus('run failed')
+        setMessageText(workspaceId, assistantMessageId, `error: ${message}`)
+        setToolStatus(workspaceId, 'run failed')
         setIsRunning(false)
         activeAssistantIdRef.current = null
         hasAssistantTextRef.current = false

@@ -7,34 +7,57 @@ type ChatMessage = {
 }
 
 type ChatState = {
-  messages: ChatMessage[]
-  toolStatus: string | null
-  addMessage: (message: ChatMessage) => void
-  startAssistantMessage: (id: string) => void
-  appendMessageText: (id: string, text: string) => void
-  setMessageText: (id: string, text: string) => void
-  setToolStatus: (status: string | null) => void
+  messagesByWorkspace: Record<string, ChatMessage[]>
+  toolStatusByWorkspace: Record<string, string | null>
+  addMessage: (workspaceId: string, message: ChatMessage) => void
+  startAssistantMessage: (workspaceId: string, id: string) => void
+  appendMessageText: (workspaceId: string, id: string, text: string) => void
+  setMessageText: (workspaceId: string, id: string, text: string) => void
+  setToolStatus: (workspaceId: string, status: string | null) => void
 }
 
 const useChatStore = create<ChatState>((set) => ({
-  messages: [],
-  toolStatus: null,
-  addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
-  startAssistantMessage: (id) =>
+  messagesByWorkspace: {},
+  toolStatusByWorkspace: {},
+  addMessage: (workspaceId, message) =>
     set((state) => ({
-      messages: [...state.messages, { id, role: 'assistant', text: '' }]
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: [...(state.messagesByWorkspace[workspaceId] ?? []), message]
+      }
     })),
-  appendMessageText: (id, text) =>
+  startAssistantMessage: (workspaceId, id) =>
     set((state) => ({
-      messages: state.messages.map((message) =>
-        message.id === id ? { ...message, text: `${message.text}${text}` } : message
-      )
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: [...(state.messagesByWorkspace[workspaceId] ?? []), { id, role: 'assistant', text: '' }]
+      }
     })),
-  setMessageText: (id, text) =>
+  appendMessageText: (workspaceId, id, text) =>
     set((state) => ({
-      messages: state.messages.map((message) => (message.id === id ? { ...message, text } : message))
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: (state.messagesByWorkspace[workspaceId] ?? []).map((message) =>
+          message.id === id ? { ...message, text: `${message.text}${text}` } : message
+        )
+      }
     })),
-  setToolStatus: (status) => set({ toolStatus: status })
+  setMessageText: (workspaceId, id, text) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: (state.messagesByWorkspace[workspaceId] ?? []).map((message) =>
+          message.id === id ? { ...message, text } : message
+        )
+      }
+    })),
+  setToolStatus: (workspaceId, status) =>
+    set((state) => ({
+      toolStatusByWorkspace: {
+        ...state.toolStatusByWorkspace,
+        [workspaceId]: status
+      }
+    }))
 }))
 
 export type { ChatMessage, ChatState }
