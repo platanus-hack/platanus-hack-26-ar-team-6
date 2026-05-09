@@ -1,4 +1,4 @@
-import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { Annotation, END, START, StateGraph, type CompiledStateGraph } from "@langchain/langgraph";
 
 import { createLogger, previewText as previewTextShared } from "./logger.js";
 import type {
@@ -30,6 +30,7 @@ export type UserAgentOutput = {
   events: LocalAssistantEvent[];
   finalAnswer: string;
   contextPackets: ContextPacket[];
+  activityTitle?: string;
 };
 
 export type UpdaterInput = {
@@ -95,6 +96,7 @@ const AgentNetworkAnnotation = Annotation.Root({
 
 export type AgentNetworkState = typeof AgentNetworkAnnotation.State;
 export type AgentNetworkUpdate = typeof AgentNetworkAnnotation.Update;
+type AgentNetworkGraph = CompiledStateGraph<AgentNetworkState, AgentNetworkUpdate, string>;
 
 function checkpointIndexFor(messages: ConversationMessage[]): number {
   return Math.floor(messages.length / MEMORY_UPDATE_MESSAGE_THRESHOLD);
@@ -104,7 +106,7 @@ function shouldRunUpdater(messages: ConversationMessage[]): boolean {
   return messages.length > 0 && messages.length % MEMORY_UPDATE_MESSAGE_THRESHOLD === 0;
 }
 
-export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies) {
+export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies): AgentNetworkGraph {
   return new StateGraph(AgentNetworkAnnotation)
     .addNode("preflightRetriever", async (state): Promise<AgentNetworkUpdate> => {
       const targetAgentId = state.mentionedAgentIds[0] ?? undefined;
@@ -185,14 +187,18 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies) 
         eventCount: output.events.length,
         contextPacketCount: output.contextPackets.length,
         finalAnswerLength: output.finalAnswer.length,
+        hasActivityTitle: Boolean(output.activityTitle),
         finalizedMessageCount: finalizedMessages.length,
         shouldUpdate,
         checkpointIndex,
       });
+      const events = output.activityTitle
+        ? output.events.concat({ type: "activity_title", title: output.activityTitle })
+        : output.events;
       return {
         conversationMessages: finalizedMessages,
         contextPackets: output.contextPackets,
-        events: output.events,
+        events,
         finalAnswer: output.finalAnswer,
         shouldUpdate,
         checkpointIndex,
