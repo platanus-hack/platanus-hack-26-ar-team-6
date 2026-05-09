@@ -399,17 +399,25 @@ function buildUserPrompt(prompt: string, packet: ContextPacket | null): string {
   return [formatPreflightContext(packet), "", "User message:", prompt].join("\n");
 }
 
-function buildRetrieverPrompt(userId: string, request: RetrieverRequest): string {
+export function buildRetrieverPrompt(userId: string, request: RetrieverRequest): string {
   const targetInstruction = request.target_agent_id
     ? `Call agent_ctx with agent_id="${request.target_agent_id}" and query="${request.query}".`
     : `Call global_ctx with query="${request.query}".`;
 
   return [
-    "You are the Relevo retriever agent. You are not a router.",
+    "You are the Relevo retriever agent.",
     "Only use your server-backed context tools. Return one JSON ContextPacket and no prose.",
     `The asking agent id is ${userId}.`,
     request.reason ? `Reason: ${request.reason}` : "",
     targetInstruction,
+    "",
+    "Routing fallback (only when starting from global_ctx):",
+    "1. If a result has metadata.kind == \"responsibility_doc\", treat its content as a routing index that says which teammate owns which area.",
+    "2. If the global results do not directly answer the query but a responsibility doc points at one specific teammate as the owner of the topic, follow up with ONE more call:",
+    "     agent_ctx(agent_id=<that teammate's author_agent_id>, query=<same or refined query>).",
+    "3. Combine the global and agent results into the final ContextPacket. Set scope=\"agent\" and target_agent_id to the followed-up teammate when you used a follow-up.",
+    "4. If no responsibility doc clearly points at one owner, do not guess. Return the global results and set insufficient_context=true.",
+    "Never call agent_ctx more than once per turn. Never invent agent ids; use the author_agent_id from the responsibility doc metadata.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -536,10 +544,10 @@ async function runRetrieverAgent(
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
-      maxTurns: 3,
+      maxTurns: 4,
       includePartialMessages: false,
       systemPrompt:
-        "You are the retriever agent. Use only agent_ctx and global_ctx. Return JSON only.",
+        "You are the retriever agent. Use only agent_ctx and global_ctx. After global_ctx, you may make one follow-up agent_ctx call when a responsibility_doc result identifies a single owner. Return JSON only.",
       tools: [],
       allowedTools: [...RETRIEVER_ALLOWED_TOOLS],
       mcpServers: {

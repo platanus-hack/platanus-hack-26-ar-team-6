@@ -1324,3 +1324,344 @@ button {
     flex-direction: column;
   }
 }
+
+/* ----- Team Pulse (Timeline tab grid) ----- */
+
+.timeline-pulse {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 28px;
+  overflow: hidden;
+}
+
+.timeline-pulse__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.timeline-pulse__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.timeline-pulse__subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+}
+
+.timeline-pulse__grid-wrapper {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface, #ffffff);
+}
+
+.timeline-pulse__grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.timeline-pulse__grid th,
+.timeline-pulse__grid td {
+  border-right: 1px solid var(--border-subtle, #f1f5f9);
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+}
+
+.timeline-pulse__corner {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  background: var(--surface-strong, #f8fafc);
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #6b7280);
+  min-width: 160px;
+}
+
+.timeline-pulse__col-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-strong, #f8fafc);
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+  min-width: 140px;
+}
+
+.timeline-pulse__col-date {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint, #94a3b8);
+  margin-bottom: 2px;
+}
+
+.timeline-pulse__col-time {
+  font-weight: 600;
+  color: var(--text, #111827);
+}
+
+.timeline-pulse__row-header {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface, #ffffff);
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+}
+
+.timeline-pulse__row-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.timeline-pulse__cell {
+  padding: 8px 10px;
+  vertical-align: top;
+  cursor: pointer;
+  transition: background 120ms ease;
+  height: 60px;
+}
+
+.timeline-pulse__cell:hover {
+  background: rgba(47, 128, 237, 0.08);
+}
+
+.timeline-pulse__cell--empty {
+  background: var(--surface-faint, #fafafa);
+  cursor: default;
+}
+
+.timeline-pulse__cell--empty:hover {
+  background: var(--surface-faint, #fafafa);
+}
+
+.timeline-pulse__cell--selected {
+  background: rgba(47, 128, 237, 0.16) !important;
+  outline: 2px solid #2f80ed;
+  outline-offset: -2px;
+}
+
+.timeline-pulse__cell-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text, #111827);
+}
+
+.timeline-pulse__detail {
+  position: relative;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface, #ffffff);
+  padding: 14px 16px;
+}
+
+.timeline-pulse__detail-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+}
+
+.timeline-pulse__detail-meta {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.timeline-pulse__detail-summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.timeline-pulse__detail-updated {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-faint, #94a3b8);
+}
+
+/* ----- Responsibilities tab ----- */
+
+.responsibilities {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 28px;
+  overflow: hidden;
+}
+
+.responsibilities__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.responsibilities__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.responsibilities__subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+}
+
+.responsibilities__layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.responsibilities__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--surface, #ffffff);
+}
+
+.responsibilities__sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.responsibilities__sidebar-item:hover {
+  background: rgba(47, 128, 237, 0.08);
+}
+
+.responsibilities__sidebar-item--active {
+  background: rgba(47, 128, 237, 0.14);
+  font-weight: 600;
+}
+
+.responsibilities__sidebar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.responsibilities__sidebar-name {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.responsibilities__sidebar-words {
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+}
+
+.responsibilities__sidebar-empty {
+  font-size: 11px;
+  color: var(--text-faint, #94a3b8);
+  font-style: italic;
+}
+
+.responsibilities__panel {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface, #ffffff);
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.responsibilities__panel-header {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+}
+
+.responsibilities__panel-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.responsibilities__panel-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+}
+
+.responsibilities__panel-body {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.responsibilities__heading {
+  margin: 18px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.responsibilities__heading:first-child {
+  margin-top: 0;
+}
+
+.responsibilities__paragraph {
+  margin: 0 0 10px;
+}
+
+.responsibilities__list {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.responsibilities__list li {
+  margin-bottom: 4px;
+}

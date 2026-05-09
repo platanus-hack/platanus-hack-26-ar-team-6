@@ -1,4 +1,4 @@
-type TabKey = 'chat' | 'pool' | 'timeline' | 'tasks'
+type TabKey = 'chat' | 'pool' | 'timeline' | 'responsibilities' | 'tasks'
 
 type TabsProps = {
   activeTab: TabKey
@@ -28,6 +28,13 @@ function Tabs({ activeTab, onTabChange }: TabsProps): React.JSX.Element {
         onClick={() => onTabChange('timeline')}
       >
         timeline
+      </button>
+      <button
+        className={`settings-form__button ${activeTab === 'responsibilities' ? 'settings-form__button--primary' : ''}`}
+        type="button"
+        onClick={() => onTabChange('responsibilities')}
+      >
+        responsibilities
       </button>
       <button
         className={`settings-form__button ${activeTab === 'tasks' ? 'settings-form__button--primary' : ''}`}

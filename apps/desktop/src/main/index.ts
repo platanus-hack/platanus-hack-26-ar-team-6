@@ -23,6 +23,14 @@ import {
   type DesktopSettingsResponse
 } from './settings.js'
 import { saveActivityNote, readActivityNotes, type ActivityToolEntry, type ActivityNote } from '../activityMarkdown.js'
+import {
+  loadResponsibilities as loadResponsibilitiesClient,
+  loadTeamPulse as loadTeamPulseClient,
+  refreshTeamPulse as refreshTeamPulseClient,
+  type ResponsibilitiesResponse,
+  type TeamPulseRefreshResult,
+  type TeamPulseResponse
+} from '../teamPulse.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const DEFAULT_API_BASE_URL = viteEnv['VITE_API_BASE_URL'] || process.env['VITE_API_BASE_URL'] || ''
@@ -547,6 +555,51 @@ app.whenReady().then(() => {
 
   ipcMain.handle('activity-graph:get-notes', async (_, projectFolderPath: string): Promise<ActivityNote[]> => {
     return readActivityNotes(projectFolderPath)
+  })
+
+  ipcMain.handle(
+    'team-pulse:load',
+    async (_, opts?: { bucketSize?: number; bucketCount?: number }): Promise<TeamPulseResponse> => {
+      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+      const bootstrap = await fetchJson<BootstrapResponse>(
+        new URL(`/bootstrap?project_id=${selectedProjectId}`, serverBaseUrl).toString(),
+        { headers: { Authorization: `Bearer ${sessionToken}` } }
+      )
+      return loadTeamPulseClient({
+        serverBaseUrl,
+        sessionToken,
+        projectId: selectedProjectId,
+        selfAgentId: bootstrap.user.id,
+        bucketSize: opts?.bucketSize,
+        bucketCount: opts?.bucketCount
+      })
+    }
+  )
+
+  ipcMain.handle(
+    'team-pulse:refresh',
+    async (_, opts?: { bucketSize?: number; bucketCount?: number }): Promise<TeamPulseRefreshResult> => {
+      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+      const bootstrap = await fetchJson<BootstrapResponse>(
+        new URL(`/bootstrap?project_id=${selectedProjectId}`, serverBaseUrl).toString(),
+        { headers: { Authorization: `Bearer ${sessionToken}` } }
+      )
+      const anthropicApiKey = await readAnthropicApiKey()
+      return refreshTeamPulseClient({
+        serverBaseUrl,
+        sessionToken,
+        projectId: selectedProjectId,
+        selfAgentId: bootstrap.user.id,
+        anthropicApiKey,
+        bucketSize: opts?.bucketSize,
+        bucketCount: opts?.bucketCount
+      })
+    }
+  )
+
+  ipcMain.handle('responsibilities:load', async (): Promise<ResponsibilitiesResponse> => {
+    const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+    return loadResponsibilitiesClient({ serverBaseUrl, sessionToken, projectId: selectedProjectId })
   })
 
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
