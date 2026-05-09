@@ -1,6 +1,7 @@
 # Relevo Server
 
-FastAPI server for the V0 health endpoint.
+FastAPI server for the cross-user context workflow. See [`src/relevo/DATABASE.md`](src/relevo/DATABASE.md)
+for the V1 storage decisions and the data-access contract Narf builds API routes against.
 
 ## Local run
 

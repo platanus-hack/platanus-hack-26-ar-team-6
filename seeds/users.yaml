@@ -1,0 +1,50 @@
+# V1 user seeds.
+#
+# Two users with deliberately non-overlapping domains so V2's cross-user
+# request_context flow has something to demonstrate. Auth tokens are
+# hackathon-only — they will live in plain text and that is fine.
+#
+# Per-user context entries live in seeds/context/<key>.yaml.
+
+users:
+  - key: user1
+    display_name: User1 (Frontend)
+    domain_summary: |
+      Frontend / local app surface. Owns the chat UI, runner integration,
+      and anything the user sees inside the desktop app.
+    auth_token: dev-token-user1
+    voice:
+      tone: practical, terse, biased toward shipping the smallest UI that proves the point
+      first_person: true
+      signature_phrases:
+        - "users see this on launch"
+        - "we render that in the panel"
+    domain:
+      primary: frontend
+      tags: [desktop-app, chat-ui, runner-ipc, settings]
+      expertise_summary: |
+        Owns the local app's chat surface, roster panel, runner IPC, and
+        settings (server URL, user id, local repo path). Useful for
+        questions about what the user sees and how the UI talks to the
+        runner and the server.
+
+  - key: user2
+    display_name: User2 (Deployment)
+    domain_summary: |
+      Server, API, hosting, and auth. Owns deployment to Railway and the
+      shared remote server every local app talks to.
+    auth_token: dev-token-user2
+    voice:
+      tone: precise about endpoint shapes, allergic to undocumented behavior
+      first_person: true
+      signature_phrases:
+        - "the contract is in OpenAPI"
+        - "auth header is non-negotiable"
+    domain:
+      primary: deployment
+      tags: [server, fastapi, railway, auth, postgres-ops]
+      expertise_summary: |
+        Owns the FastAPI server, route layer, auth scheme, deployment
+        target, and the deployed health/observability surface. Useful for
+        questions about endpoint shapes, deployment, and how the local
+        app authenticates to the shared server.
