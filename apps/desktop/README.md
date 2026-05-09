@@ -38,8 +38,9 @@ with Electron `safeStorage` when the OS supports it.
 
 notes:
 
-- logged-out state shows the configured server URL and Google sign-in
-- logged-in state shows projects; selecting or creating one enters the chat
+- logged-out state shows Google sign-in without asking for a server URL
+- logged-in state shows projects; selecting or creating one enters the chat,
+  leaders can delete projects, and the top bar can return to the selector
 - chat saves `{prompt, final_answer}` through `/context-entries` with the
   selected project id
 - the local assistant's `request_context` tool sends the selected project id as

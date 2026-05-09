@@ -203,10 +203,17 @@ button {
 
 .auth-panel,
 .project-panel {
-  width: min(560px, 100%);
   border: 1px solid #d8d8d8;
   border-radius: 6px;
   background: #ffffff;
+}
+
+.auth-panel {
+  width: min(420px, 100%);
+}
+
+.project-panel {
+  width: min(720px, 100%);
 }
 
 .auth-panel__header,
@@ -246,16 +253,6 @@ button {
   font-size: 12px;
 }
 
-.auth-server-url {
-  overflow: hidden;
-  border: 1px solid #e5e5e5;
-  background: #fafafa;
-  color: #555555;
-  padding: 8px 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .project-panel__actions {
   display: flex;
   align-items: flex-start;
@@ -271,14 +268,13 @@ button {
 
 .project-list__item {
   display: flex;
-  justify-content: space-between;
+  align-items: stretch;
   gap: 12px;
   width: 100%;
   border: 1px solid #e5e5e5;
   background: #fafafa;
   color: #111111;
-  cursor: pointer;
-  padding: 10px 12px;
+  padding: 0;
   text-align: left;
 }
 
@@ -286,13 +282,77 @@ button {
   background: #f2f2f2;
 }
 
+.project-list__item--selected {
+  border-color: #999999;
+  background: #f0f0f0;
+}
+
+.project-list__select {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
 .project-list__name {
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-list__meta {
   color: #666666;
   font-size: 12px;
+}
+
+.project-list__delete {
+  border: 0;
+  border-left: 1px solid #e5e5e5;
+  background: transparent;
+  color: #8a1f1f;
+  cursor: pointer;
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.project-list__delete:hover {
+  background: #f7eaea;
+}
+
+.project-list__delete:disabled {
+  color: #777777;
+  cursor: default;
+}
+
+.project-empty {
+  padding: 42px 24px;
+  color: #666666;
+}
+
+.project-empty h2 {
+  margin: 0;
+  color: #111111;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.project-empty p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.project-create-form {
+  border-top: 1px solid #eeeeee;
+  background: #fafafa;
 }
 
 .member-management {

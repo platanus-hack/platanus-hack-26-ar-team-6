@@ -48,7 +48,7 @@ function TopBar({
     <header className="topbar">
       {onBack && (
         <button className="topbar-back" type="button" onClick={onBack}>
-          back
+          projects
         </button>
       )}
       <span>relevo</span>

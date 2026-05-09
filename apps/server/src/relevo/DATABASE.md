@@ -89,6 +89,8 @@ Key functions and their return shapes:
   — resolves the current account's `app_user` membership for a selected project.
 - `create_project_for_account(conn, account_id, name, ...) -> dict` — creates a
   project and the account's first `leader` membership.
+- `delete_project_by_id(conn, project_id) -> bool` — deletes a project row.
+  Project-owned data is removed by `ON DELETE CASCADE` foreign keys.
 - `add_existing_account_to_project(conn, project_id, account_id, ...) -> dict`
   — creates a `member` membership for an account that already exists.
 - `get_user_directory(conn, project_id) -> list[dict]` — Jerf's eval

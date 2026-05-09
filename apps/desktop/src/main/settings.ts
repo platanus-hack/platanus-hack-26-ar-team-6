@@ -185,7 +185,7 @@ export async function saveRelevoSession(
   settings.relevoSessionToken = encryptSecret(sessionToken)
   settings.account = input.account
   settings.projects = input.projects
-  settings.selectedProjectId = sanitizeSelectedProjectId(settings.selectedProjectId, input.projects)
+  settings.selectedProjectId = null
   await writeStoredSettings(settings)
   return getDesktopSettings(defaultServerBaseUrl)
 }

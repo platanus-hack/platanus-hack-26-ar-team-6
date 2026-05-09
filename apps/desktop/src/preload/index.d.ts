@@ -154,6 +154,7 @@ interface DesktopApi {
   refreshProjects: () => Promise<DesktopSettingsResponse>
   selectProject: (projectId: string) => Promise<DesktopSettingsResponse>
   createProject: (request: CreateProjectRequest) => Promise<DesktopSettingsResponse>
+  deleteProject: (projectId: string) => Promise<DesktopSettingsResponse>
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
   getBootstrap: () => Promise<BootstrapResponse>
   savePromptAnswer: (request: {
