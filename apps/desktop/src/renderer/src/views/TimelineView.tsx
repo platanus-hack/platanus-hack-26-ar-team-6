@@ -26,8 +26,8 @@ type GraphLayout = {
   width: number
 }
 
-const USER_COLORS = ['#a855f7', '#c084fc', '#7c3aed', '#9333ea', '#d946ef', '#8b5cf6']
-const TOPIC_COLORS = ['#a855f7', '#7c3aed', '#9333ea', '#c084fc', '#d946ef', '#8b5cf6']
+const USER_COLORS = ['#6d28d9', '#7c3aed', '#5b21b6', '#4c1d95', '#6b21a8', '#581c87']
+const TOPIC_COLORS = ['#6d28d9', '#5b21b6', '#4c1d95', '#7c3aed', '#6b21a8', '#581c87']
 const NODE_W = 236
 const NODE_H = 96
 const DETAIL_W = 320
@@ -522,13 +522,13 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
         >
           <defs>
             <pattern id="timeline-grid" width="28" height="28" patternUnits="userSpaceOnUse">
-              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(168, 85, 247, 0.08)" strokeWidth="1" />
+              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(109, 40, 217, 0.08)" strokeWidth="1" />
             </pattern>
             <filter id="timeline-node-shadow" x="-20%" y="-35%" width="140%" height="170%">
               <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#000000" floodOpacity="0.4" />
             </filter>
             <filter id="timeline-node-selected-shadow" x="-20%" y="-35%" width="140%" height="170%">
-              <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#a855f7" floodOpacity="0.3" />
+              <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#6d28d9" floodOpacity="0.3" />
             </filter>
           </defs>
 
@@ -569,7 +569,7 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
             const b = graph.positions.get(edge.b)
             if (!a || !b) return null
             const topicGroup = edge.topicKey ? graph.groups.find((group) => group.key === edge.topicKey) : undefined
-            const stroke = edge.kind === 'topic' ? (topicGroup?.color ?? '#7c3aed') : '#4a4a5a'
+            const stroke = edge.kind === 'topic' ? (topicGroup?.color ?? '#6d28d9') : '#4a4a5a'
 
             return (
               <g key={`${edge.kind}:${edge.a}:${edge.b}`}>
