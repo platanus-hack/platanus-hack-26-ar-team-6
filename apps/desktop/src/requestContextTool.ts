@@ -87,7 +87,9 @@ export async function callRequestContext(
   return normalizeResponse(rawBody);
 }
 
-export function createRequestContextMcpServer(options: RequestContextClientOptions) {
+export function createRequestContextMcpServer(
+  options: RequestContextClientOptions,
+): ReturnType<typeof createSdkMcpServer> {
   return createSdkMcpServer({
     name: "relevo-context",
     version: "0.1.0",

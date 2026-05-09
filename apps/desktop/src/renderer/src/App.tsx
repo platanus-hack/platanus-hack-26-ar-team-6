@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import Sidebar, { type SidebarAgent } from './components/Sidebar'
+import SettingsPanel from './components/SettingsPanel'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
 import agents from './fixtures/agents.json'
@@ -12,6 +13,7 @@ import TasksView from './views/TasksView'
 import TimelineView from './views/TimelineView'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
+type DesktopSettings = Awaited<ReturnType<typeof window.api.getSettings>>
 
 type RunnerBootstrapPayload = {
   user_summary: BootstrapResponse['user']
@@ -33,6 +35,8 @@ const fixtureRoster: SidebarAgent[] = (agents as Array<{ id: string; display_nam
 
 function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsOverride, setSettingsOverride] = useState<DesktopSettings | null>(null)
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const authToken = import.meta.env.VITE_AUTH_TOKEN || ''
   const userId = import.meta.env.VITE_USER_ID || 'user1'
@@ -44,6 +48,10 @@ function App(): React.JSX.Element {
     queryKey: ['bootstrap', apiBaseUrl, authToken, userId],
     enabled: authToken.trim().length > 0,
     queryFn: (): Promise<BootstrapResponse> => window.api.getBootstrap({ apiBaseUrl, authToken, userId })
+  })
+  const settingsQuery = useQuery({
+    queryKey: ['desktop-settings'],
+    queryFn: (): Promise<DesktopSettings> => window.api.getSettings()
   })
 
   const workspaceName =
@@ -57,6 +65,13 @@ function App(): React.JSX.Element {
       display_name: user.display_name,
       domain_summary: user.domain_summary
     })) ?? fixtureRoster
+  const desktopSettings = settingsOverride ?? settingsQuery.data
+  const hasAnthropicApiKey = Boolean(desktopSettings?.hasAnthropicApiKey)
+
+  function handleSettingsChange(nextSettings: DesktopSettings): void {
+    setSettingsOverride(nextSettings)
+    void settingsQuery.refetch()
+  }
 
   const runnerBootstrap: RunnerBootstrapPayload = bootstrapQuery.data
     ? {
@@ -97,6 +112,8 @@ function App(): React.JSX.Element {
       apiBaseUrl={apiBaseUrl}
       authToken={authToken}
       bootstrap={runnerBootstrap}
+      isAssistantConfigured={hasAnthropicApiKey}
+      onConfigureAssistant={() => setIsSettingsOpen(true)}
     />
   )
 
@@ -110,7 +127,13 @@ function App(): React.JSX.Element {
 
   return (
     <div className="app-shell">
-      <TopBar workspaceName={workspaceName} onBack={goHome} bootstrapStatus={bootstrapStatus} />
+      <TopBar
+        workspaceName={workspaceName}
+        onBack={goHome}
+        bootstrapStatus={bootstrapStatus}
+        anthropicKeyConfigured={hasAnthropicApiKey}
+        onSettings={() => setIsSettingsOpen(true)}
+      />
 
       <div className="app-body">
         <Sidebar agents={roster} currentUserId={userId} />
@@ -121,6 +144,14 @@ function App(): React.JSX.Element {
           {activeView}
         </main>
       </div>
+
+      {isSettingsOpen && (
+        <SettingsPanel
+          settings={desktopSettings}
+          onClose={() => setIsSettingsOpen(false)}
+          onSettingsChange={handleSettingsChange}
+        />
+      )}
     </div>
   )
 }

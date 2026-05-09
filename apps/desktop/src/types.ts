@@ -66,6 +66,7 @@ export type RunLocalAssistantOptions = {
   userId: string;
   serverUrl: string;
   authToken?: string;
+  anthropicApiKey?: string;
   bootstrap: BootstrapContext;
   model?: string;
   maxTurns?: number;
