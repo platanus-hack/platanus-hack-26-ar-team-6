@@ -133,8 +133,12 @@ type ActivityNote = {
   userEmail: string
   project: string
   title: string
+  summary: string
+  request: string
   wikilinks: string[]
   filesChanged: string[]
+  toolsUsed: string[]
+  createdAt: string
 }
 
 type DesktopAccountSummary = {
