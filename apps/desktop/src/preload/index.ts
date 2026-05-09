@@ -11,6 +11,8 @@ const api = {
   logout: () => ipcRenderer.invoke('auth:logout'),
   refreshProjects: () => ipcRenderer.invoke('auth:projects:refresh'),
   selectProject: (projectId: string) => ipcRenderer.invoke('project:select', projectId),
+  chooseProjectFolder: (projectId: string) => ipcRenderer.invoke('project:folder:choose', projectId),
+  clearProjectFolder: (projectId: string) => ipcRenderer.invoke('project:folder:clear', projectId),
   createProject: (request: { name: string; description?: string | null; domainSummary?: string | null }) =>
     ipcRenderer.invoke('project:create', request),
   deleteProject: (projectId: string) => ipcRenderer.invoke('project:delete', projectId),
@@ -24,7 +26,7 @@ const api = {
   }) => ipcRenderer.invoke('context-entry:save', request),
   startAssistantRun: (payload: {
     prompt: string
-    cwd: string
+    cwd?: string
     bootstrap: unknown
     userId: string
     model?: string

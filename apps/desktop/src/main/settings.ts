@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 
 type StoredSecret = {
   value: string
@@ -31,6 +31,7 @@ type StoredSettings = {
   account?: DesktopAccountSummary | null
   projects?: DesktopProjectMembership[]
   selectedProjectId?: string | null
+  projectFolders?: Record<string, string>
 }
 
 export type DesktopSettingsResponse = {
@@ -41,6 +42,8 @@ export type DesktopSettingsResponse = {
   account: DesktopAccountSummary | null
   projects: DesktopProjectMembership[]
   selectedProjectId: string | null
+  projectFolders: Record<string, string>
+  selectedProjectFolderPath: string | null
 }
 
 function settingsPath(): string {
@@ -130,9 +133,52 @@ function sanitizeSelectedProjectId(
   return projects.some((project) => project.project_id === selectedProjectId) ? selectedProjectId : null
 }
 
+function sanitizeProjectFolders(
+  projectFolders: Record<string, string> | undefined,
+  projects: DesktopProjectMembership[]
+): Record<string, string> {
+  const projectIds = new Set(projects.map((project) => project.project_id))
+  const entries = Object.entries(projectFolders ?? {}).flatMap(([projectId, folderPath]) => {
+    const trimmedPath = typeof folderPath === 'string' ? folderPath.trim() : ''
+    if (!projectIds.has(projectId) || !trimmedPath) {
+      return []
+    }
+
+    return [[projectId, trimmedPath]]
+  })
+
+  return Object.fromEntries(entries)
+}
+
+export async function resolveProjectFolderPath(folderPath: string): Promise<string> {
+  const trimmedPath = folderPath.trim()
+  if (!trimmedPath) {
+    throw new Error('Project folder cannot be empty.')
+  }
+
+  const resolvedPath = resolve(trimmedPath)
+  let stats
+  try {
+    stats = await stat(resolvedPath)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      throw new Error(`Project folder must be an existing directory: ${resolvedPath}`)
+    }
+    throw error
+  }
+
+  if (!stats.isDirectory()) {
+    throw new Error(`Project folder must be a directory: ${resolvedPath}`)
+  }
+
+  return resolvedPath
+}
+
 export async function getDesktopSettings(defaultServerBaseUrl: string): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
   const projects = settings.projects ?? []
+  const selectedProjectId = sanitizeSelectedProjectId(settings.selectedProjectId, projects)
+  const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
   const sessionToken = await readRelevoSessionToken()
 
   return {
@@ -142,7 +188,9 @@ export async function getDesktopSettings(defaultServerBaseUrl: string): Promise<
     isLoggedIn: Boolean(sessionToken && settings.account),
     account: settings.account ?? null,
     projects,
-    selectedProjectId: sanitizeSelectedProjectId(settings.selectedProjectId, projects)
+    selectedProjectId,
+    projectFolders,
+    selectedProjectFolderPath: selectedProjectId ? (projectFolders[selectedProjectId] ?? null) : null
   }
 }
 
@@ -156,15 +204,18 @@ export async function saveAnthropicApiKey(
   }
 
   const settings = await readStoredSettings()
-  settings.anthropicApiKey = encryptSecret(trimmedApiKey)
-  await writeStoredSettings(settings)
+  await writeStoredSettings({
+    ...settings,
+    anthropicApiKey: encryptSecret(trimmedApiKey)
+  })
   return getDesktopSettings(defaultServerBaseUrl)
 }
 
 export async function clearAnthropicApiKey(defaultServerBaseUrl: string): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
-  delete settings.anthropicApiKey
-  await writeStoredSettings(settings)
+  const nextSettings = { ...settings }
+  delete nextSettings.anthropicApiKey
+  await writeStoredSettings(nextSettings)
   return getDesktopSettings(defaultServerBaseUrl)
 }
 
@@ -182,11 +233,14 @@ export async function saveRelevoSession(
     throw new Error('Relevo session token cannot be empty.')
   }
 
-  settings.relevoSessionToken = encryptSecret(sessionToken)
-  settings.account = input.account
-  settings.projects = input.projects
-  settings.selectedProjectId = null
-  await writeStoredSettings(settings)
+  await writeStoredSettings({
+    ...settings,
+    relevoSessionToken: encryptSecret(sessionToken),
+    account: input.account,
+    projects: input.projects,
+    selectedProjectId: null,
+    projectFolders: {}
+  })
   return getDesktopSettings(defaultServerBaseUrl)
 }
 
@@ -198,20 +252,27 @@ export async function saveRelevoAuthState(
   defaultServerBaseUrl: string
 ): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
-  settings.account = input.account
-  settings.projects = input.projects
-  settings.selectedProjectId = sanitizeSelectedProjectId(settings.selectedProjectId, input.projects)
-  await writeStoredSettings(settings)
+  await writeStoredSettings({
+    ...settings,
+    account: input.account,
+    projects: input.projects,
+    selectedProjectId: sanitizeSelectedProjectId(settings.selectedProjectId, input.projects),
+    projectFolders: sanitizeProjectFolders(settings.projectFolders, input.projects)
+  })
   return getDesktopSettings(defaultServerBaseUrl)
 }
 
 export async function clearRelevoSession(defaultServerBaseUrl: string): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
-  delete settings.relevoSessionToken
-  settings.account = null
-  settings.projects = []
-  settings.selectedProjectId = null
-  await writeStoredSettings(settings)
+  const nextSettings = { ...settings }
+  delete nextSettings.relevoSessionToken
+  await writeStoredSettings({
+    ...nextSettings,
+    account: null,
+    projects: [],
+    selectedProjectId: null,
+    projectFolders: {}
+  })
   return getDesktopSettings(defaultServerBaseUrl)
 }
 
@@ -225,7 +286,52 @@ export async function saveSelectedProjectId(
     throw new Error('Selected project is not in the current account project list.')
   }
 
-  settings.selectedProjectId = projectId
-  await writeStoredSettings(settings)
+  await writeStoredSettings({
+    ...settings,
+    selectedProjectId: projectId,
+    projectFolders: sanitizeProjectFolders(settings.projectFolders, projects)
+  })
+  return getDesktopSettings(defaultServerBaseUrl)
+}
+
+export async function saveProjectFolder(
+  projectId: string,
+  folderPath: string,
+  defaultServerBaseUrl: string
+): Promise<DesktopSettingsResponse> {
+  const settings = await readStoredSettings()
+  const projects = settings.projects ?? []
+  if (!projects.some((project) => project.project_id === projectId)) {
+    throw new Error('Project folder can only be set for a current account project.')
+  }
+
+  const resolvedFolderPath = await resolveProjectFolderPath(folderPath)
+  const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
+  await writeStoredSettings({
+    ...settings,
+    projectFolders: {
+      ...projectFolders,
+      [projectId]: resolvedFolderPath
+    }
+  })
+  return getDesktopSettings(defaultServerBaseUrl)
+}
+
+export async function clearProjectFolder(
+  projectId: string,
+  defaultServerBaseUrl: string
+): Promise<DesktopSettingsResponse> {
+  const settings = await readStoredSettings()
+  const projects = settings.projects ?? []
+  if (!projects.some((project) => project.project_id === projectId)) {
+    throw new Error('Project folder can only be cleared for a current account project.')
+  }
+
+  const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
+  delete projectFolders[projectId]
+  await writeStoredSettings({
+    ...settings,
+    projectFolders
+  })
   return getDesktopSettings(defaultServerBaseUrl)
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join, resolve } from 'node:path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -6,11 +6,13 @@ import { runLocalAssistant } from '../runner.js'
 import type { BootstrapContext, RunLocalAssistantOptions } from '../types.js'
 import {
   clearAnthropicApiKey,
+  clearProjectFolder,
   clearRelevoSession,
   getDesktopSettings,
   readAnthropicApiKey,
   readRelevoSessionToken,
   saveAnthropicApiKey,
+  saveProjectFolder,
   saveRelevoAuthState,
   saveRelevoSession,
   saveSelectedProjectId,
@@ -81,7 +83,7 @@ type DesktopExchangeResponse = AuthStateResponse & {
 
 type StartAssistantRunPayload = {
   prompt: string
-  cwd: string
+  cwd?: string
   bootstrap: BootstrapContext
   userId: string
   model?: string
@@ -107,6 +109,7 @@ type AuthEvent =
   | { type: 'logout:succeeded'; settings: DesktopSettingsResponse }
   | { type: 'projects:updated'; settings: DesktopSettingsResponse }
   | { type: 'project:selected'; settings: DesktopSettingsResponse }
+  | { type: 'project:folder:updated'; settings: DesktopSettingsResponse }
 
 type SessionContext = {
   serverBaseUrl: string
@@ -140,6 +143,25 @@ function notifyAuthEvent(event: AuthEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('auth:event', event)
   }
+}
+
+function fallbackRunnerCwd(payloadCwd?: string): string {
+  return payloadCwd ?? viteEnv['VITE_LOCAL_REPO_PATH'] ?? process.env['VITE_LOCAL_REPO_PATH'] ?? '.'
+}
+
+async function selectDirectory(parentWindow: BrowserWindow | null): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    properties: ['openDirectory']
+  }
+  const result = parentWindow
+    ? await dialog.showOpenDialog(parentWindow, options)
+    : await dialog.showOpenDialog(options)
+
+  if (result.canceled) {
+    return null
+  }
+
+  return result.filePaths[0] ?? null
 }
 
 function focusMainWindow(): void {
@@ -386,6 +408,24 @@ app.whenReady().then(() => {
     return settings
   })
 
+  ipcMain.handle('project:folder:choose', async (event, projectId: string): Promise<DesktopSettingsResponse> => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow
+    const folderPath = await selectDirectory(parentWindow)
+    if (!folderPath) {
+      return getDesktopSettings(DEFAULT_API_BASE_URL)
+    }
+
+    const settings = await saveProjectFolder(projectId, folderPath, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'project:folder:updated', settings })
+    return settings
+  })
+
+  ipcMain.handle('project:folder:clear', async (_, projectId: string): Promise<DesktopSettingsResponse> => {
+    const settings = await clearProjectFolder(projectId, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'project:folder:updated', settings })
+    return settings
+  })
+
   ipcMain.handle('project:create', async (_, request: CreateProjectPayload): Promise<DesktopSettingsResponse> => {
     const { serverBaseUrl, sessionToken } = await getSessionContext(false)
     const createUrl = new URL('/projects', serverBaseUrl)
@@ -479,8 +519,10 @@ app.whenReady().then(() => {
     }
 
     const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+    const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
     const runOptions: RunLocalAssistantOptions = {
       ...payload,
+      cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
       anthropicApiKey,
       serverUrl: serverBaseUrl,
       authToken: sessionToken,

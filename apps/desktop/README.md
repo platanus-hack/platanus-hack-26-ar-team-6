@@ -21,7 +21,6 @@ config:
 ```env
 VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app
 VITE_ENABLE_HEALTHCHECK=true
-VITE_LOCAL_REPO_PATH=/absolute/path/to/your/repo
 ```
 
 `VITE_API_BASE_URL` is the fixed Relevo server URL. The app does not allow
@@ -41,11 +40,14 @@ notes:
 - logged-out state shows Google sign-in without asking for a server URL
 - logged-in state shows projects; selecting or creating one enters the chat,
   leaders can delete projects, and the top bar can return to the selector
+- each project must be connected to a local folder through the desktop folder
+  picker before chat can run
 - chat saves `{prompt, final_answer}` through `/context-entries` with the
   selected project id
 - the local assistant's `request_context` tool sends the selected project id as
   `X-Project-Id`
-- the runner uses `VITE_LOCAL_REPO_PATH` as its working directory
+- the runner uses the selected project's connected local folder as its working
+  directory; `VITE_LOCAL_REPO_PATH` is only a deprecated fallback
 - the health indicator checks `VITE_API_BASE_URL`
 
 manual smoke:
@@ -53,6 +55,6 @@ manual smoke:
 1. start the server with Google OAuth configured
 2. launch the desktop app
 3. sign in through the browser
-4. select or create a project
+4. select or create a project and connect it to a local folder
 5. configure the Anthropic key in settings
 6. send a chat message and confirm the answer saves
