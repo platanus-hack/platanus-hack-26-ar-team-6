@@ -16,18 +16,24 @@ describe("electron-vite launch environment", () => {
     expect(env.VITE_API_BASE_URL).toBe("https://example.test");
   });
 
-  it("passes the Linux X11 flag through to Electron Vite", () => {
-    expect(createElectronViteArgs(["dev"], {}, "linux")).toEqual([
-      "dev",
-      "--",
-      "--ozone-platform=x11",
-    ]);
+  it("passes the Linux X11 flag through to Electron Vite on Wayland", () => {
+    expect(
+      createElectronViteArgs(["dev"], { WAYLAND_DISPLAY: "wayland-0" }, "linux"),
+    ).toEqual(["dev", "--", "--ozone-platform=x11"]);
   });
 
   it("keeps existing Electron passthrough args when adding the Linux X11 flag", () => {
     expect(
-      createElectronViteArgs(["dev", "--", "--disable-gpu"], {}, "linux"),
+      createElectronViteArgs(
+        ["dev", "--", "--disable-gpu"],
+        { WAYLAND_DISPLAY: "wayland-0" },
+        "linux",
+      ),
     ).toEqual(["dev", "--", "--ozone-platform=x11", "--disable-gpu"]);
+  });
+
+  it("does not add the X11 flag on Linux when not running under Wayland", () => {
+    expect(createElectronViteArgs(["dev"], {}, "linux")).toEqual(["dev"]);
   });
 
   it("preserves an explicit ozone platform override", () => {

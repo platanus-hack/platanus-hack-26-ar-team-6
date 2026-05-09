@@ -29,8 +29,13 @@ export function createElectronViteArgs(
   const nextArgs = [...args];
   const envArgs = parseElectronCliArgs(baseEnv.ELECTRON_CLI_ARGS);
 
+  const isWayland =
+    baseEnv.WAYLAND_DISPLAY != null ||
+    baseEnv.XDG_SESSION_TYPE === "wayland";
+
   if (
     platform !== "linux" ||
+    !isWayland ||
     hasOzonePlatform(nextArgs) ||
     hasOzonePlatform(envArgs)
   ) {
