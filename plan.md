@@ -54,7 +54,6 @@ from teammates' AI assistants. Three components:
 
 **P1:**
 
-- Local-runner integration with Claude Agent SDK.
 - Roster/dashboard panel.
 - Demo fallback (pre-recorded answer) if live LLM stalls.
 - Smoke tests (see §8).
@@ -83,7 +82,9 @@ Storage:           Postgres + pgvector
 Partitioning:      one context_entries table with owner_user_id/project_id
                    columns; one qa_ledger table for cross-user Q&A
 Server:            FastAPI (existing scaffold)
-Auth:              per-user header token
+Auth:              bearer header token resolves the asking user; single
+                   project for the demo, so cross-project access control
+                   is out of scope
 Local runner:      Claude Agent SDK (cwd = user repo, custom tool registered)
 Desktop stack:     Electron + React (existing scaffold from v0/marf)
 request_context:   direct custom tool registered with the runner; HTTP POST
@@ -128,19 +129,32 @@ request_context(target, question)
   target:   "project"          (stretch)
   target:   list of either     (stretch)
   question: free-form natural language
-  returns:  { answer: string, source_user_ids: [user_id] }
+  returns:  {
+              answer: string,
+              source_user_ids: [user_id],
+              source_context_entry_ids: [context_entry_id]
+            }
 ```
 
 Server behavior on `POST /request_context`:
 
+0. Validate bearer token, resolve asking user, validate target user exists,
+   reject self-targeting.
 1. Retrieve relevant slice of target's `context_entries`.
 2. Run on-demand LLM call against the slice + question.
 3. Write `qa_ledger` row.
 4. Insert a `context_entries` row owned by `target_user_id` containing the
    Q&A.
-5. Return `{ answer, source_user_ids }`.
+5. Return `{ answer, source_user_ids, source_context_entry_ids }`.
 
-All four writes happen before the response. If any fail, the request fails.
+Both persistence writes (steps 3 and 4) happen before the response. If
+either fails, the request fails and no Q&A is durable.
+
+`source_context_entry_ids` are the `context_entries.id` values from the
+retrieved slice that grounded the answer. They prove the answer came
+from the target user's stored context. Surface them in HTTP responses
+and Q&A row metadata; do not require them in the MCP tool result the
+client AI sees.
 
 ## 7. Closure invariant
 
@@ -191,6 +205,10 @@ Deliverables:
 - After every answer, app POSTs prompt+answer.
 - Two users seeded with deliberately non-overlapping context.
 - Server deployed and reachable.
+- **Deployment gate by h4:** `GET /health` on the deployed URL must return
+  200 from a teammate's laptop by h4. Other endpoints can still be stubs
+  at h4. Late deployment is the most common hackathon failure; this gate
+  forces the issue early.
 
 Converge h10:
 
@@ -263,6 +281,11 @@ These cumulate. A change that breaks one is a stop-the-room bug.
 - After /request_context, target user's DB has the Q&A
 - Subsequent retrieval against target user surfaces that Q&A
 ```
+
+Closure verification = direct SQL query against `context_entries` (e.g.
+`apps/server/scripts/smoke_closure.py`). No dedicated retrieval endpoint
+for V1; the V2 path through `POST /request_context` plus a SQL row check
+is sufficient proof for the demo.
 
 Eval harness ambitions (router cases, multi-hop cases, graded grounding)
 are stretch. The harness skeleton survives V1 cleanup; populating it is
