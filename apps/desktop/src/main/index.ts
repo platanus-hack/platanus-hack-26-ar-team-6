@@ -4,7 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runLocalAssistant } from '../runner.js'
-import type { BootstrapContext, PersistedConversation, RunLocalAssistantOptions } from '../types.js'
+import type { BootstrapContext, ConversationMessage, PersistedConversation, RunLocalAssistantOptions } from '../types.js'
 import {
   clearAnthropicApiKey,
   clearProjectFolder,
@@ -62,17 +62,6 @@ type BootstrapResponse = {
   project_context: BootstrapContextEntry[]
 }
 
-type SavePromptAnswerRequest = {
-  prompt: string
-  finalAnswer: string
-  metadata?: Record<string, unknown>
-}
-
-type SavePromptAnswerResponse = {
-  id: string
-  kind: string
-}
-
 type AuthStateResponse = {
   account: DesktopAccountSummary
   projects: DesktopProjectMembership[]
@@ -87,6 +76,8 @@ type StartAssistantRunPayload = {
   cwd?: string
   bootstrap: BootstrapContext
   userId: string
+  chatSessionId?: string
+  conversationMessages?: ConversationMessage[]
   model?: string
   maxTurns?: number
 }
@@ -520,26 +511,6 @@ app.whenReady().then(() => {
     })
   })
 
-  ipcMain.handle(
-    'context-entry:save',
-    async (_, request: SavePromptAnswerRequest): Promise<SavePromptAnswerResponse> => {
-      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
-      return fetchJson<SavePromptAnswerResponse>(`${serverBaseUrl}/context-entries`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${sessionToken}`,
-          'Content-Type': 'application/json',
-          'X-Project-Id': selectedProjectId
-        },
-        body: JSON.stringify({
-          prompt: request.prompt,
-          final_answer: request.finalAnswer,
-          metadata: request.metadata ?? {}
-        })
-      })
-    }
-  )
-
   ipcMain.handle('conversation:load', async (_, workspaceId: string): Promise<PersistedConversation> => {
     return loadConversationFromDisk(workspaceId)
   })
@@ -552,6 +523,7 @@ app.whenReady().then(() => {
     await clearConversationFromDisk(workspaceId)
   })
 
+
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
     const anthropicApiKey = await readAnthropicApiKey()
     if (!anthropicApiKey) {
@@ -560,15 +532,13 @@ app.whenReady().then(() => {
 
     const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
     const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
-    const persisted = await loadConversationFromDisk(selectedProjectId)
     const runOptions: RunLocalAssistantOptions = {
       ...payload,
       cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
       anthropicApiKey,
       serverUrl: serverBaseUrl,
       authToken: sessionToken,
-      projectId: selectedProjectId,
-      resumeSessionId: persisted.sessionId ?? undefined
+      projectId: selectedProjectId
     }
 
     for await (const assistantEvent of runLocalAssistant(runOptions)) {

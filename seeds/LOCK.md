@@ -1,7 +1,7 @@
-# V2 Demo Lock
+# Demo Lock
 
-This is the seed contract for the cross-user demo. Keep these facts stable
-unless the team intentionally changes the script.
+This is the seed contract for the retriever-mediated cross-user demo. Keep
+these facts stable unless the team intentionally changes the script.
 
 ## Users
 
@@ -11,7 +11,7 @@ unless the team intentionally changes the script.
 The seed files are deliberately non-overlapping. User1's context should not
 contain the deployment/auth answer below.
 
-## Scripted Prompt
+## Cross-User Scripted Prompt
 
 Ask this from User1's local app:
 
@@ -19,11 +19,11 @@ Ask this from User1's local app:
 How is the shared server deployed, what auth does the local app use, and what health endpoint should I check before the demo?
 ```
 
-Expected routing:
+Expected retrieval:
 
 - User1's assistant should decide this is deployment/server knowledge.
-- It should call `request_context` with `target = user2_id`.
-- User2's on-demand agent can answer from `seeds/context/user2.yaml`.
+- It should call `ask_retriever` with User2 as the target agent.
+- The retriever should call `agent_ctx(agent_id, query)` for User2.
 
 Expected answer facts:
 
@@ -37,7 +37,7 @@ Expected answer facts:
 - Seed tokens are `dev-token-user1` and `dev-token-user2`.
 - Local Postgres uses `infra/docker-compose.yml` with `pgvector/pgvector:pg16`.
 
-## Project Scripted Prompt
+## Global Scripted Prompt
 
 Ask this from User1's local app:
 
@@ -45,80 +45,49 @@ Ask this from User1's local app:
 What are the shared architecture pieces in this project, and when should the AI use project context instead of asking User1 or User2?
 ```
 
-Expected routing:
+Expected retrieval:
 
 - User1's assistant should decide this is shared project knowledge.
-- It should call `request_context` with `target = "project"`.
-- The server should retrieve only `project_context_entry` rows.
+- It should call `ask_retriever` without a single target agent.
+- The retriever should call `global_ctx(query)`.
 
 Expected answer facts:
 
 - The project has a shared remote server.
-- Each user has a local app that hosts their coding AI.
-- The server can answer from `project_context_entry` for shared project facts.
+- Each user has a local app that hosts their coding AI and LangGraph runtime.
+- The retriever can call `global_ctx` for shared project facts.
 - User1 owns frontend / desktop app work.
 - User2 owns server, deployment, and infra work.
 
 ## Closure SQL
 
-After the cross-user request succeeds, this should show the audit row:
-
-```sql
-SELECT asking.display_name AS asking_user,
-       target.display_name AS target_user,
-       q.question,
-       q.answer,
-       q.created_at
-FROM qa_ledger q
-JOIN app_user asking ON asking.id = q.asking_user_id
-JOIN app_user target ON target.id = q.target_user_id
-ORDER BY q.created_at DESC
-LIMIT 1;
-```
-
-This should show the materialized target-user context row that later retrieval
-can surface:
+After the updater checkpoint, this should show the target-agent closure event:
 
 ```sql
 SELECT u.display_name,
-       c.kind,
-       c.content,
-       c.metadata,
-       c.created_at
-FROM context_entry c
-JOIN app_user u ON u.id = c.user_id
-WHERE c.kind = 'cross_user_qa'
-ORDER BY c.created_at DESC
+       e.importance,
+       e.content,
+       e.metadata,
+       e.source_context_exchange_id,
+       e.created_at
+FROM agent_memory_event e
+JOIN app_user u ON u.id = e.author_agent_id
+WHERE e.metadata->>'source' = 'retriever-closure'
+ORDER BY e.created_at DESC
 LIMIT 1;
 ```
 
-For the project-target flow, this should show the audit row:
+This should show the canonical memory document updated by the updater:
 
 ```sql
-SELECT asking.display_name AS asking_user,
-       p.name AS project_name,
-       q.question,
-       q.answer,
-       q.created_at
-FROM project_qa_ledger q
-JOIN app_user asking ON asking.id = q.asking_user_id
-JOIN project p ON p.id = q.project_id
-ORDER BY q.created_at DESC
-LIMIT 1;
-```
-
-This should show the materialized project context row that later project
-retrieval can surface:
-
-```sql
-SELECT p.name,
-       c.kind,
-       c.content,
-       c.metadata,
-       c.created_at
-FROM project_context_entry c
-JOIN project p ON p.id = c.project_id
-WHERE c.kind = 'project_qa'
-ORDER BY c.created_at DESC
-LIMIT 1;
+SELECT u.display_name,
+       d.importance,
+       d.document_key,
+       d.content,
+       d.metadata,
+       d.updated_at
+FROM agent_memory_document d
+JOIN app_user u ON u.id = d.author_agent_id
+ORDER BY d.updated_at DESC
+LIMIT 5;
 ```

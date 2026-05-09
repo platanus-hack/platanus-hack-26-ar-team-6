@@ -1,7 +1,7 @@
 # V1 user seeds.
 #
-# Two users with deliberately non-overlapping domains so V2's cross-user
-# request_context flow has something to demonstrate. Auth tokens are
+# Two users with deliberately non-overlapping domains so the retriever-mediated
+# cross-user flow has something to demonstrate. Auth tokens are
 # hackathon-only — they will live in plain text and that is fine.
 #
 # Per-user context entries live in seeds/context/<key>.yaml.

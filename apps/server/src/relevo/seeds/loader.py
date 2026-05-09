@@ -105,7 +105,19 @@ def reset_tables(conn: psycopg.Connection) -> None:
     """Reset: wipe rows from all data tables. Schema is left intact."""
     with conn.cursor() as cur:
         cur.execute(
-            "TRUNCATE TABLE qa_ledger, context_entry, project_context_entry, app_user, project RESTART IDENTITY CASCADE"
+            """
+            TRUNCATE TABLE
+              agent_memory_event,
+              agent_memory_document,
+              context_exchange,
+              project_qa_ledger,
+              qa_ledger,
+              context_entry,
+              project_context_entry,
+              app_user,
+              project
+            RESTART IDENTITY CASCADE
+            """
         )
     conn.commit()
 

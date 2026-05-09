@@ -25,8 +25,8 @@ type ChatViewProps = {
 }
 
 type ToolCallInput = {
-  target?: string
-  question?: string
+  target_agent_id?: string
+  query?: string
 }
 
 function isToolCallInput(value: unknown): value is ToolCallInput {
@@ -112,7 +112,6 @@ function ChatView({
   const [isRunning, setIsRunning] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
-  const activePromptRef = useRef('')
   const hasAssistantTextRef = useRef(false)
   const currentSessionIdRef = useRef<string | null>(null)
   const messages = messagesByWorkspace[workspaceId] ?? []
@@ -140,6 +139,15 @@ function ChatView({
 
   useEffect(() => {
     return window.api.onAssistantEvent((event) => {
+      if (event.type === 'memory_update') {
+        if (event.status === 'succeeded') {
+          setSaveStatus(workspaceId, `memory checkpoint ${event.checkpointIndex ?? ''} saved`.trim())
+        } else if (event.status === 'failed') {
+          setSaveStatus(workspaceId, `memory update failed: ${event.errorMessage ?? 'unknown error'}`)
+        }
+        return
+      }
+
       const activeAssistantId = activeAssistantIdRef.current
 
       if (!activeAssistantId) {
@@ -158,14 +166,14 @@ function ChatView({
 
       if (event.type === 'tool_call') {
         const input = isToolCallInput(event.input) ? event.input : {}
-        const targetUserId = typeof input.target === 'string' ? input.target : undefined
+        const targetUserId = typeof input.target_agent_id === 'string' ? input.target_agent_id : undefined
         addToolTraceEntry(workspaceId, {
           id: event.toolUseId ?? `${event.toolName}-${Date.now()}`,
           toolName: event.toolName,
           toolUseId: event.toolUseId,
           targetUserId,
           targetDisplayName: targetUserId ? rosterById[targetUserId] : undefined,
-          question: typeof input.question === 'string' ? input.question : undefined,
+          question: typeof input.query === 'string' ? input.query : undefined,
           status: 'running'
         })
         return
@@ -183,7 +191,7 @@ function ChatView({
       if (event.type === 'tool_result') {
         updateToolTraceEntry(workspaceId, event.toolUseId, {
           status: event.errorMessage ? 'failed' : 'succeeded',
-          answerPreview: event.result?.answer ? answerPreview(event.result.answer) : undefined,
+          answerPreview: event.result?.summary ? answerPreview(event.result.summary) : undefined,
           errorMessage: event.errorMessage
         })
         return
@@ -207,24 +215,9 @@ function ChatView({
           messages: currentMessages.map((m) => ({ id: m.id, role: m.role, text: m.text }))
         })
 
-        void window.api
-          .savePromptAnswer({
-            prompt: activePromptRef.current,
-            finalAnswer: typedEvent.result,
-            metadata: {
-              source: 'desktop-app'
-            }
-          })
-          .then(() => {
-            setSaveStatus(workspaceId, 'saved')
-          })
-          .catch((error: unknown) => {
-            const message = error instanceof Error ? error.message : 'save failed'
-            setSaveStatus(workspaceId, `save failed: ${message}`)
-          })
+        setSaveStatus(workspaceId, 'memory checkpoint pending')
 
         activeAssistantIdRef.current = null
-        activePromptRef.current = ''
         hasAssistantTextRef.current = false
         return
       }
@@ -242,7 +235,6 @@ function ChatView({
         setRunStatus(workspaceId, toRunStatusMessage(event.message))
         setIsRunning(false)
         activeAssistantIdRef.current = null
-        activePromptRef.current = ''
         hasAssistantTextRef.current = false
       }
     })
@@ -287,7 +279,6 @@ function ChatView({
     startAssistantMessage(workspaceId, assistantMessageId)
     setMessageText(workspaceId, assistantMessageId, 'thinking...')
     activeAssistantIdRef.current = assistantMessageId
-    activePromptRef.current = text
     hasAssistantTextRef.current = false
     resetToolTrace(workspaceId)
     setSaveStatus(workspaceId, null)
@@ -299,7 +290,12 @@ function ChatView({
       .startAssistantRun({
         prompt: text,
         bootstrap,
-        userId
+        userId,
+        chatSessionId: workspaceId,
+        conversationMessages: [
+          ...messages.map((message) => ({ role: message.role, text: message.text })),
+          { role: 'user' as const, text }
+        ]
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'unknown runner error'
@@ -308,7 +304,6 @@ function ChatView({
         setRunStatus(workspaceId, toRunStatusMessage(error))
         setIsRunning(false)
         activeAssistantIdRef.current = null
-        activePromptRef.current = ''
         hasAssistantTextRef.current = false
       })
   }

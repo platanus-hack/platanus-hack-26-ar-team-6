@@ -1,12 +1,14 @@
-"""Smoke test for the V2 closure invariant.
+"""Smoke test for the retriever/updater closure invariant.
 
-Proves that POST /request-context enriches the target user's DB
-synchronously (plan.md §8 converge criterion).
+This exercises the new server primitives directly:
+
+1. POST /agent-ctx records a context_exchange for asker -> target retrieval.
+2. POST /memory-updates appends asker memory and target closure memory.
 
 Preconditions:
   - Postgres up:
       docker compose -f infra/docker-compose.yml up -d
-  - Migration applied + seeds loaded:
+  - Migrations applied + seeds loaded:
       uv run python -m relevo.seeds.loader
   - Server running on http://localhost:8000 (override via SERVER_URL env var):
       uv run uvicorn relevo.main:app --reload
@@ -25,6 +27,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
@@ -39,39 +42,10 @@ ASKER_TOKEN = "dev-token-user1"
 TARGET_TOKEN = "dev-token-user2"
 
 
-def _count_cross_user_qa(conn, user_id) -> int:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM context_entry WHERE user_id = %s AND kind = 'cross_user_qa'",
-            (user_id,),
-        )
-        row = cur.fetchone()
-    return int(row["n"])
-
-
-def _latest_cross_user_qa(conn, user_id) -> dict:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT id, content, metadata, created_at
-            FROM context_entry
-            WHERE user_id = %s AND kind = 'cross_user_qa'
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (user_id,),
-        )
-        row = cur.fetchone()
-    if row is None:
-        raise AssertionError("latest_cross_user_qa: no row found for target user")
-    return dict(row)
-
-
-def _post_request_context(server_url: str, token: str, target_user_id: str, question: str):
-    body = json.dumps({"target_user_id": target_user_id, "question": question}).encode("utf-8")
+def _post_json(server_url: str, path: str, token: str, body: dict[str, Any]) -> tuple[int, str]:
     req = urllib.request.Request(
-        url=f"{server_url.rstrip('/')}/request-context",
-        data=body,
+        url=f"{server_url.rstrip('/')}{path}",
+        data=json.dumps(body).encode("utf-8"),
         method="POST",
         headers={
             "Authorization": f"Bearer {token}",
@@ -81,12 +55,120 @@ def _post_request_context(server_url: str, token: str, target_user_id: str, ques
     )
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
-            status = resp.status
-            payload = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        status = e.code
-        payload = e.read().decode("utf-8", errors="replace")
-    return status, payload
+            return resp.status, resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", errors="replace")
+
+
+def _parse_response(payload: str) -> dict[str, Any]:
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"response_json_parse failed: {exc}; body={payload[:500]}") from exc
+    if not isinstance(data, dict):
+        raise AssertionError("response_is_object failed")
+    return data
+
+
+def _count_target_closure_events(conn, target_agent_id) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM agent_memory_event
+            WHERE author_agent_id = %s
+              AND metadata->>'source' = 'retriever-closure'
+            """,
+            (target_agent_id,),
+        )
+        row = cur.fetchone()
+    return int(row["n"])
+
+
+def _latest_closure_event(conn, target_agent_id, exchange_id: str) -> dict[str, Any]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, content, metadata, source_context_exchange_id, created_at
+            FROM agent_memory_event
+            WHERE author_agent_id = %s
+              AND source_context_exchange_id = %s
+              AND metadata->>'source' = 'retriever-closure'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (target_agent_id, exchange_id),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise AssertionError("latest_closure_event: no row found for target agent")
+    return dict(row)
+
+
+def _post_agent_ctx(server_url: str, token: str, target_agent_id: str) -> tuple[int, str]:
+    return _post_json(
+        server_url,
+        "/agent-ctx",
+        token,
+        {
+            "agent_id": target_agent_id,
+            "query": QUESTION,
+            "metadata": {"source": "smoke_closure"},
+        },
+    )
+
+
+def _post_memory_update(
+    server_url: str,
+    token: str,
+    *,
+    asker_agent_id: str,
+    target_agent_id: str,
+    exchange_id: str,
+    retrieved_summary: str,
+) -> tuple[int, str]:
+    return _post_json(
+        server_url,
+        "/memory-updates",
+        token,
+        {
+            "chat_session_id": "smoke-closure",
+            "checkpoint_index": 1,
+            "operations": [
+                {
+                    "author_agent_id": asker_agent_id,
+                    "importance": "local",
+                    "document_key": "chat-summary:smoke-closure",
+                    "context_exchange_id": exchange_id,
+                    "event_content": (
+                        f"Asked retriever for deployment context: {QUESTION}\n"
+                        f"Retriever returned: {retrieved_summary}"
+                    ),
+                    "canonical_content": (
+                        "The user asked for deployment context and the retriever "
+                        f"returned: {retrieved_summary}"
+                    ),
+                    "metadata": {"source": "smoke-asker"},
+                },
+                {
+                    "author_agent_id": target_agent_id,
+                    "importance": "local",
+                    "document_key": f"retriever-closure:{exchange_id}",
+                    "context_exchange_id": exchange_id,
+                    "event_content": (
+                        f"Closure record: another agent retrieved this context from "
+                        f"the target agent for question: {QUESTION}\n"
+                        f"Returned context: {retrieved_summary}"
+                    ),
+                    "canonical_content": (
+                        f"Retriever closure for deployment question '{QUESTION}': "
+                        f"{retrieved_summary}"
+                    ),
+                    "metadata": {"source": "retriever-closure"},
+                },
+            ],
+        },
+    )
 
 
 def main() -> None:
@@ -106,85 +188,84 @@ def main() -> None:
 
             user1_id = str(user1["id"])
             user2_id = str(user2["id"])
+            before_count = _count_target_closure_events(conn, user2["id"])
 
-            before_count = _count_cross_user_qa(conn, user2["id"])
-
-        status, payload = _post_request_context(server_url, ASKER_TOKEN, user2_id, QUESTION)
-
+        status, payload = _post_agent_ctx(server_url, ASKER_TOKEN, user2_id)
         if status != 200:
-            failed_check = "http_status_200"
+            failed_check = "agent_ctx_status_200"
             raise AssertionError(f"check failed: {failed_check} (got {status}, body={payload[:500]})")
 
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError as e:
-            failed_check = "response_json_parse"
-            raise AssertionError(f"check failed: {failed_check} ({e}; body={payload[:500]})")
-
-        if not isinstance(data, dict):
-            failed_check = "response_is_object"
+        retrieval = _parse_response(payload)
+        exchange_id = retrieval.get("context_exchange_id")
+        if not isinstance(exchange_id, str) or not exchange_id:
+            failed_check = "context_exchange_id_present"
             raise AssertionError(f"check failed: {failed_check}")
 
-        answer = data.get("answer")
-        if not isinstance(answer, str) or not answer.strip():
-            failed_check = "answer_non_empty_str"
+        results = retrieval.get("results")
+        if not isinstance(results, list) or not results:
+            failed_check = "retrieval_results_non_empty"
             raise AssertionError(f"check failed: {failed_check}")
 
-        source_ids = data.get("source_user_ids")
-        if not isinstance(source_ids, list):
-            failed_check = "source_user_ids_is_list"
+        retrieved_summary = " ".join(
+            str(row.get("content", "")).strip()
+            for row in results
+            if isinstance(row, dict)
+        ).strip()
+        if not retrieved_summary:
+            failed_check = "retrieved_summary_non_empty"
             raise AssertionError(f"check failed: {failed_check}")
-        if user2_id not in source_ids:
-            failed_check = "source_user_ids_contains_target"
-            raise AssertionError(f"check failed: {failed_check} (got {source_ids})")
 
-        source_context_entry_ids = data.get("source_context_entry_ids")
-        if not isinstance(source_context_entry_ids, list) or not source_context_entry_ids:
-            failed_check = "source_context_entry_ids_non_empty"
-            raise AssertionError(
-                f"check failed: {failed_check} (got {source_context_entry_ids!r})"
-            )
+        status, payload = _post_memory_update(
+            server_url,
+            ASKER_TOKEN,
+            asker_agent_id=user1_id,
+            target_agent_id=user2_id,
+            exchange_id=exchange_id,
+            retrieved_summary=retrieved_summary,
+        )
+        if status != 200:
+            failed_check = "memory_update_status_200"
+            raise AssertionError(f"check failed: {failed_check} (got {status}, body={payload[:500]})")
+
+        update = _parse_response(payload)
+        if len(update.get("event_ids") or []) < 2:
+            failed_check = "memory_update_event_ids"
+            raise AssertionError(f"check failed: {failed_check} (got {update})")
+        if len(update.get("document_ids") or []) < 2:
+            failed_check = "memory_update_document_ids"
+            raise AssertionError(f"check failed: {failed_check} (got {update})")
 
         with connect() as conn:
-            after_count = _count_cross_user_qa(conn, user2["id"])
+            after_count = _count_target_closure_events(conn, user2["id"])
             if after_count != before_count + 1:
-                failed_check = "row_count_incremented_by_one"
+                failed_check = "target_closure_count_incremented_by_one"
                 raise AssertionError(
                     f"check failed: {failed_check} (before={before_count}, after={after_count})"
                 )
 
-            latest = _latest_cross_user_qa(conn, user2["id"])
+            latest = _latest_closure_event(conn, user2["id"], exchange_id)
             content = latest["content"]
             metadata = latest["metadata"] or {}
-
             if QUESTION not in content:
-                failed_check = "content_contains_question"
+                failed_check = "closure_content_contains_question"
                 raise AssertionError(f"check failed: {failed_check}")
-            if answer not in content:
-                failed_check = "content_contains_answer"
+            if retrieved_summary[:80] not in content:
+                failed_check = "closure_content_contains_retrieved_context"
                 raise AssertionError(f"check failed: {failed_check}")
-            if str(metadata.get("asker_user_id")) != user1_id:
-                failed_check = "metadata_asker_user_id"
-                raise AssertionError(
-                    f"check failed: {failed_check} (got {metadata.get('asker_user_id')!r}, want {user1_id!r})"
-                )
-            if metadata.get("question") != QUESTION:
-                failed_check = "metadata_question"
-                raise AssertionError(f"check failed: {failed_check}")
-            if metadata.get("answer") != answer:
-                failed_check = "metadata_answer"
+            if metadata.get("source") != "retriever-closure":
+                failed_check = "closure_metadata_source"
                 raise AssertionError(f"check failed: {failed_check}")
 
-        print("✅ closure invariant smoke test passed")
+        print("closure invariant smoke test passed")
 
-    except AssertionError as e:
-        print("❌ closure invariant smoke test FAILED")
+    except AssertionError as exc:
+        print("closure invariant smoke test FAILED")
         print(f"  failed check: {failed_check}")
-        print(f"  detail: {e}")
+        print(f"  detail: {exc}")
         sys.exit(1)
-    except Exception as e:
-        print("❌ closure invariant smoke test ERRORED")
-        print(f"  unexpected: {type(e).__name__}: {e}")
+    except Exception as exc:
+        print("closure invariant smoke test ERRORED")
+        print(f"  unexpected: {type(exc).__name__}: {exc}")
         sys.exit(1)
 
 

@@ -30,7 +30,7 @@ async function main(): Promise<void> {
           {
             user_id: userId,
             display_name: "Smoke user",
-            owns: "Local runner startup and request-context tool registration.",
+            owns: "Local runner startup and retriever tool registration.",
           },
         ],
       },

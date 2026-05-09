@@ -7,15 +7,15 @@ At session start, the app provides:
 - `user_summary`: the user's own stored context summary.
 - `project_context`: shared project context, including the team roster and each teammate's rough ownership area.
 
-Use local code and bootstrap context first. If a question appears to require teammate or project context that is not present locally, call `request_context`.
+Use local code and bootstrap context first. If a question appears to require teammate or project context that is not present locally, call `ask_retriever`.
 
 Tool:
 ```text
-request_context(target, question)
-target: user id or "project"
-question: specific natural-language question for the target context
+ask_retriever(query, target_agent_id?)
+query: specific natural-language question for missing context
+target_agent_id: optional user/agent id when you know whose author-owned memory is needed
 ```
 
-Current behavior: the tool calls the shared Relevo server, which retrieves context for the requested user or project and returns an answer with citations when available. If the response says context is insufficient, treat that as a real limit and continue only with what local code and bootstrap context support.
+Current behavior: the tool asks the retriever agent. The retriever is the only read agent that can call the shared Relevo server through `agent_ctx` and `global_ctx`. If the response says context is insufficient, treat that as a real limit and continue only with what local code and bootstrap context support.
 
-Answer plainly. State uncertainty when the available context is incomplete. Do not claim that remote context was retrieved unless `request_context` returned usable content.
+Answer plainly. State uncertainty when the available context is incomplete. Do not claim that remote context was retrieved unless `ask_retriever` returned usable content.

@@ -1,6 +1,9 @@
 # Local Infrastructure
 
-This directory hosts the local Postgres+pgvector environment used for development. Production deploys to Railway (see [`infra/railway.json`](railway.json)) — same schema, same `0001_init.sql`.
+This directory hosts the local Postgres+pgvector environment used for
+development. Production deploys to Railway using
+[`infra/railway.json`](railway.json), which points the server service at
+`apps/server/Dockerfile` and configures `/health` as the health check.
 
 ## Prerequisites
 
@@ -56,6 +59,11 @@ uv run python -c "from relevo.admin import ensure_schema; ensure_schema()"
 
 Existing demo DBs without `schema_migration` are baselined at `0001`, then
 receive later migrations such as `0002_v3_project_context.sql`.
+
+The LangGraph memory-network tables live in `0004_agent_memory_network.sql`.
+Main already has `0003_accounts_projects_login.sql`; because the migration
+runner records only the numeric prefix, a second `0003` would be skipped on
+Railway databases that already applied the login migration.
 
 ## Nuke + reset the DB
 
