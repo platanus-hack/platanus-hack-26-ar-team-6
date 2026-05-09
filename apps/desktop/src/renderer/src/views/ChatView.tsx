@@ -31,11 +31,14 @@ type ToolCallInput = {
 }
 
 function isToolCallInput(value: unknown): value is ToolCallInput {
-  if (!value || typeof value !== 'object') {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false
   }
-
-  return true
+  const obj = value as Record<string, unknown>
+  return (
+    (obj.target_agent_id === undefined || typeof obj.target_agent_id === 'string') &&
+    (obj.query === undefined || typeof obj.query === 'string')
+  )
 }
 
 function answerPreview(text: string, maxLength = 120): string {
