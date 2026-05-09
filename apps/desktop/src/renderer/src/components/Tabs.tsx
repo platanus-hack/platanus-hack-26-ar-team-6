@@ -5,36 +5,37 @@ type TabsProps = {
   onTabChange: (tab: TabKey) => void
 }
 
+// Reordered tabs: Chat -> Timeline -> Tasks -> Pool
 function Tabs({ activeTab, onTabChange }: TabsProps): React.JSX.Element {
   return (
     <nav className="tabs">
       <button
-        className={`settings-form__button ${activeTab === 'chat' ? 'settings-form__button--primary' : ''}`}
+        className={`tab ${activeTab === 'chat' ? 'tab--active' : ''}`}
         type="button"
         onClick={() => onTabChange('chat')}
       >
-        chat
+        Chat
       </button>
       <button
-        className={`settings-form__button ${activeTab === 'pool' ? 'settings-form__button--primary' : ''}`}
-        type="button"
-        onClick={() => onTabChange('pool')}
-      >
-        pool
-      </button>
-      <button
-        className={`settings-form__button ${activeTab === 'timeline' ? 'settings-form__button--primary' : ''}`}
+        className={`tab ${activeTab === 'timeline' ? 'tab--active' : ''}`}
         type="button"
         onClick={() => onTabChange('timeline')}
       >
-        timeline
+        Timeline
       </button>
       <button
-        className={`settings-form__button ${activeTab === 'tasks' ? 'settings-form__button--primary' : ''}`}
+        className={`tab ${activeTab === 'tasks' ? 'tab--active' : ''}`}
         type="button"
         onClick={() => onTabChange('tasks')}
       >
-        tasks
+        Tasks
+      </button>
+      <button
+        className={`tab ${activeTab === 'pool' ? 'tab--active' : ''}`}
+        type="button"
+        onClick={() => onTabChange('pool')}
+      >
+        Pool
       </button>
     </nav>
   )

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 import Sidebar, { type SidebarAgent } from './components/Sidebar'
 import SettingsPanel from './components/SettingsPanel'
-import Tabs, { type TabKey } from './components/Tabs'
+import type { TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
 import { getProjectFolderDisplayName } from './projectFolders'
 import ChatView from './views/ChatView'
@@ -380,7 +380,7 @@ function MemberManagement({
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
-  const [isDark, setIsDark] = useState(false)
+  const [isDark, setIsDark] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(true)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
@@ -612,7 +612,12 @@ function App(): React.JSX.Element {
       />
 
       <div className="app-body">
-        <Sidebar agents={roster} currentUserId={activeUserId} />
+        <Sidebar 
+          agents={roster} 
+          currentUserId={activeUserId} 
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
@@ -620,7 +625,6 @@ function App(): React.JSX.Element {
           {selectedProject && (
             <MemberManagement project={selectedProject} onMemberAdded={() => bootstrapQuery.refetch().then(() => undefined)} />
           )}
-          <Tabs activeTab={activeTab} onTabChange={setActiveTab} />
           {activeView}
         </main>
       </div>
