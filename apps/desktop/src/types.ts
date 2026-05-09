@@ -1,7 +1,6 @@
 export type RequestContextTarget = string;
-
 export type RequestContextInput = {
-  target: RequestContextTarget;
+  target: string;
   question: string;
 };
 
@@ -38,6 +37,12 @@ export type LocalAssistantEvent =
       toolName: string;
       toolUseId?: string;
       elapsedTimeSeconds?: number;
+    }
+  | {
+      type: "tool_result";
+      toolUseId: string;
+      result?: RequestContextResponse;
+      errorMessage?: string;
     }
   | {
       type: "result";

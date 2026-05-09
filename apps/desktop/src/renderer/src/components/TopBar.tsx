@@ -7,11 +7,12 @@ type HealthResponse = {
 
 type TopBarProps = {
   workspaceName: string
-  onBack: () => void
+  onBack?: () => void
+  bootstrapStatus?: 'live' | 'fallback'
 }
 
-function TopBar({ workspaceName, onBack }: TopBarProps): React.JSX.Element {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://creative-possibility-production-f2af.up.railway.app'
+function TopBar({ workspaceName, onBack, bootstrapStatus }: TopBarProps): React.JSX.Element {
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
   const { data, isError } = useQuery({
@@ -22,14 +23,23 @@ function TopBar({ workspaceName, onBack }: TopBarProps): React.JSX.Element {
 
   const isHealthy = isHealthcheckEnabled && data?.status === 'ok' && !isError
   const healthText = isHealthy ? 'status: online' : 'status: offline'
+  const isBootstrapLive = bootstrapStatus === 'live'
 
   return (
     <header className="topbar">
-      <button className="topbar-back" type="button" onClick={onBack}>
-        back
-      </button>
+      {onBack && (
+        <button className="topbar-back" type="button" onClick={onBack}>
+          back
+        </button>
+      )}
       <span>relevo</span>
       <span>workspace: {workspaceName}</span>
+      {bootstrapStatus && (
+        <>
+          <span className={`health-indicator ${isBootstrapLive ? 'health-indicator--ok' : 'health-indicator--off'}`} />
+          <span>bootstrap: {bootstrapStatus}</span>
+        </>
+      )}
       <span className={`health-indicator ${isHealthy ? 'health-indicator--ok' : 'health-indicator--off'}`} />
       <span title={data?.sha || ''}>{healthText}</span>
     </header>

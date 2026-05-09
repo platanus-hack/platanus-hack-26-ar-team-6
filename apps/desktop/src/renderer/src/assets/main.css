@@ -73,6 +73,19 @@ button {
   margin-top: 12px;
 }
 
+.sidebar-item__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-item__marker {
+  font-size: 11px;
+  color: #777777;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
 .sidebar-item__meta {
   color: #666666;
   font-size: 12px;
@@ -118,6 +131,14 @@ button {
   padding: 16px;
   background: #ffffff;
   overflow: auto;
+}
+
+.content-status {
+  padding: 8px 16px;
+  border-bottom: 1px solid #eeeeee;
+  background: #fafafa;
+  color: #555555;
+  font-size: 12px;
 }
 
 .content-row + .content-row {
@@ -246,10 +267,50 @@ button {
   background: #fff;
 }
 
-.chat-tool-status {
-  padding: 8px 16px;
+.chat-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
   border-top: 1px solid #eeeeee;
   background: #fafafa;
+}
+
+.chat-trace-item {
+  padding: 10px 12px;
+  border: 1px solid #e5e5e5;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.chat-trace-item__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.chat-trace-item__tool,
+.chat-trace-item__status {
+  font-weight: 600;
+}
+
+.chat-trace-item__line + .chat-trace-item__line {
+  margin-top: 4px;
+}
+
+.chat-save-status {
+  padding: 8px 16px;
+  border-top: 1px solid #eeeeee;
+  background: #ffffff;
+  color: #555555;
+  font-size: 12px;
+}
+
+.chat-run-status {
+  padding: 8px 16px;
+  border-top: 1px solid #eeeeee;
+  background: #ffffff;
   color: #555555;
   font-size: 12px;
 }

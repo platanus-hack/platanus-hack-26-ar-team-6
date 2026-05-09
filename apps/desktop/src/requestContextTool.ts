@@ -95,7 +95,7 @@ export function createRequestContextMcpServer(options: RequestContextClientOptio
     tools: [
       tool(
         "request_context",
-        "Request missing teammate or project context from the shared Relevo server.",
+        "Request missing teammate context from the shared Relevo server.",
         {
           target: targetSchema,
           question: z.string().min(1),

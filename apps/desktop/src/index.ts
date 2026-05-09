@@ -11,6 +11,5 @@ export type {
   RequestContextCitation,
   RequestContextInput,
   RequestContextResponse,
-  RequestContextTarget,
   RunLocalAssistantOptions,
 } from "./types.js";
