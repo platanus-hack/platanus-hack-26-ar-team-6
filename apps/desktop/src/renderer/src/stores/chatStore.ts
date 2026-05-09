@@ -28,6 +28,8 @@ type ChatState = {
   saveStatusByWorkspace: Record<string, string | null>
   runStatusByWorkspace: Record<string, string | null>
   addMessage: (workspaceId: string, message: ChatMessage) => void
+  loadMessages: (workspaceId: string, messages: ChatMessage[]) => void
+  clearMessages: (workspaceId: string) => void
   startAssistantMessage: (workspaceId: string, id: string) => void
   appendMessageText: (workspaceId: string, id: string, text: string) => void
   setMessageText: (workspaceId: string, id: string, text: string) => void
@@ -48,6 +50,20 @@ const useChatStore = create<ChatState>((set) => ({
       messagesByWorkspace: {
         ...state.messagesByWorkspace,
         [workspaceId]: [...(state.messagesByWorkspace[workspaceId] ?? []), message]
+      }
+    })),
+  loadMessages: (workspaceId, messages) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: messages
+      }
+    })),
+  clearMessages: (workspaceId) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: []
       }
     })),
   startAssistantMessage: (workspaceId, id) =>

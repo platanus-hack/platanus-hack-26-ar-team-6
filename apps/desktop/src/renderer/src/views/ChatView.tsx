@@ -106,11 +106,14 @@ function ChatView({
   const updateToolTraceEntry = useChatStore((state) => state.updateToolTraceEntry)
   const setSaveStatus = useChatStore((state) => state.setSaveStatus)
   const setRunStatus = useChatStore((state) => state.setRunStatus)
+  const loadMessages = useChatStore((state) => state.loadMessages)
+  const clearMessages = useChatStore((state) => state.clearMessages)
   const [input, setInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
   const hasAssistantTextRef = useRef(false)
+  const currentSessionIdRef = useRef<string | null>(null)
   const messages = messagesByWorkspace[workspaceId] ?? []
   const toolTrace = toolTraceByWorkspace[workspaceId] ?? []
   const saveStatus = saveStatusByWorkspace[workspaceId] ?? null
@@ -123,6 +126,16 @@ function ChatView({
       ? 'type a message...'
       : 'configure Anthropic API key in settings'
   const sendButtonLabel = isRunning ? 'running...' : !hasProjectFolder ? 'folder' : isAssistantConfigured ? 'send' : 'settings'
+
+  useEffect(() => {
+    currentSessionIdRef.current = null
+    void window.api.loadConversation(workspaceId).then((persisted) => {
+      if (persisted.messages.length > 0) {
+        loadMessages(workspaceId, persisted.messages)
+      }
+      currentSessionIdRef.current = persisted.sessionId
+    })
+  }, [workspaceId, loadMessages])
 
   useEffect(() => {
     return window.api.onAssistantEvent((event) => {
@@ -185,11 +198,23 @@ function ChatView({
       }
 
       if (event.type === 'result') {
+        const typedEvent = event as { type: 'result'; result: string; sessionId?: string }
         if (!hasAssistantTextRef.current) {
-          setMessageText(workspaceId, activeAssistantId, event.result)
+          setMessageText(workspaceId, activeAssistantId, typedEvent.result)
         }
         setIsRunning(false)
         setRunStatus(workspaceId, null)
+
+        if (typedEvent.sessionId) {
+          currentSessionIdRef.current = typedEvent.sessionId
+        }
+
+        const currentMessages = useChatStore.getState().messagesByWorkspace[workspaceId] ?? []
+        void window.api.saveConversation(workspaceId, {
+          sessionId: currentSessionIdRef.current,
+          messages: currentMessages.map((m) => ({ id: m.id, role: m.role, text: m.text }))
+        })
+
         setSaveStatus(workspaceId, 'memory checkpoint pending')
 
         activeAssistantIdRef.current = null
@@ -283,6 +308,15 @@ function ChatView({
       })
   }
 
+  function handleNewChat(): void {
+    if (isRunning) return
+    clearMessages(workspaceId)
+    currentSessionIdRef.current = null
+    setSaveStatus(workspaceId, null)
+    setRunStatus(workspaceId, null)
+    void window.api.clearConversation(workspaceId)
+  }
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -347,9 +381,16 @@ function ChatView({
           onKeyDown={handleKeyDown}
           disabled={isRunning || !hasProjectFolder}
         />
-        <button className="chat-send" type="button" onClick={handleSend} disabled={isRunning}>
-          {sendButtonLabel}
-        </button>
+        <div className="chat-actions">
+          <button className="chat-send" type="button" onClick={handleSend} disabled={isRunning}>
+            {sendButtonLabel}
+          </button>
+          {messages.length > 0 && (
+            <button className="chat-new" type="button" onClick={handleNewChat} disabled={isRunning} title="Start a new chat">
+              new chat
+            </button>
+          )}
+        </div>
       </div>
     </section>
   )

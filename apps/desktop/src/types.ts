@@ -106,4 +106,10 @@ export type RunLocalAssistantOptions = {
   conversationMessages?: ConversationMessage[];
   model?: string;
   maxTurns?: number;
+  resumeSessionId?: string;
+};
+
+export type PersistedConversation = {
+  sessionId: string | null;
+  messages: Array<{ id: string; role: 'user' | 'assistant'; text: string }>;
 };
