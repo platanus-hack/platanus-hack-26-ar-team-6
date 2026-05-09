@@ -12,6 +12,7 @@ type TopBarProps = {
   selectedProjectId?: string | null
   accountEmail?: string | null
   onBack?: () => void
+  showProjectsButton?: boolean
   bootstrapStatus?: 'live' | 'loading' | 'error'
   isDark: boolean
   onToggleTheme: () => void
@@ -50,12 +51,13 @@ function MoonIcon(): React.JSX.Element {
 }
 
 function TopBar({
-  workspaceName,
+  workspaceName: _workspaceName,
   serverBaseUrl,
   projects = [],
   selectedProjectId,
   accountEmail,
   onBack,
+  showProjectsButton = false,
   bootstrapStatus,
   isDark,
   onToggleTheme,
@@ -80,12 +82,11 @@ function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-group">
-        {onBack && (
+        {(showProjectsButton || onBack) && (
           <button className="topbar-back" type="button" onClick={onBack}>
             projects
           </button>
         )}
-        <span className="topbar-subtle">workspace: {workspaceName}</span>
       </div>
       <div className="topbar-group">
         {projects.length > 0 && selectedProjectId && onProjectSelect && (

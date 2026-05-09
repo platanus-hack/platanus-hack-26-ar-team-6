@@ -79,13 +79,11 @@ function ProjectSelection({
   settings,
   selectedProjectId,
   onSettingsChange,
-  onLogout,
   onProjectEntered
 }: {
   settings: DesktopSettings
   selectedProjectId: string | null
   onSettingsChange: (settings: DesktopSettings) => void
-  onLogout: () => Promise<void>
   onProjectEntered: () => void
 }): React.JSX.Element {
   const [name, setName] = useState('')
@@ -187,9 +185,6 @@ function ProjectSelection({
             <button className="settings-form__button" type="button" onClick={handleRefresh}>
               refresh
             </button>
-            <button className="settings-form__button" type="button" onClick={() => void onLogout()}>
-              logout
-            </button>
           </div>
         </div>
 
@@ -208,7 +203,7 @@ function ProjectSelection({
                 </button>
                 {project.role === 'leader' && (
                   <button
-                    className="project-list__delete"
+                    className="settings-form__button project-list__delete"
                     type="button"
                     onClick={() => void handleDelete(project)}
                     disabled={deletingProjectId === project.project_id}
@@ -321,7 +316,7 @@ function MemberManagement({
         onChange={(event) => setDomainSummary(event.target.value)}
         placeholder="role summary"
       />
-      <button className="settings-form__button" type="submit" disabled={isSaving}>
+      <button className="settings-form__button member-management__button" type="submit" disabled={isSaving}>
         {isSaving ? 'adding...' : 'add'}
       </button>
       {status && <span className="member-management__status">{status}</span>}
@@ -419,13 +414,32 @@ function App(): React.JSX.Element {
 
   if (!selectedProjectId || !selectedProject || isProjectSelectorOpen) {
     return (
-      <ProjectSelection
-        settings={desktopSettings}
-        selectedProjectId={selectedProjectId}
-        onSettingsChange={handleSettingsChange}
-        onLogout={handleLogout}
-        onProjectEntered={handleProjectEntered}
-      />
+      <div className={`app-shell ${isDark ? 'app-shell--dark' : 'app-shell--light'}`}>
+        <TopBar
+          workspaceName="projects"
+          serverBaseUrl={desktopSettings.serverBaseUrl}
+          accountEmail={desktopSettings.account?.email}
+          showProjectsButton
+          isDark={isDark}
+          onToggleTheme={() => setIsDark((value) => !value)}
+          anthropicKeyConfigured={desktopSettings.hasAnthropicApiKey}
+          onSettings={() => setIsSettingsOpen(true)}
+          onLogout={() => void handleLogout()}
+        />
+        <ProjectSelection
+          settings={desktopSettings}
+          selectedProjectId={selectedProjectId}
+          onSettingsChange={handleSettingsChange}
+          onProjectEntered={handleProjectEntered}
+        />
+        {isSettingsOpen && (
+          <SettingsPanel
+            settings={desktopSettings}
+            onClose={() => setIsSettingsOpen(false)}
+            onSettingsChange={handleSettingsChange}
+          />
+        )}
+      </div>
     )
   }
 
@@ -456,9 +470,6 @@ function App(): React.JSX.Element {
         }
       }
     : null
-
-  const currentUserName = 'Your Name'
-  const currentUserDetail = 'your.email@company.com'
 
   let activeView: React.JSX.Element = <div className="content-panel">loading project...</div>
   if (bootstrapQuery.isError) {
@@ -500,12 +511,7 @@ function App(): React.JSX.Element {
       />
 
       <div className="app-body">
-        <Sidebar
-          agents={roster}
-          currentUserId={activeUserId}
-          currentUserName={currentUserName}
-          currentUserDetail={currentUserDetail}
-        />
+        <Sidebar agents={roster} currentUserId={activeUserId} />
 
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
