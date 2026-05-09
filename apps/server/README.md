@@ -142,6 +142,18 @@ Railway provides `RAILWAY_GIT_COMMIT_SHA` automatically for GitHub-triggered dep
 
 The Docker entrypoint reads `PORT` from the environment. Railway provides it automatically.
 
+On-demand agent defaults for V2:
+
+| Variable | Default |
+|---|---|
+| `ON_DEMAND_AGENT_MODEL` | `claude-sonnet-4-6` |
+| `ON_DEMAND_AGENT_MAX_TOKENS` | `1200` |
+| `ON_DEMAND_AGENT_TIMEOUT_SECONDS` | `20` |
+| `ON_DEMAND_RETRIEVAL_TOP_K` | `6` |
+
+Live on-demand calls use the Anthropic Python SDK, which reads
+`ANTHROPIC_API_KEY` from the environment.
+
 ## Docker
 
 ```sh

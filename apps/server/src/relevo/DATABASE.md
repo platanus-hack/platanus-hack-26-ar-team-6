@@ -17,11 +17,11 @@ Jerf depend on. If you change anything here, sync with them.
    `user_id` whenever `/request-context` resolves a per-user target.
    The same transaction writes a `qa_ledger` row for simple audit/demo
    queries.
-4. **Embedding model: deferred to V2** (joint with Jorf). The
-   `embedding vector(1024)` column exists on both context tables and is
-   nullable. **No HNSW index is created yet** because the dimension may
-   change in V2; V2's first task is to lock the model, run a migration to
-   set the correct dimension, and create the index.
+4. **Embedding model: `text-embedding-3-small`** (Jorf V2 default). The
+   current migration still has nullable `embedding vector(1024)` columns on
+   both context tables. Sarf should migrate them to `vector(1536)` before
+   pgvector search is enabled. **No HNSW index exists yet**; create it after
+   the dimension migration/backfill.
 
 ## Schema
 
@@ -29,7 +29,7 @@ See [`migrations/0001_init.sql`](../../../../migrations/0001_init.sql).
 
 Tables:
 
-- **`project`** — one row in V1. Other tables FK to it.
+- **`project`** — one row for the demo. Other tables FK to it.
 - **`app_user`** — one row per user. Holds `auth_token` (Narf's bearer
   auth), `domain_summary` (one-line role description), and `profile`
   JSONB (denormalized voice + domain blocks for Jorf's on-demand agent).
@@ -99,9 +99,11 @@ The loader TRUNCATEs all data tables before inserting; pass
 
 ## Remaining V2 handoff
 
-1. Sarf+Jorf lock the embedding model. Edit the migration before deploy, if needed,
-   alters `vector(1024)` to the correct dimension.
+1. Sarf migrates `embedding vector(1024)` to `vector(1536)` for
+   `text-embedding-3-small`.
 2. Create the HNSW index on `embedding`.
 3. Add a backfill pass that re-embeds existing rows.
-4. Narf wires `write_cross_user_qa_entry` into the real `/request-context`
-   route after Jorf returns an answer.
+4. Narf retrieves top 6 rows filtered by target `user_id` and passes them to
+   `relevo.agents.answer_on_demand`.
+5. Wire `write_cross_user_qa_entry` into Narf's now-real
+   `/request-context` route after Jorf returns an answer.
