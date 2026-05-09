@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,22 @@ from relevo.seeds.schemas import (
 
 logger = logging.getLogger("relevo.seeds.loader")
 
-REPO_ROOT_SEEDS = Path(__file__).resolve().parents[5] / "seeds"
+def _default_seeds_dir() -> Path:
+    if os.environ.get("SEEDS_DIR"):
+        return Path(os.environ["SEEDS_DIR"])
+    candidates = [
+        Path.cwd() / "seeds",
+        Path("/app/seeds"),
+        Path(__file__).resolve().parents[5] / "seeds",
+        Path(__file__).resolve().parents[3] / "seeds",
+    ]
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
+
+
+REPO_ROOT_SEEDS = _default_seeds_dir()
 
 
 def _load_yaml(path: Path) -> Any:
