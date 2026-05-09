@@ -1,0 +1,12 @@
+tasks:
+  - title: "Land 0001_init.sql"
+    description: "Canonical schema migration, applied on docker-compose first boot."
+    owner_persona_key: ada
+    status: done
+
+  - title: "Wire real INSERTs in seed loader"
+    description: "V1 — replace the V0 logging skeleton with asyncpg-backed inserts, including embedding writes for memory_entry."
+    owner_persona_key: ada
+    status: proposed
+    dependencies:
+      - "Land 0001_init.sql"
