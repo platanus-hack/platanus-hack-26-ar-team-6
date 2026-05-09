@@ -59,17 +59,12 @@ function LoginScreen({
   return (
     <main className="auth-page">
       <section className="auth-panel">
-        <div className="auth-panel__header">
-          <h1>Relevo</h1>
-          <p>Sign in to choose a project workspace.</p>
-        </div>
-
+        <h1 className="auth-panel__title">omni</h1>
         <form className="auth-form" onSubmit={handleSubmit}>
           <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
           </button>
         </form>
-
         {displayStatus && <div className="auth-status">{displayStatus}</div>}
       </section>
     </main>
@@ -80,22 +75,24 @@ function ProjectSelection({
   settings,
   selectedProjectId,
   onSettingsChange,
-  onLogout,
-  onProjectEntered
+  onProjectEntered,
+  isCreateOpen,
+  onCreateOpenChange
 }: {
   settings: DesktopSettings
   selectedProjectId: string | null
   onSettingsChange: (settings: DesktopSettings) => void
-  onLogout: () => Promise<void>
   onProjectEntered: () => void
+  isCreateOpen: boolean
+  onCreateOpenChange: (isOpen: boolean) => void
 }): React.JSX.Element {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [domainSummary, setDomainSummary] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
+  const [leavingProjectId, setLeavingProjectId] = useState<string | null>(null)
   const [connectingProjectId, setConnectingProjectId] = useState<string | null>(null)
 
   async function connectProjectFolder(projectId: string): Promise<DesktopSettings> {
@@ -129,16 +126,6 @@ function ProjectSelection({
     }
   }
 
-  async function handleRefresh(): Promise<void> {
-    setStatus(null)
-    try {
-      const nextSettings = await window.api.refreshProjects()
-      onSettingsChange(nextSettings)
-    } catch (error) {
-      setStatus(`Refresh failed: ${toErrorMessage(error)}`)
-    }
-  }
-
   async function handleDelete(project: DesktopProject): Promise<void> {
     if (project.role !== 'leader') {
       setStatus('Only project leaders can delete projects')
@@ -159,6 +146,29 @@ function ProjectSelection({
       setStatus(`Delete failed: ${toErrorMessage(error)}`)
     } finally {
       setDeletingProjectId(null)
+    }
+  }
+
+  async function handleLeave(project: DesktopProject): Promise<void> {
+    if (project.role === 'leader') {
+      setStatus('Project leaders must delete the project instead of leaving')
+      return
+    }
+    const confirmed = window.confirm(`Leave "${project.project_name}"?`)
+    if (!confirmed) {
+      return
+    }
+
+    setLeavingProjectId(project.project_id)
+    setStatus(null)
+    try {
+      const nextSettings = await window.api.leaveProject(project.project_id)
+      onSettingsChange(nextSettings)
+      setStatus(`Left ${project.project_name}`)
+    } catch (error) {
+      setStatus(`Leave failed: ${toErrorMessage(error)}`)
+    } finally {
+      setLeavingProjectId(null)
     }
   }
 
@@ -186,7 +196,7 @@ function ProjectSelection({
       setName('')
       setDescription('')
       setDomainSummary('')
-      setIsCreateOpen(false)
+      onCreateOpenChange(false)
       if (projectId && settingsWithFolder.projectFolders[projectId]) {
         onProjectEntered()
       } else {
@@ -202,28 +212,6 @@ function ProjectSelection({
   return (
     <main className="project-page">
       <section className="project-panel">
-        <div className="project-panel__header">
-          <div>
-            <h1>Projects</h1>
-            <p>{settings.account?.email}</p>
-          </div>
-          <div className="project-panel__actions">
-            <button
-              className={`settings-form__button ${isCreateOpen ? '' : 'settings-form__button--primary'}`}
-              type="button"
-              onClick={() => setIsCreateOpen((isOpen) => !isOpen)}
-            >
-              {isCreateOpen ? 'cancel' : 'new project'}
-            </button>
-            <button className="settings-form__button" type="button" onClick={handleRefresh}>
-              refresh
-            </button>
-            <button className="settings-form__button" type="button" onClick={() => void onLogout()}>
-              logout
-            </button>
-          </div>
-        </div>
-
         {settings.projects.length > 0 ? (
           <div className="project-list">
             {settings.projects.map((project) => {
@@ -243,26 +231,38 @@ function ProjectSelection({
                       folder: {projectFolder ? getProjectFolderDisplayName(projectFolder) : 'not connected'}
                     </span>
                   </span>
+                </button>
+                <div className="project-list__actions">
                   <span className="project-list__meta">{project.role}</span>
-                </button>
-                <button
-                  className="project-list__folder-button"
-                  type="button"
-                  onClick={() => void connectProjectFolder(project.project_id)}
-                  disabled={isConnectingFolder}
-                >
-                  {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
-                </button>
-                {project.role === 'leader' && (
                   <button
-                    className="project-list__delete"
+                    className="project-list__folder-button"
                     type="button"
-                    onClick={() => void handleDelete(project)}
-                    disabled={deletingProjectId === project.project_id}
+                    onClick={() => void connectProjectFolder(project.project_id)}
+                    disabled={isConnectingFolder}
                   >
-                    {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                    {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
                   </button>
-                )}
+                  {project.role === 'leader' && (
+                    <button
+                      className="project-list__delete"
+                      type="button"
+                      onClick={() => void handleDelete(project)}
+                      disabled={deletingProjectId === project.project_id}
+                    >
+                      {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                    </button>
+                  )}
+                  {project.role !== 'leader' && (
+                    <button
+                      className="project-list__delete"
+                      type="button"
+                      onClick={() => void handleLeave(project)}
+                      disabled={leavingProjectId === project.project_id}
+                    >
+                      {leavingProjectId === project.project_id ? 'leaving...' : 'leave'}
+                    </button>
+                  )}
+                </div>
               </div>
               )
             })}
@@ -369,7 +369,7 @@ function MemberManagement({
         onChange={(event) => setDomainSummary(event.target.value)}
         placeholder="role summary"
       />
-      <button className="settings-form__button" type="submit" disabled={isSaving}>
+      <button className="settings-form__button member-management__button" type="submit" disabled={isSaving}>
         {isSaving ? 'adding...' : 'add'}
       </button>
       {status && <span className="member-management__status">{status}</span>}
@@ -380,9 +380,11 @@ function MemberManagement({
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
+  const [isDark, setIsDark] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(false)
+  const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(true)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
+  const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false)
   const [folderMessage, setFolderMessage] = useState<string | null>(null)
 
   const settingsQuery = useQuery({
@@ -418,6 +420,15 @@ function App(): React.JSX.Element {
 
   function handleSettingsChange(nextSettings: DesktopSettings): void {
     queryClient.setQueryData(['desktop-settings'], nextSettings)
+  }
+
+  async function handleProjectRefresh(): Promise<void> {
+    try {
+      const nextSettings = await window.api.refreshProjects()
+      queryClient.setQueryData(['desktop-settings'], nextSettings)
+    } catch {
+      // refresh failed silently
+    }
   }
 
   async function handleLogout(): Promise<void> {
@@ -494,13 +505,37 @@ function App(): React.JSX.Element {
 
   if (!selectedProjectId || !selectedProject || isProjectSelectorOpen) {
     return (
-      <ProjectSelection
-        settings={desktopSettings}
-        selectedProjectId={selectedProjectId}
-        onSettingsChange={handleSettingsChange}
-        onLogout={handleLogout}
-        onProjectEntered={handleProjectEntered}
-      />
+      <div className={`app-shell ${isDark ? 'app-shell--dark' : 'app-shell--light'}`}>
+        <TopBar
+          workspaceName="projects"
+          serverBaseUrl={desktopSettings.serverBaseUrl}
+          accountEmail={desktopSettings.account?.email}
+          showProjectsButton
+          isDark={isDark}
+          onToggleTheme={() => setIsDark((value) => !value)}
+          anthropicKeyConfigured={desktopSettings.hasAnthropicApiKey}
+          onSettings={() => setIsSettingsOpen(true)}
+          onLogout={() => void handleLogout()}
+          onNewProject={() => setIsProjectCreateOpen((v) => !v)}
+          isProjectCreateOpen={isProjectCreateOpen}
+          onRefresh={() => void handleProjectRefresh()}
+        />
+        <ProjectSelection
+          settings={desktopSettings}
+          selectedProjectId={selectedProjectId}
+          onSettingsChange={handleSettingsChange}
+          onProjectEntered={handleProjectEntered}
+          isCreateOpen={isProjectCreateOpen}
+          onCreateOpenChange={setIsProjectCreateOpen}
+        />
+        {isSettingsOpen && (
+          <SettingsPanel
+            settings={desktopSettings}
+            onClose={() => setIsSettingsOpen(false)}
+            onSettingsChange={handleSettingsChange}
+          />
+        )}
+      </div>
     )
   }
 
@@ -557,7 +592,7 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${isDark ? 'app-shell--dark' : 'app-shell--light'}`}>
       <TopBar
         workspaceName={workspaceName}
         serverBaseUrl={desktopSettings.serverBaseUrl}
@@ -566,6 +601,8 @@ function App(): React.JSX.Element {
         accountEmail={desktopSettings.account?.email}
         projectFolderPath={selectedProjectFolderPath}
         bootstrapStatus={bootstrapStatus}
+        isDark={isDark}
+        onToggleTheme={() => setIsDark((value) => !value)}
         anthropicKeyConfigured={hasAnthropicApiKey}
         onBack={() => setIsProjectSelectorOpen(true)}
         onProjectSelect={(projectId) => void handleProjectSelect(projectId)}

@@ -81,7 +81,7 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
             <h2 id="settings-title">Settings</h2>
             <p>{hasAnthropicApiKey ? 'Anthropic key configured' : 'Anthropic key missing'}</p>
           </div>
-          <button className="settings-panel__close" type="button" onClick={onClose} aria-label="Close settings">
+          <button className="settings-form__button settings-panel__close" type="button" onClick={onClose} aria-label="Close settings">
             x
           </button>
         </div>

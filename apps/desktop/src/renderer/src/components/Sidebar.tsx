@@ -31,15 +31,17 @@ function Sidebar({ agents: roster, currentUserId }: SidebarProps): React.JSX.Ele
 
   return (
     <aside className="sidebar">
-      {items.map((item) => (
-        <div className="sidebar-item" key={item.id}>
-          <div className="sidebar-item__title">
-            <span>{item.display_name}</span>
-            {item.id === currentUserId && <span className="sidebar-item__marker">you</span>}
+      <div className="sidebar-list">
+        {items.map((item) => (
+          <div className="sidebar-item" key={item.id}>
+            <div className="sidebar-item__title">
+              <span>{item.display_name}</span>
+              {item.id === currentUserId && <span className="sidebar-item__marker">you</span>}
+            </div>
+            <div className="sidebar-item__meta">{item.domain_summary || 'team member'}</div>
           </div>
-          <div className="sidebar-item__meta">{item.domain_summary || 'team member'}</div>
-        </div>
-      ))}
+        ))}
+      </div>
     </aside>
   )
 }

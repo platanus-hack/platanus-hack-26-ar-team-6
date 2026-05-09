@@ -483,6 +483,20 @@ app.whenReady().then(() => {
     return settings
   })
 
+  ipcMain.handle('project:leave', async (_, projectId: string): Promise<DesktopSettingsResponse> => {
+    const { serverBaseUrl, sessionToken } = await getSessionContext(false)
+    const leaveUrl = new URL(`/projects/${projectId}/membership`, serverBaseUrl)
+    const state = await fetchJson<AuthStateResponse>(leaveUrl.toString(), {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${sessionToken}`
+      }
+    })
+    const settings = await saveRelevoAuthState(state, DEFAULT_API_BASE_URL)
+    notifyAuthEvent({ type: 'projects:updated', settings })
+    return settings
+  })
+
   ipcMain.handle(
     'project:member:add',
     async (_, request: AddProjectMemberPayload): Promise<DesktopProjectMembership> => {

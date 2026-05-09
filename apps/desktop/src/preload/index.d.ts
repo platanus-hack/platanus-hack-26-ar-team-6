@@ -196,6 +196,17 @@ type AddProjectMemberRequest = {
   domainSummary: string
 }
 
+type PersistedConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
+type PersistedConversation = {
+  sessionId: string | null
+  messages: PersistedConversationMessage[]
+}
+
 interface DesktopApi {
   getHealth: (apiBaseUrl: string) => Promise<HealthResponse>
   getSettings: () => Promise<DesktopSettingsResponse>
@@ -209,6 +220,7 @@ interface DesktopApi {
   clearProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
   createProject: (request: CreateProjectRequest) => Promise<DesktopSettingsResponse>
   deleteProject: (projectId: string) => Promise<DesktopSettingsResponse>
+  leaveProject: (projectId: string) => Promise<DesktopSettingsResponse>
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
   getBootstrap: () => Promise<BootstrapResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>

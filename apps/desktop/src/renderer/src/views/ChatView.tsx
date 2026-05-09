@@ -366,7 +366,7 @@ function ChatView({
         {messages.map((message) => (
           <div key={message.id} className={`chat-msg chat-msg--${message.role}`}>
             <div className="chat-msg__header">
-              <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'obni'}</span>
+              <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
             </div>
             <div className="chat-msg__text">{renderMessageText(message.text)}</div>
           </div>
@@ -438,11 +438,16 @@ function ChatView({
           disabled={isRunning || !hasProjectFolder}
         />
         <div className="chat-actions">
-          <button className="chat-send" type="button" onClick={handleSend} disabled={isRunning}>
+          <button
+            className="settings-form__button settings-form__button--primary chat-send"
+            type="button"
+            onClick={isAssistantConfigured && hasProjectFolder ? handleSend : !hasProjectFolder ? onReconnectFolder : onConfigureAssistant}
+            disabled={isRunning}
+          >
             {sendButtonLabel}
           </button>
           {messages.length > 0 && (
-            <button className="chat-new" type="button" onClick={handleNewChat} disabled={isRunning} title="Start a new chat">
+            <button className="settings-form__button chat-new" type="button" onClick={handleNewChat} disabled={isRunning} title="Start a new chat">
               new chat
             </button>
           )}
