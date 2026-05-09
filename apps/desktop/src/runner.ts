@@ -17,7 +17,10 @@ function resolveClaudeBinary(): string | undefined {
     const pkgJson = requireFromRunner.resolve(
       "@anthropic-ai/claude-agent-sdk-linux-x64/package.json",
     );
-    return resolve(pkgJson, "..", "claude");
+    return resolve(pkgJson, "..", "claude").replace(
+      "/app.asar/",
+      "/app.asar.unpacked/",
+    );
   } catch {
     return undefined;
   }
@@ -809,6 +812,7 @@ export async function* runLocalAssistant(
     projectId: options.projectId,
     serverUrl: options.serverUrl,
     hasAuthToken: Boolean(options.authToken),
+    claudeBinaryPath: CLAUDE_BINARY_OVERRIDE,
     promptPreview: previewText(options.prompt),
     model: options.model,
     maxTurns: options.maxTurns,

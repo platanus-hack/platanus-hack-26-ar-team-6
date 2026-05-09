@@ -15,8 +15,11 @@ import Anthropic from "@anthropic-ai/sdk";
 const RESPONSIBILITY_WINDOW_DAYS = 30;
 const RESPONSIBILITY_MAX_WORDS = 2000;
 const PULSE_SUMMARY_MAX_CHARS = 80;
-const SUMMARY_MODEL = "claude-3-5-haiku-20241022";
-const RESPONSIBILITY_MODEL = "claude-3-5-haiku-20241022";
+// Cheap fast model. `claude-3-5-haiku-20241022` reached end-of-life and now
+// returns 404 from /v1/messages. Use `claude-haiku-4-5` (the current Haiku
+// alias) until we plumb a model name through settings.
+const SUMMARY_MODEL = "claude-haiku-4-5";
+const RESPONSIBILITY_MODEL = "claude-haiku-4-5";
 
 export type TeamPulseCell = {
   summary: string | null;
