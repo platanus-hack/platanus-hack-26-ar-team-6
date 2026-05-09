@@ -18,7 +18,9 @@ export const AGENT_NETWORK_NODE_ORDER = [
   "updater",
 ] as const;
 
-export const MEMORY_UPDATE_MESSAGE_THRESHOLD = 6;
+const CHECKPOINT_MIN_ELAPSED_MS = 3 * 60 * 1000;
+const CHECKPOINT_MIN_NEW_MESSAGES = 2;
+const CHECKPOINT_HARD_CAP_MESSAGES = 10;
 
 export type UserAgentInput = {
   prompt: string;
@@ -92,18 +94,31 @@ const AgentNetworkAnnotation = Annotation.Root({
     reducer: (_previous, next) => next,
     default: () => 0,
   }),
+  conversationStartedAt: Annotation<number>({
+    reducer: (_previous, next) => next,
+    default: () => Date.now(),
+  }),
+  lastCheckpointAt: Annotation<number | null>({
+    reducer: (_previous, next) => next,
+    default: () => null,
+  }),
+  lastCheckpointMessageCount: Annotation<number>({
+    reducer: (_previous, next) => next,
+    default: () => 0,
+  }),
 });
 
 export type AgentNetworkState = typeof AgentNetworkAnnotation.State;
 export type AgentNetworkUpdate = typeof AgentNetworkAnnotation.Update;
 type AgentNetworkGraph = CompiledStateGraph<AgentNetworkState, AgentNetworkUpdate, string>;
 
-function checkpointIndexFor(messages: ConversationMessage[]): number {
-  return Math.floor(messages.length / MEMORY_UPDATE_MESSAGE_THRESHOLD);
-}
-
-function shouldRunUpdater(messages: ConversationMessage[]): boolean {
-  return messages.length > 0 && messages.length % MEMORY_UPDATE_MESSAGE_THRESHOLD === 0;
+function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
+  const messageCount = state.conversationMessages.length;
+  const newMessages = messageCount - state.lastCheckpointMessageCount;
+  if (newMessages < CHECKPOINT_MIN_NEW_MESSAGES) return false;
+  if (newMessages >= CHECKPOINT_HARD_CAP_MESSAGES) return true;
+  const elapsed = now - (state.lastCheckpointAt ?? state.conversationStartedAt);
+  return elapsed >= CHECKPOINT_MIN_ELAPSED_MS;
 }
 
 export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies): AgentNetworkGraph {
@@ -180,8 +195,10 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         role: "assistant",
         text: output.finalAnswer,
       });
-      const shouldUpdate = shouldRunUpdater(finalizedMessages);
-      const checkpointIndex = checkpointIndexFor(finalizedMessages);
+      const now = Date.now();
+      const updatedState = { ...state, conversationMessages: finalizedMessages };
+      const shouldUpdate = shouldRunUpdater(updatedState, now);
+      const checkpointIndex = state.checkpointIndex;
       logAgentNetwork("userAgent:success", {
         chatSessionId: state.chatSessionId,
         eventCount: output.events.length,
@@ -245,6 +262,9 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
               response,
             },
           ],
+          checkpointIndex: state.checkpointIndex + 1,
+          lastCheckpointAt: Date.now(),
+          lastCheckpointMessageCount: state.conversationMessages.length,
         };
       } catch (error) {
         logAgentNetwork("updater:failed", {
