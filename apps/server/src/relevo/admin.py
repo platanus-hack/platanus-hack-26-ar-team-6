@@ -20,20 +20,19 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 def ensure_schema(database_url: str | None = None) -> bool:
-    """Apply 0001_init.sql to an empty database.
+    """Apply the demo schema.
 
-    This is intentionally small and hackathon-focused. If the DB has an old
-    partial schema, fail loudly instead of trying to migrate in place.
+    Empty DBs get the full edited 0001. Existing V1 demo DBs get the missing
+    V2 closure table/indexes added in place so Railway deploys can recover.
     """
     url = database_url or get_database_url()
     with psycopg.connect(url, connect_timeout=get_connect_timeout()) as conn:
         if _schema_ready(conn):
             return False
         if _has_public_tables(conn):
-            raise RuntimeError(
-                "Database has tables but qa_ledger is missing. Recreate the DB "
-                "or apply the edited 0001_init.sql manually."
-            )
+            _ensure_v2_tables(conn)
+            conn.commit()
+            return True
         sql = _migration_path().read_text(encoding="utf-8")
         with conn.cursor() as cur:
             cur.execute(sql)
@@ -72,6 +71,48 @@ def _has_public_tables(conn: psycopg.Connection) -> bool:
             """
         )
         return bool(cur.fetchone()[0])
+
+
+def _ensure_v2_tables(conn: psycopg.Connection) -> None:
+    """Bring an existing V1 demo DB up to the V2 closure-write schema."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT to_regclass('public.project') IS NOT NULL
+               AND to_regclass('public.app_user') IS NOT NULL
+               AND to_regclass('public.context_entry') IS NOT NULL
+            """
+        )
+        has_v1_core = bool(cur.fetchone()[0])
+        if not has_v1_core:
+            raise RuntimeError(
+                "Database has tables but is not the expected demo schema. "
+                "Recreate the DB or apply migrations manually."
+            )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS qa_ledger (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+              asking_user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+              target_user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+              context_entry_id UUID NOT NULL UNIQUE REFERENCES context_entry(id) ON DELETE CASCADE,
+              question TEXT NOT NULL,
+              answer TEXT NOT NULL,
+              metadata JSONB NOT NULL DEFAULT '{}',
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS qa_ledger_target_created ON qa_ledger (target_user_id, created_at DESC)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS qa_ledger_asking_created ON qa_ledger (asking_user_id, created_at DESC)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS qa_ledger_project_created ON qa_ledger (project_id, created_at DESC)"
+        )
 
 
 def _migration_path() -> Path:
