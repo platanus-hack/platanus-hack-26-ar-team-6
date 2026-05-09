@@ -1,0 +1,13 @@
+persona_key: ada
+entries:
+  - tier: personal
+    content: I picked Postgres + pgvector over a separate vector DB because hybrid retrieval (BM25 + cosine) is trivially expressible in one query, and the snapshot-restore story for the hackathon backup is one `pg_restore` instead of two stores out of sync.
+    metadata:
+      tags: [decision, retrieval]
+      occurred_at: "2026-05-09T01:00:00Z"
+
+  - tier: personal
+    content: We are not adding the timeline_event trigger in V0. Triggers fire silently, and if Narf's tasks endpoint emits its own timeline_events too we'll end up with duplicates we don't notice until V3.
+    metadata:
+      tags: [decision, scope]
+      occurred_at: "2026-05-09T01:30:00Z"

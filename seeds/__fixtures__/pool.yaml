@@ -1,0 +1,12 @@
+entries:
+  - tier: pool
+    content: The project codename is `relevo`. All package names, container names, and DB names follow this.
+    metadata:
+      tags: [naming]
+      source: plan.md
+
+  - tier: pool
+    content: Local Postgres credentials for development are relevo / relevo / relevo (user / password / db). Never used outside of docker-compose.
+    metadata:
+      tags: [infra, dev]
+      source: infra/README.md
