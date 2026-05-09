@@ -124,6 +124,7 @@ function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
 export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies): AgentNetworkGraph {
   return new StateGraph(AgentNetworkAnnotation)
     .addNode("preflightRetriever", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       const targetAgentId = state.mentionedAgentIds[0] ?? undefined;
       const cleanedQuery = targetAgentId
         ? state.prompt.replace(/@\w+/g, "").replace(/\s{2,}/g, " ").trim()
@@ -135,19 +136,28 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         targetAgentId,
         hasMention: Boolean(targetAgentId),
       });
-      return {
+      const result: AgentNetworkUpdate = {
         preflightRequest: {
           query: cleanedQuery || state.prompt,
           target_agent_id: targetAgentId,
           reason: "preflight before user-agent turn",
         },
       };
+      logAgentNetwork("preflightRetriever:done", {
+        chatSessionId: state.chatSessionId,
+        stage: "preflightRetriever",
+        durationMs: Math.round(performance.now() - stageStartMs),
+      });
+      return result;
     })
     .addNode("retriever", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       if (!state.preflightRequest) {
         logAgentNetwork("retriever:skip", {
           chatSessionId: state.chatSessionId,
           reason: "missing preflight request",
+          stage: "retriever",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {};
       }
@@ -166,6 +176,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         resultCount: packet.results.length,
         insufficientContext: packet.insufficient_context,
         contextExchangeId: packet.context_exchange_id,
+        stage: "retriever",
+        durationMs: Math.round(performance.now() - stageStartMs),
       });
       return {
         preflightContext: packet,
@@ -180,6 +192,7 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
       };
     })
     .addNode("userAgent", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       logAgentNetwork("userAgent:start", {
         chatSessionId: state.chatSessionId,
         messageCount: state.conversationMessages.length,
@@ -208,6 +221,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
         finalizedMessageCount: finalizedMessages.length,
         shouldUpdate,
         checkpointIndex,
+        stage: "userAgent",
+        durationMs: Math.round(performance.now() - stageStartMs),
       });
       const events = output.activityTitle
         ? output.events.concat({ type: "activity_title", title: output.activityTitle })
@@ -222,11 +237,14 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
       };
     })
     .addNode("updater", async (state): Promise<AgentNetworkUpdate> => {
+      const stageStartMs = performance.now();
       if (!state.shouldUpdate) {
         logAgentNetwork("updater:skip", {
           chatSessionId: state.chatSessionId,
           messageCount: state.conversationMessages.length,
           checkpointIndex: state.checkpointIndex,
+          stage: "updater",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {
           events: [{ type: "memory_update", status: "skipped" }],
@@ -252,6 +270,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
           checkpointIndex: state.checkpointIndex,
           eventIds: response.event_ids,
           documentIds: response.document_ids,
+          stage: "updater",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {
           events: [
@@ -271,6 +291,8 @@ export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies):
           chatSessionId: state.chatSessionId,
           checkpointIndex: state.checkpointIndex,
           errorMessage: error instanceof Error ? error.message : String(error),
+          stage: "updater",
+          durationMs: Math.round(performance.now() - stageStartMs),
         });
         return {
           events: [
@@ -304,6 +326,7 @@ export async function* runAgentNetwork(
   },
   dependencies: AgentNetworkDependencies,
 ): AsyncGenerator<LocalAssistantEvent> {
+  const graphStartMs = performance.now();
   logAgentNetwork("graph:start", {
     chatSessionId: input.chatSessionId,
     messageCount: input.conversationMessages.length,
@@ -339,5 +362,6 @@ export async function* runAgentNetwork(
   }
   logAgentNetwork("graph:done", {
     chatSessionId: input.chatSessionId,
+    totalDurationMs: Math.round(performance.now() - graphStartMs),
   });
 }

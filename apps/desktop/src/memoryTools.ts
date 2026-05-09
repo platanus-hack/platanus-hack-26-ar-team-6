@@ -134,7 +134,7 @@ async function postJson<T>(
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = endpointUrl(options.serverUrl, path);
   const requestBody = JSON.stringify(body);
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   memoryLogger.info("http:request", {
     ...clientSummary(options),
     method: "POST",
@@ -156,14 +156,18 @@ async function postJson<T>(
       ...clientSummary(options),
       path,
       url,
-      elapsedMs: Date.now() - startedAt,
+      elapsedMs: Math.round(performance.now() - startedAt),
       error: serializeError(error),
     });
     throw error;
   }
 
+  const headersReceivedAtMs = performance.now();
   const responseText = await response.text();
-  const elapsedMs = Date.now() - startedAt;
+  const bodyReadAtMs = performance.now();
+  const elapsedMs = Math.round(bodyReadAtMs - startedAt);
+  const headersMs = Math.round(headersReceivedAtMs - startedAt);
+  const bodyReadMs = Math.round(bodyReadAtMs - headersReceivedAtMs);
   if (!response.ok) {
     memoryLogger.error("http:failed", {
       ...clientSummary(options),
@@ -172,6 +176,8 @@ async function postJson<T>(
       status: response.status,
       statusText: response.statusText,
       elapsedMs,
+      headersMs,
+      bodyReadMs,
       responseBytes: responseText.length,
       responseBody: previewText(responseText, 1200),
     });
@@ -183,6 +189,8 @@ async function postJson<T>(
     path,
     status: response.status,
     elapsedMs,
+    headersMs,
+    bodyReadMs,
     responseBytes: responseText.length,
     responseBodyPreview: previewText(responseText, 600),
   });

@@ -509,6 +509,7 @@ async function runRetrieverAgent(
   anthropicApiKey: string,
   request: RetrieverRequest,
 ): Promise<ContextPacket> {
+  const agentStartMs = performance.now();
   logRunner("retriever-agent:start", {
     userId: options.userId,
     projectId: options.projectId,
@@ -549,7 +550,11 @@ async function runRetrieverAgent(
   });
 
   let finalText = "";
+  let firstSdkMessageMs: number | null = null;
   for await (const sdkMessage of sdkMessages) {
+    if (firstSdkMessageMs === null) {
+      firstSdkMessageMs = performance.now();
+    }
     if (sdkMessage.type === "result" && sdkMessage.subtype === "success") {
       finalText = sdkMessage.result;
     }
@@ -572,6 +577,9 @@ async function runRetrieverAgent(
     contextExchangeId: packet.context_exchange_id,
     observedPacketCount: observedPackets.length,
     finalTextLength: finalText.length,
+    timeToFirstSdkMessageMs:
+      firstSdkMessageMs !== null ? Math.round(firstSdkMessageMs - agentStartMs) : null,
+    totalDurationMs: Math.round(performance.now() - agentStartMs),
   });
   return packet;
 }
@@ -589,6 +597,7 @@ async function runUserAgentTurn(
   contextPackets: ContextPacket[];
   activityTitle?: string;
 }> {
+  const turnStartMs = performance.now();
   logRunner("user-agent:start", {
     userId: options.userId,
     projectId: options.projectId,
@@ -659,8 +668,15 @@ async function runUserAgentTurn(
   const events: LocalAssistantEvent[] = [];
   let streamedAssistantText = false;
   let finalAnswer = "";
+  let firstSdkMessageMs: number | null = null;
+  let firstAssistantTextMs: number | null = null;
+  let toolCallCount = 0;
+  let toolResultCount = 0;
 
   for await (const sdkMessage of sdkMessages) {
+    if (firstSdkMessageMs === null) {
+      firstSdkMessageMs = performance.now();
+    }
     let normalizedEvents = normalizeSdkMessage(sdkMessage);
 
     if (sdkMessage.type === "stream_event") {
@@ -675,6 +691,15 @@ async function runUserAgentTurn(
     for (const event of normalizedEvents) {
       if (isInternalActivityTitleEvent(event)) {
         continue;
+      }
+      if (event.type === "assistant_text" && firstAssistantTextMs === null) {
+        firstAssistantTextMs = performance.now();
+      }
+      if (event.type === "tool_call") {
+        toolCallCount += 1;
+      }
+      if (event.type === "tool_result") {
+        toolResultCount += 1;
       }
       if (event.type === "result") {
         finalAnswer = event.result;
@@ -694,6 +719,13 @@ async function runUserAgentTurn(
     finalAnswerLength: finalAnswer.length,
     contextPacketCount: contextPackets.length,
     hasActivityTitle: Boolean(activityTitle),
+    timeToFirstSdkMessageMs:
+      firstSdkMessageMs !== null ? Math.round(firstSdkMessageMs - turnStartMs) : null,
+    timeToFirstAssistantTextMs:
+      firstAssistantTextMs !== null ? Math.round(firstAssistantTextMs - turnStartMs) : null,
+    totalDurationMs: Math.round(performance.now() - turnStartMs),
+    toolCallCount,
+    toolResultCount,
   });
   return { events, finalAnswer, contextPackets, activityTitle };
 }
@@ -704,6 +736,7 @@ async function runUpdaterAgent(
   anthropicApiKey: string,
   input: UpdaterInput,
 ): Promise<MemoryUpdateResponse> {
+  const agentStartMs = performance.now();
   logRunner("updater-agent:start", {
     userId: options.userId,
     projectId: options.projectId,
@@ -758,6 +791,7 @@ async function runUpdaterAgent(
       observedCommitCount: observedCommits.length,
       eventIds: response.event_ids,
       documentIds: response.document_ids,
+      totalDurationMs: Math.round(performance.now() - agentStartMs),
     });
     return response;
   }
@@ -785,6 +819,7 @@ async function runUpdaterAgent(
     source: "fallback",
     eventIds: response.event_ids,
     documentIds: response.document_ids,
+    totalDurationMs: Math.round(performance.now() - agentStartMs),
   });
   return response;
 }
