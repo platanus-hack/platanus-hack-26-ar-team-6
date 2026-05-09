@@ -48,8 +48,20 @@ type StartAssistantRunPayload = {
   userId: string
   chatSessionId?: string
   conversationMessages?: Array<{ role: 'user' | 'assistant'; text: string }>
+  mentionedAgentIds?: string[]
   model?: string
   maxTurns?: number
+}
+
+type PersistedConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
+type PersistedConversation = {
+  sessionId: string | null
+  messages: PersistedConversationMessage[]
 }
 
 type LocalAssistantEvent =

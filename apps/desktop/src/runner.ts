@@ -1,9 +1,34 @@
 import { stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
+const requireFromRunner = createRequire(import.meta.url);
+
+function resolveClaudeBinary(): string | undefined {
+  if (process.env.RELEVO_CLAUDE_PATH) {
+    return process.env.RELEVO_CLAUDE_PATH;
+  }
+  if (process.platform !== "linux") {
+    return undefined;
+  }
+  try {
+    const pkgJson = requireFromRunner.resolve(
+      "@anthropic-ai/claude-agent-sdk-linux-x64/package.json",
+    );
+    return resolve(pkgJson, "..", "claude");
+  } catch {
+    return undefined;
+  }
+}
+
+const CLAUDE_BINARY_OVERRIDE = resolveClaudeBinary();
+const CLAUDE_BINARY_OPTIONS: { pathToClaudeCodeExecutable?: string } =
+  CLAUDE_BINARY_OVERRIDE ? { pathToClaudeCodeExecutable: CLAUDE_BINARY_OVERRIDE } : {};
+
 import { runAgentNetwork, type UpdaterInput, type UserAgentInput } from "./agentGraph.js";
+import { createLogger, previewText as previewTextShared } from "./logger.js";
 import {
   commitMemoryUpdate,
   createRetrieverMcpServer,
@@ -49,16 +74,83 @@ export const UPDATER_ALLOWED_TOOLS = [
   "mcp__relevo-updater__commit_memory_update",
 ] as const;
 
-function previewText(text: string, maxLength = 120): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength - 1)}…`;
-}
+const previewText = previewTextShared;
+
+const runnerLogger = createLogger("relevo.runner");
 
 function logRunner(event: string, details: Record<string, unknown>): void {
-  console.info("[relevo.runner]", event, details);
+  runnerLogger.info(event, details);
+}
+
+function summarizeSdkMessage(message: SDKMessage): Record<string, unknown> {
+  const summary: Record<string, unknown> = { messageType: message.type };
+  const subtype = (message as { subtype?: string }).subtype;
+  if (typeof subtype === "string") summary.subtype = subtype;
+  if (message.type === "stream_event") {
+    summary.streamEventType = message.event?.type;
+    if (message.event && "delta" in message.event) {
+      const delta = (message.event as { delta?: { type?: string } }).delta;
+      summary.deltaType = delta?.type;
+    }
+  }
+  if (message.type === "result") {
+    summary.sessionId = (message as { session_id?: string }).session_id;
+    summary.numTurns = (message as { num_turns?: number }).num_turns;
+  }
+  return summary;
+}
+
+function summarizeAssistantEvent(event: LocalAssistantEvent): Record<string, unknown> {
+  const base: Record<string, unknown> = { type: event.type };
+  switch (event.type) {
+    case "assistant_text":
+      base.textPreview = previewText(event.text, 240);
+      base.textLength = event.text.length;
+      break;
+    case "tool_call":
+      base.toolName = event.toolName;
+      base.toolUseId = event.toolUseId;
+      base.input = event.input;
+      break;
+    case "tool_result":
+      base.toolUseId = event.toolUseId;
+      if ("errorMessage" in event && event.errorMessage) {
+        base.errorMessage = event.errorMessage;
+      }
+      if ("result" in event && event.result) {
+        const result = event.result;
+        base.resultScope = result.scope;
+        base.resultCount = result.results?.length ?? 0;
+        base.insufficientContext = result.insufficient_context;
+      }
+      break;
+    case "tool_status":
+      base.toolName = event.toolName;
+      base.toolUseId = event.toolUseId;
+      base.elapsedTimeSeconds = event.elapsedTimeSeconds;
+      break;
+    case "result":
+      base.sessionId = event.sessionId;
+      base.resultPreview = previewText(event.result, 240);
+      base.resultLength = event.result.length;
+      break;
+    case "error":
+      base.sessionId = event.sessionId;
+      base.message = event.message;
+      break;
+    case "raw":
+      base.messageType = event.messageType;
+      base.message = summarizeSdkMessage(event.message as SDKMessage);
+      break;
+    case "memory_update":
+      base.status = event.status;
+      if ("checkpointIndex" in event) base.checkpointIndex = event.checkpointIndex;
+      if ("errorMessage" in event && event.errorMessage) {
+        base.errorMessage = event.errorMessage;
+      }
+      break;
+  }
+  return base;
 }
 
 async function resolveWorkingDirectory(cwd: string): Promise<string> {
@@ -440,6 +532,7 @@ async function runRetrieverAgent(
   const sdkMessages = query({
     prompt: buildRetrieverPrompt(options.userId, request),
     options: {
+      ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
@@ -541,6 +634,7 @@ async function runUserAgentTurn(
   const sdkMessages = query({
     prompt: buildUserPrompt(input.prompt, input.preflightContext),
     options: {
+      ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
@@ -585,11 +679,10 @@ async function runUserAgentTurn(
       if (event.type === "result") {
         finalAnswer = event.result;
       }
-      logRunner("user-agent:event", {
+      runnerLogger.debug("user-agent:event", {
         userId: options.userId,
-        eventType: event.type,
-        toolName: "toolName" in event ? event.toolName : undefined,
-        toolUseId: "toolUseId" in event ? event.toolUseId : undefined,
+        sdkMessage: summarizeSdkMessage(sdkMessage),
+        event: summarizeAssistantEvent(event),
       });
       events.push(event);
     }
@@ -636,6 +729,7 @@ async function runUpdaterAgent(
   const sdkMessages = query({
     prompt: buildUpdaterPrompt(input, operations),
     options: {
+      ...CLAUDE_BINARY_OPTIONS,
       cwd,
       env: buildSdkEnvironment(anthropicApiKey),
       model: options.model,
@@ -736,6 +830,7 @@ export async function* runLocalAssistant(
       prompt: options.prompt,
       chatSessionId,
       conversationMessages: initialConversation(options),
+      mentionedAgentIds: options.mentionedAgentIds ?? [],
     },
     {
       retrieve,
@@ -745,12 +840,10 @@ export async function* runLocalAssistant(
     },
   );
   for await (const event of stream) {
-    logRunner("local-assistant:event", {
+    runnerLogger.debug("local-assistant:event", {
       userId: options.userId,
       chatSessionId,
-      eventType: event.type,
-      toolName: "toolName" in event ? event.toolName : undefined,
-      status: "status" in event ? event.status : undefined,
+      event: summarizeAssistantEvent(event),
     });
     yield event;
   }

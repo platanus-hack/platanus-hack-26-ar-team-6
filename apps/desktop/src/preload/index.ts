@@ -26,6 +26,7 @@ const api = {
     userId: string
     chatSessionId?: string
     conversationMessages?: Array<{ role: 'user' | 'assistant'; text: string }>
+    mentionedAgentIds?: string[]
     model?: string
     maxTurns?: number
   }) => ipcRenderer.invoke('assistant:run:start', payload),

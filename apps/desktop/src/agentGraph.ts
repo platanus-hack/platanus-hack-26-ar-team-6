@@ -1,5 +1,6 @@
 import { Annotation, END, START, StateGraph, type CompiledStateGraph } from "@langchain/langgraph";
 
+import { createLogger, previewText as previewTextShared } from "./logger.js";
 import type {
   ContextPacket,
   ConversationMessage,
@@ -7,6 +8,8 @@ import type {
   MemoryUpdateResponse,
   RetrieverRequest,
 } from "./types.js";
+
+const agentNetworkLogger = createLogger("relevo.agent-network");
 
 export const AGENT_NETWORK_NODE_ORDER = [
   "preflightRetriever",
@@ -44,21 +47,19 @@ export type AgentNetworkDependencies = {
   runUpdater: (input: UpdaterInput) => Promise<MemoryUpdateResponse>;
 };
 
-function previewText(text: string, maxLength = 120): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength - 1)}…`;
-}
+const previewText = previewTextShared;
 
 function logAgentNetwork(event: string, details: Record<string, unknown>): void {
-  console.info("[relevo.agent-network]", event, details);
+  agentNetworkLogger.info(event, details);
 }
 
 const AgentNetworkAnnotation = Annotation.Root({
   prompt: Annotation<string>(),
   chatSessionId: Annotation<string>(),
+  mentionedAgentIds: Annotation<string[]>({
+    reducer: (_previous, next) => next,
+    default: () => [],
+  }),
   conversationMessages: Annotation<ConversationMessage[]>({
     reducer: (_previous, next) => next,
     default: () => [],
@@ -108,14 +109,21 @@ function shouldRunUpdater(messages: ConversationMessage[]): boolean {
 export function createAgentNetworkGraph(dependencies: AgentNetworkDependencies): AgentNetworkGraph {
   return new StateGraph(AgentNetworkAnnotation)
     .addNode("preflightRetriever", async (state): Promise<AgentNetworkUpdate> => {
+      const targetAgentId = state.mentionedAgentIds[0] ?? undefined;
+      const cleanedQuery = targetAgentId
+        ? state.prompt.replace(/@\w+/g, "").replace(/\s{2,}/g, " ").trim()
+        : state.prompt;
       logAgentNetwork("preflightRetriever:start", {
         chatSessionId: state.chatSessionId,
         promptPreview: previewText(state.prompt),
         messageCount: state.conversationMessages.length,
+        targetAgentId,
+        hasMention: Boolean(targetAgentId),
       });
       return {
         preflightRequest: {
-          query: state.prompt,
+          query: cleanedQuery || state.prompt,
+          target_agent_id: targetAgentId,
           reason: "preflight before user-agent turn",
         },
       };
@@ -272,6 +280,7 @@ export async function* runAgentNetwork(
     prompt: string;
     chatSessionId: string;
     conversationMessages: ConversationMessage[];
+    mentionedAgentIds?: string[];
   },
   dependencies: AgentNetworkDependencies,
 ): AsyncGenerator<LocalAssistantEvent> {
@@ -279,9 +288,13 @@ export async function* runAgentNetwork(
     chatSessionId: input.chatSessionId,
     messageCount: input.conversationMessages.length,
     promptPreview: previewText(input.prompt),
+    mentionedAgentIds: input.mentionedAgentIds ?? [],
   });
   const graph = createAgentNetworkGraph(dependencies);
-  const stream = await graph.stream(input, { streamMode: "updates" });
+  const stream = await graph.stream(
+    { ...input, mentionedAgentIds: input.mentionedAgentIds ?? [] },
+    { streamMode: "updates" },
+  );
 
   for await (const chunk of stream) {
     logAgentNetwork("graph:update", {
@@ -291,11 +304,14 @@ export async function* runAgentNetwork(
     for (const update of Object.values(chunk)) {
       const events = (update as Partial<AgentNetworkState>).events ?? [];
       for (const event of events) {
-        logAgentNetwork("graph:event", {
+        agentNetworkLogger.debug("graph:event", {
           chatSessionId: input.chatSessionId,
           eventType: event.type,
           toolName: "toolName" in event ? event.toolName : undefined,
+          toolUseId: "toolUseId" in event ? event.toolUseId : undefined,
           status: "status" in event ? event.status : undefined,
+          textPreview:
+            event.type === "assistant_text" ? previewText(event.text, 200) : undefined,
         });
         yield event;
       }
