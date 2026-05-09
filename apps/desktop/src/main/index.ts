@@ -2,6 +2,11 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import {
+  runLocalAgentPrompt,
+  type LocalRunnerPromptRequest,
+  type LocalRunnerPromptResponse
+} from './local_runner'
 
 type HealthResponse = {
   status?: string
@@ -64,6 +69,13 @@ app.whenReady().then(() => {
 
     return response.json()
   })
+
+  ipcMain.handle(
+    'runner:query',
+    async (_, request: LocalRunnerPromptRequest): Promise<LocalRunnerPromptResponse> => {
+      return runLocalAgentPrompt(request)
+    }
+  )
 
   createWindow()
 
