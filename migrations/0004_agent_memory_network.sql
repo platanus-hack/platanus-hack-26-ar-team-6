@@ -3,6 +3,11 @@
 -- The desktop runtime now owns multi-agent orchestration. The server exposes
 -- only retriever/updater memory primitives: author-scoped reads, global reads,
 -- and append-plus-canonical writes.
+--
+-- This is version 0004 because main already has
+-- 0003_accounts_projects_login.sql. The migration runner keys applied
+-- migrations by the numeric prefix, so adding another 0003 would be skipped on
+-- databases that already applied the login migration.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 

@@ -12,8 +12,11 @@ agents.
 - `account`, `account_session`, `oauth_login_state`, and
   `desktop_login_exchange` — Google login plus desktop session exchange.
 - `context_entry` and `project_context_entry` — legacy seed/bootstrap context.
-  These stay readable so existing demo data remains useful while the new memory
-  tables take over.
+  Only `kind = 'seed'` rows are included in retriever fallback reads, so old
+  `prompt_answer`, `cross_user_qa`, and `project_qa` rows cannot recursively
+  dominate the new memory network. Retrieved memory payloads are capped at 4000
+  characters per row and marked with `metadata.truncated` when capped; stored
+  rows remain intact.
 - `context_exchange` — append-only audit for retriever calls to `agent_ctx` or
   `global_ctx`.
 - `agent_memory_event` — immutable updater-written memory events.

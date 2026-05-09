@@ -148,7 +148,10 @@ uv run python -m relevo.seeds.loader
 
 `AUTO_MIGRATE=1` applies every SQL file in `migrations/` in order. Existing
 demo databases that predate migration tracking are baselined at `0001`, then
-receive later migrations.
+receive later migrations. The LangGraph memory tables live in
+`0004_agent_memory_network.sql` because main already has
+`0003_accounts_projects_login.sql` and the migration runner keys applied
+migrations by numeric prefix.
 
 ## Configuration
 

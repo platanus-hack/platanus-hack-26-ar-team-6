@@ -54,6 +54,10 @@ AUTO_SEED=1
 RAILWAY_DOCKERFILE_PATH=apps/server/Dockerfile
 ```
 
+This branch also has `infra/railway.json` with the same Dockerfile path and
+`/health` check for Railway config-as-code. If the service uses config-as-code,
+set the Railway config file path to `/infra/railway.json`.
+
 Railway normally injects `PORT`. If the service crashes with a missing `PORT`,
 set:
 
@@ -97,8 +101,11 @@ The server startup hook runs these when enabled:
 - `AUTO_SEED=1` calls `seed_if_empty()` and loads `seeds/` only when there are
   no `app_user` rows.
 
-The new deployment needs `migrations/0003_agent_memory_network.sql` applied.
-It creates:
+The new deployment needs `migrations/0004_agent_memory_network.sql` applied.
+Main already has `0003_accounts_projects_login.sql`; because the migration
+runner records only the numeric prefix, the memory-network migration must be
+`0004` so Railway databases that applied the login migration do not skip it. It
+creates:
 
 - `context_exchange`
 - `agent_memory_event`

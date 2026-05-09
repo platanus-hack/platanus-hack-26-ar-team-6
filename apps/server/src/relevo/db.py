@@ -22,6 +22,7 @@ from psycopg.rows import dict_row
 DEFAULT_DATABASE_URL = "postgresql://relevo:relevo@localhost:5432/relevo"
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 5
 SESSION_TOKEN_PREFIX = "rlv_"
+MAX_RETRIEVED_CONTENT_CHARS = 4000
 
 
 def get_database_url() -> str:
@@ -706,10 +707,15 @@ def _with_memory_metadata(
         metadata["author_agent_id"] = str(author_agent_id)
     if document_key is not None:
         metadata["document_key"] = document_key
+    content = str(row["content"])
+    if len(content) > MAX_RETRIEVED_CONTENT_CHARS:
+        metadata["truncated"] = True
+        metadata["original_content_length"] = len(content)
+        content = content[: MAX_RETRIEVED_CONTENT_CHARS - 3].rstrip() + "..."
     return {
         "id": row["id"],
         "kind": source_table,
-        "content": row["content"],
+        "content": content,
         "metadata": metadata,
         "created_at": row.get("created_at") or row.get("updated_at"),
     }
@@ -774,6 +780,7 @@ def retrieve_agent_memory(
             SELECT id, kind, content, metadata, created_at
             FROM context_entry
             WHERE user_id = %s
+              AND kind = 'seed'
             ORDER BY created_at DESC
             LIMIT %s
             """,
@@ -851,6 +858,7 @@ def retrieve_global_memory(
             SELECT id, kind, content, metadata, created_at
             FROM project_context_entry
             WHERE project_id = %s
+              AND kind = 'seed'
             ORDER BY created_at DESC
             LIMIT %s
             """,
