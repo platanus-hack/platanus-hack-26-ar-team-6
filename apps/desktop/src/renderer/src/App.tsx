@@ -79,19 +79,22 @@ function ProjectSelection({
   settings,
   selectedProjectId,
   onSettingsChange,
-  onProjectEntered
+  onProjectEntered,
+  isCreateOpen,
+  onCreateOpenChange
 }: {
   settings: DesktopSettings
   selectedProjectId: string | null
   onSettingsChange: (settings: DesktopSettings) => void
   onProjectEntered: () => void
+  isCreateOpen: boolean
+  onCreateOpenChange: (isOpen: boolean) => void
 }): React.JSX.Element {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [domainSummary, setDomainSummary] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
 
   async function handleSelect(projectId: string): Promise<void> {
@@ -102,16 +105,6 @@ function ProjectSelection({
       onProjectEntered()
     } catch (error) {
       setStatus(`Project selection failed: ${toErrorMessage(error)}`)
-    }
-  }
-
-  async function handleRefresh(): Promise<void> {
-    setStatus(null)
-    try {
-      const nextSettings = await window.api.refreshProjects()
-      onSettingsChange(nextSettings)
-    } catch (error) {
-      setStatus(`Refresh failed: ${toErrorMessage(error)}`)
     }
   }
 
@@ -157,7 +150,7 @@ function ProjectSelection({
       setName('')
       setDescription('')
       setDomainSummary('')
-      setIsCreateOpen(false)
+      onCreateOpenChange(false)
       onProjectEntered()
     } catch (error) {
       setStatus(`Create failed: ${toErrorMessage(error)}`)
@@ -169,25 +162,6 @@ function ProjectSelection({
   return (
     <main className="project-page">
       <section className="project-panel">
-        <div className="project-panel__header">
-          <div>
-            <h1>Projects</h1>
-            <p>{settings.account?.email}</p>
-          </div>
-          <div className="project-panel__actions">
-            <button
-              className={`settings-form__button ${isCreateOpen ? '' : 'settings-form__button--primary'}`}
-              type="button"
-              onClick={() => setIsCreateOpen((isOpen) => !isOpen)}
-            >
-              {isCreateOpen ? 'cancel' : 'new project'}
-            </button>
-            <button className="settings-form__button" type="button" onClick={handleRefresh}>
-              refresh
-            </button>
-          </div>
-        </div>
-
         {settings.projects.length > 0 ? (
           <div className="project-list">
             {settings.projects.map((project) => (
@@ -203,7 +177,7 @@ function ProjectSelection({
                 </button>
                 {project.role === 'leader' && (
                   <button
-                    className="settings-form__button project-list__delete"
+                    className="project-list__delete"
                     type="button"
                     onClick={() => void handleDelete(project)}
                     disabled={deletingProjectId === project.project_id}
@@ -331,6 +305,7 @@ function App(): React.JSX.Element {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
+  const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false)
 
   const settingsQuery = useQuery({
     queryKey: ['desktop-settings'],
@@ -365,6 +340,15 @@ function App(): React.JSX.Element {
 
   function handleSettingsChange(nextSettings: DesktopSettings): void {
     queryClient.setQueryData(['desktop-settings'], nextSettings)
+  }
+
+  async function handleProjectRefresh(): Promise<void> {
+    try {
+      const nextSettings = await window.api.refreshProjects()
+      queryClient.setQueryData(['desktop-settings'], nextSettings)
+    } catch {
+      // refresh failed silently
+    }
   }
 
   async function handleLogout(): Promise<void> {
@@ -425,12 +409,17 @@ function App(): React.JSX.Element {
           anthropicKeyConfigured={desktopSettings.hasAnthropicApiKey}
           onSettings={() => setIsSettingsOpen(true)}
           onLogout={() => void handleLogout()}
+          onNewProject={() => setIsProjectCreateOpen((v) => !v)}
+          isProjectCreateOpen={isProjectCreateOpen}
+          onRefresh={() => void handleProjectRefresh()}
         />
         <ProjectSelection
           settings={desktopSettings}
           selectedProjectId={selectedProjectId}
           onSettingsChange={handleSettingsChange}
           onProjectEntered={handleProjectEntered}
+          isCreateOpen={isProjectCreateOpen}
+          onCreateOpenChange={setIsProjectCreateOpen}
         />
         {isSettingsOpen && (
           <SettingsPanel

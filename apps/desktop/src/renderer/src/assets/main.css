@@ -356,8 +356,7 @@ button {
   font-size: 14px;
 }
 
-.auth-page,
-.project-page {
+.auth-page {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -366,28 +365,40 @@ button {
   background: var(--app-bg);
 }
 
-.auth-panel,
-.project-panel {
-  width: min(560px, 100%);
+.project-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--surface);
+  overflow: auto;
+}
+
+.auth-panel {
+  width: min(420px, 100%);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
 }
 
-.auth-panel {
-  width: min(420px, 100%);
-}
-
 .project-panel {
-  width: min(720px, 100%);
+  width: 100%;
 }
 
-.auth-panel__header,
-.project-panel__header {
+.auth-panel__header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.project-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -404,6 +415,10 @@ button {
   margin: 4px 0 0;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+.project-panel__header h1 {
+  font-size: 18px;
 }
 
 .auth-form,
@@ -439,22 +454,16 @@ button {
 .project-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 24px 0;
+  border-top: 1px solid var(--border-soft);
 }
 
 .project-list__item {
   display: flex;
   align-items: stretch;
-  gap: 12px;
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
   color: var(--text-primary);
-  cursor: pointer;
-  padding: 10px 12px;
-  text-align: left;
 }
 
 .project-list__item:hover {
@@ -462,21 +471,21 @@ button {
 }
 
 .project-list__item--selected {
-  border-color: #999999;
-  background: #f0f0f0;
+  border-left: 3px solid var(--text-primary);
 }
 
 .project-list__select {
   display: flex;
   flex: 1;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   min-width: 0;
   border: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  padding: 10px 12px;
+  padding: 14px 24px;
   text-align: left;
 }
 
@@ -495,16 +504,16 @@ button {
 
 .project-list__delete {
   border: 0;
-  border-left: 1px solid #e5e5e5;
   background: transparent;
   color: #8a1f1f;
   cursor: pointer;
-  padding: 10px 12px;
+  padding: 14px 24px;
   white-space: nowrap;
+  font-size: 12px;
 }
 
 .project-list__delete:hover {
-  background: #f7eaea;
+  text-decoration: underline;
 }
 
 .project-list__delete:disabled {

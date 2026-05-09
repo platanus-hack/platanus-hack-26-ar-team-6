@@ -20,6 +20,9 @@ type TopBarProps = {
   onSettings?: () => void
   onProjectSelect?: (projectId: string) => void
   onLogout?: () => void
+  onNewProject?: () => void
+  isProjectCreateOpen?: boolean
+  onRefresh?: () => void
 }
 
 function SunIcon(): React.JSX.Element {
@@ -64,7 +67,10 @@ function TopBar({
   anthropicKeyConfigured,
   onSettings,
   onProjectSelect,
-  onLogout
+  onLogout,
+  onNewProject,
+  isProjectCreateOpen,
+  onRefresh
 }: TopBarProps): React.JSX.Element {
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
@@ -85,6 +91,20 @@ function TopBar({
         {(showProjectsButton || onBack) && (
           <button className="topbar-back" type="button" onClick={onBack}>
             projects
+          </button>
+        )}
+        {onNewProject && (
+          <button
+            className={`settings-form__button ${isProjectCreateOpen ? '' : 'settings-form__button--primary'}`}
+            type="button"
+            onClick={onNewProject}
+          >
+            {isProjectCreateOpen ? 'cancel' : 'new project'}
+          </button>
+        )}
+        {onRefresh && (
+          <button className="settings-form__button" type="button" onClick={onRefresh}>
+            refresh
           </button>
         )}
       </div>
