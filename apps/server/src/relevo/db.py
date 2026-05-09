@@ -18,11 +18,14 @@ from uuid import UUID
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 DEFAULT_DATABASE_URL = "postgresql://relevo:relevo@localhost:5432/relevo"
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 5
 SESSION_TOKEN_PREFIX = "rlv_"
 MAX_RETRIEVED_CONTENT_CHARS = 4000
+
+_pool: ConnectionPool | None = None
 
 
 def get_database_url() -> str:
@@ -33,15 +36,38 @@ def get_connect_timeout() -> int:
     return int(os.environ.get("DB_CONNECT_TIMEOUT", DEFAULT_CONNECT_TIMEOUT_SECONDS))
 
 
+def init_pool(database_url: str | None = None) -> None:
+    global _pool
+    url = database_url or get_database_url()
+    _pool = ConnectionPool(
+        conninfo=url,
+        min_size=2,
+        max_size=10,
+        kwargs={"row_factory": dict_row},
+        open=True,
+    )
+
+
+def close_pool() -> None:
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
 @contextmanager
 def connect(database_url: str | None = None) -> Iterator[psycopg.Connection]:
-    url = database_url or get_database_url()
-    with psycopg.connect(
-        url,
-        row_factory=dict_row,
-        connect_timeout=get_connect_timeout(),
-    ) as conn:
-        yield conn
+    if _pool is not None and database_url is None:
+        with _pool.connection() as conn:
+            yield conn
+    else:
+        url = database_url or get_database_url()
+        with psycopg.connect(
+            url,
+            row_factory=dict_row,
+            connect_timeout=get_connect_timeout(),
+        ) as conn:
+            yield conn
 
 
 def get_user_by_token(conn: psycopg.Connection, token: str) -> dict[str, Any] | None:
@@ -967,6 +993,29 @@ def commit_memory_update(
     """Append memory events and upsert canonical memory documents atomically."""
     event_ids: list[str] = []
     document_ids: list[str] = []
+
+    # Batch-validate authors and context exchanges in 2 queries instead of 2N
+    author_ids = list({UUID(str(op["author_agent_id"])) for op in operations})
+    exchange_ids = [
+        UUID(str(op["context_exchange_id"]))
+        for op in operations
+        if op.get("context_exchange_id")
+    ]
+    with conn.cursor() as _vcur:
+        _vcur.execute(
+            "SELECT id, project_id FROM app_user WHERE id = ANY(%s)",
+            (author_ids,),
+        )
+        authors_by_id: dict[UUID, dict[str, Any]] = {row["id"]: row for row in _vcur.fetchall()}
+
+        exchanges_by_id: dict[UUID, dict[str, Any]] = {}
+        if exchange_ids:
+            _vcur.execute(
+                "SELECT id, project_id, asking_agent_id, target_agent_id FROM context_exchange WHERE id = ANY(%s)",
+                (exchange_ids,),
+            )
+            exchanges_by_id = {row["id"]: row for row in _vcur.fetchall()}
+
     with conn.cursor() as cur:
         for operation in operations:
             author_agent_id = UUID(str(operation["author_agent_id"]))
@@ -974,14 +1023,14 @@ def commit_memory_update(
             if importance not in {"local", "global"}:
                 raise ValueError("importance must be local or global")
 
-            author = get_user(conn, author_agent_id)
+            author = authors_by_id.get(author_agent_id)
             if author is None or author["project_id"] != project_id:
                 raise ValueError(f"author agent is not in project: {author_agent_id}")
 
             exchange_id: UUID | None = None
             if operation.get("context_exchange_id"):
                 exchange_id = UUID(str(operation["context_exchange_id"]))
-                exchange = get_context_exchange(conn, exchange_id)
+                exchange = exchanges_by_id.get(exchange_id)
                 if exchange is None or exchange["project_id"] != project_id:
                     raise ValueError(f"context exchange not found in project: {exchange_id}")
                 if author_agent_id not in {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,12 +11,28 @@ from relevo.api.auth import router as auth_router
 from relevo.api.context import router as context_router
 from relevo.api.health import router as health_router
 from relevo.config import AppConfig, load_app_config
+from relevo.db import close_pool, init_pool
 
 logger = logging.getLogger("relevo.startup")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_pool()
+    logger.info("Connection pool initialized")
+    if env_flag("AUTO_MIGRATE"):
+        changed = ensure_schema()
+        logger.info("AUTO_MIGRATE completed changed=%s", changed)
+    if env_flag("AUTO_SEED"):
+        changed = seed_if_empty()
+        logger.info("AUTO_SEED completed changed=%s", changed)
+    yield
+    close_pool()
+    logger.info("Connection pool closed")
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
-    app = FastAPI(title="Relevo Server")
+    app = FastAPI(title="Relevo Server", lifespan=lifespan)
     app.state.config = config or load_app_config()
 
     app.add_middleware(
@@ -29,15 +46,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(context_router)
-
-    @app.on_event("startup")
-    def initialize_database() -> None:
-        if env_flag("AUTO_MIGRATE"):
-            changed = ensure_schema()
-            logger.info("AUTO_MIGRATE completed changed=%s", changed)
-        if env_flag("AUTO_SEED"):
-            changed = seed_if_empty()
-            logger.info("AUTO_SEED completed changed=%s", changed)
 
     return app
 
