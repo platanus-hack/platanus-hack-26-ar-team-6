@@ -231,14 +231,15 @@ def agent_precision(expected_agents: list[str], predicted_agents: list[str]) -> 
     if not predicted_agents:
         return 1.0 if not expected_agents else 0.0
     correct = len(set(expected_agents) & set(predicted_agents))
-    return correct / len(set(predicted_agents))
+    return correct / len(predicted_agents)
 
 
 def agent_recall(expected_agents: list[str], predicted_agents: list[str]) -> float:
-    """Score recall for expected_agents_any_of: one acceptable match is enough."""
+    """Score recall as correct expected agents over all expected agents."""
     if not expected_agents:
         return 1.0 if not predicted_agents else 0.0
-    return 1.0 if set(expected_agents) & set(predicted_agents) else 0.0
+    correct = len(set(expected_agents) & set(predicted_agents))
+    return correct / len(expected_agents)
 
 
 def tiers_match(expected_tiers: list[str], predicted_tiers: list[str]) -> bool:

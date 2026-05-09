@@ -123,7 +123,7 @@ class RouterEvalTest(unittest.TestCase):
         self.assertEqual(result.precision, 1.0)
         self.assertEqual(result.recall, 1.0)
 
-    def test_score_case_treats_expected_agents_as_any_of(self) -> None:
+    def test_score_case_counts_partial_agent_recall(self) -> None:
         case = make_case()
         case["expected_agents_any_of"] = ["<api_owner>", "<infra_owner>"]
 
@@ -139,8 +139,24 @@ class RouterEvalTest(unittest.TestCase):
         )
 
         self.assertEqual(result.precision, 1.0)
+        self.assertEqual(result.recall, 0.5)
+        self.assertFalse(result.passed)
+
+    def test_score_case_penalizes_duplicate_predicted_agents(self) -> None:
+        result = run_eval.score_case(
+            make_case(),
+            run_eval.RouterDecision(
+                tiers=["pool"],
+                agents=["<api_owner>", "<api_owner>"],
+                mode="single",
+                rationale="route",
+            ),
+            {},
+        )
+
+        self.assertEqual(result.precision, 0.5)
         self.assertEqual(result.recall, 1.0)
-        self.assertTrue(result.passed)
+        self.assertFalse(result.passed)
 
     def test_score_case_resolves_predicted_agent_placeholders(self) -> None:
         result = run_eval.score_case(
