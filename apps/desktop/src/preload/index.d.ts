@@ -97,6 +97,10 @@ type LocalAssistantEvent =
       errorMessage?: string
     }
   | {
+      type: 'activity_title'
+      title: string
+    }
+  | {
       type: 'result'
       result: string
       sessionId?: string

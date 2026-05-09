@@ -11,6 +11,7 @@ export type SaveActivityNoteOptions = {
   sessionId: string
   prompt: string
   finalAnswer?: string
+  activityTitle?: string
   toolTrace: ActivityToolEntry[]
   displayName: string
   email: string
@@ -260,7 +261,14 @@ function titlePhraseFromText(text: string): string {
   return words.join(' ')
 }
 
-function buildActivityTitle(prompt: string, filesChanged: string[], summary: string): string {
+function buildActivityTitle(
+  prompt: string,
+  filesChanged: string[],
+  summary: string,
+  activityTitle?: string
+): string {
+  const normalizedActivityTitle = activityTitle ? titlePhraseFromText(activityTitle) : ''
+  if (normalizedActivityTitle) return compactLine(normalizedActivityTitle, 80)
   const phrase = titlePhraseFromText(`${prompt}\n${summary}`)
   if (phrase) return compactLine(phrase, 80)
   const fileScope = describeChangedFiles(filesChanged)
@@ -273,7 +281,7 @@ function todayIso(): string {
 }
 
 export async function saveActivityNote(opts: SaveActivityNoteOptions): Promise<void> {
-  const { sessionId, prompt, finalAnswer, toolTrace, displayName, email, projectName, projectFolderPath } = opts
+  const { sessionId, prompt, finalAnswer, activityTitle, toolTrace, displayName, email, projectName, projectFolderPath } = opts
   const activityDir = join(projectFolderPath, '.relevo', 'activity')
   await mkdir(activityDir, { recursive: true })
 
@@ -282,7 +290,7 @@ export async function saveActivityNote(opts: SaveActivityNoteOptions): Promise<v
   const summary = extractSummary(finalAnswer)
   const changedFiles = extractChangedFiles(toolTrace, projectFolderPath)
   const toolsUsed = extractToolsUsed(toolTrace)
-  const title = buildActivityTitle(prompt, changedFiles, summary)
+  const title = buildActivityTitle(prompt, changedFiles, summary, activityTitle)
   const userWikilink = `[[users/${displayName}]]`
   const projectWikilink = `[[project/${projectName}]]`
 

@@ -37,6 +37,7 @@ export const USER_AGENT_ALLOWED_TOOLS = [
   "TodoRead",
   "TodoWrite",
   "mcp__relevo-user-retriever__ask_retriever",
+  "mcp__relevo-user-retriever__set_activity_title",
 ] as const;
 
 export const RETRIEVER_ALLOWED_TOOLS = [
@@ -111,6 +112,14 @@ function textFromAssistantMessage(message: SDKMessage): LocalAssistantEvent[] {
 
 function stripAssistantTextEvents(events: LocalAssistantEvent[]): LocalAssistantEvent[] {
   return events.filter((event) => event.type !== "assistant_text");
+}
+
+function isActivityTitleToolName(toolName: string): boolean {
+  return toolName === "set_activity_title" || toolName.endsWith("__set_activity_title");
+}
+
+function isInternalActivityTitleEvent(event: LocalAssistantEvent): boolean {
+  return "toolName" in event && isActivityTitleToolName(event.toolName);
 }
 
 function textFromPartialMessage(message: SDKMessage): LocalAssistantEvent[] {
@@ -481,7 +490,12 @@ async function runUserAgentTurn(
   systemPrompt: string,
   retrieve: (request: RetrieverRequest) => Promise<ContextPacket>,
   input: UserAgentInput,
-): Promise<{ events: LocalAssistantEvent[]; finalAnswer: string; contextPackets: ContextPacket[] }> {
+): Promise<{
+  events: LocalAssistantEvent[];
+  finalAnswer: string;
+  contextPackets: ContextPacket[];
+  activityTitle?: string;
+}> {
   logRunner("user-agent:start", {
     userId: options.userId,
     projectId: options.projectId,
@@ -493,26 +507,36 @@ async function runUserAgentTurn(
     maxTurns: options.maxTurns,
   });
   const contextPackets: ContextPacket[] = [];
-  const userRetrieverServer = createUserRetrieverMcpServer(async (request) => {
-    logRunner("user-agent:ask-retriever:start", {
-      userId: options.userId,
-      scope: request.target_agent_id ? "agent" : "global",
-      targetAgentId: request.target_agent_id,
-      queryPreview: previewText(request.query),
-      reason: request.reason,
-    });
-    const packet = await retrieve(request);
-    contextPackets.push(packet);
-    logRunner("user-agent:ask-retriever:done", {
-      userId: options.userId,
-      scope: packet.scope,
-      targetAgentId: packet.target_agent_id,
-      resultCount: packet.results.length,
-      insufficientContext: packet.insufficient_context,
-      contextExchangeId: packet.context_exchange_id,
-    });
-    return packet;
-  });
+  let activityTitle: string | undefined;
+  const userRetrieverServer = createUserRetrieverMcpServer(
+    async (request) => {
+      logRunner("user-agent:ask-retriever:start", {
+        userId: options.userId,
+        scope: request.target_agent_id ? "agent" : "global",
+        targetAgentId: request.target_agent_id,
+        queryPreview: previewText(request.query),
+        reason: request.reason,
+      });
+      const packet = await retrieve(request);
+      contextPackets.push(packet);
+      logRunner("user-agent:ask-retriever:done", {
+        userId: options.userId,
+        scope: packet.scope,
+        targetAgentId: packet.target_agent_id,
+        resultCount: packet.results.length,
+        insufficientContext: packet.insufficient_context,
+        contextExchangeId: packet.context_exchange_id,
+      });
+      return packet;
+    },
+    (title) => {
+      activityTitle = title;
+      logRunner("user-agent:activity-title", {
+        userId: options.userId,
+        titlePreview: previewText(title, 80),
+      });
+    },
+  );
 
   const sdkMessages = query({
     prompt: buildUserPrompt(input.prompt, input.preflightContext),
@@ -555,6 +579,9 @@ async function runUserAgentTurn(
     }
 
     for (const event of normalizedEvents) {
+      if (isInternalActivityTitleEvent(event)) {
+        continue;
+      }
       if (event.type === "result") {
         finalAnswer = event.result;
       }
@@ -573,8 +600,9 @@ async function runUserAgentTurn(
     eventCount: events.length,
     finalAnswerLength: finalAnswer.length,
     contextPacketCount: contextPackets.length,
+    hasActivityTitle: Boolean(activityTitle),
   });
-  return { events, finalAnswer, contextPackets };
+  return { events, finalAnswer, contextPackets, activityTitle };
 }
 
 async function runUpdaterAgent(
@@ -623,7 +651,8 @@ async function runUpdaterAgent(
     },
   });
 
-  for await (const _sdkMessage of sdkMessages) {
+  for await (const sdkMessage of sdkMessages) {
+    void sdkMessage;
     // The updater's useful side effect is captured by the MCP commit callback.
   }
 

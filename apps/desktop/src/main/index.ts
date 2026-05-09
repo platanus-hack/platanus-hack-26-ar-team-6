@@ -554,6 +554,7 @@ app.whenReady().then(() => {
     const runToolTrace: ActivityToolEntry[] = []
     let finalSessionId: string | undefined
     let finalAnswer = ''
+    let activityTitle: string | undefined
 
     for await (const assistantEvent of runLocalAssistant(runOptions)) {
       event.sender.send('assistant:event', assistantEvent)
@@ -566,6 +567,8 @@ app.whenReady().then(() => {
       } else if (assistantEvent.type === 'result') {
         finalSessionId = assistantEvent.sessionId
         finalAnswer = assistantEvent.result
+      } else if (assistantEvent.type === 'activity_title') {
+        activityTitle = assistantEvent.title
       }
     }
 
@@ -576,6 +579,7 @@ app.whenReady().then(() => {
           sessionId: finalSessionId ?? `${Date.now()}`,
           prompt: payload.prompt,
           finalAnswer,
+          activityTitle,
           toolTrace: runToolTrace,
           displayName: settings.account.display_name,
           email: settings.account.email,

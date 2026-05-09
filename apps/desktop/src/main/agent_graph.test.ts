@@ -21,6 +21,7 @@ describe('LangGraph multi-agent runtime', () => {
     expect(USER_AGENT_ALLOWED_TOOLS).toContain('Read')
     expect(USER_AGENT_ALLOWED_TOOLS).toContain('Edit')
     expect(USER_AGENT_ALLOWED_TOOLS).toContain('mcp__relevo-user-retriever__ask_retriever')
+    expect(USER_AGENT_ALLOWED_TOOLS).toContain('mcp__relevo-user-retriever__set_activity_title')
     expect(USER_AGENT_ALLOWED_TOOLS).not.toContain('mcp__relevo-memory__agent_ctx')
     expect(USER_AGENT_ALLOWED_TOOLS).not.toContain('mcp__relevo-updater__commit_memory_update')
 
@@ -51,6 +52,7 @@ describe('LangGraph multi-agent runtime', () => {
         return {
           finalAnswer: 'done',
           contextPackets: [],
+          activityTitle: 'Greeting Response',
           events: [{ type: 'result', result: 'done' }]
         }
       },
@@ -69,6 +71,10 @@ describe('LangGraph multi-agent runtime', () => {
     expect(calls).toEqual(['retrieve:preflight before user-agent turn', 'user:global'])
     expect(result.finalAnswer).toBe('done')
     expect(result.shouldUpdate).toBe(false)
+    expect(result.events.at(-1)).toMatchObject({
+      type: 'activity_title',
+      title: 'Greeting Response'
+    })
   })
 
   it('runs updater on the sixth finalized message', async () => {
