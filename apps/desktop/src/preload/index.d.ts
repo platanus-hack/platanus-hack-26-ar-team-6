@@ -5,19 +5,6 @@ type HealthResponse = {
   sha?: string
 }
 
-type BootstrapAgent = {
-  user_id: string
-  display_name: string
-  voice?: {
-    tone?: string
-    first_person?: boolean
-  }
-  domain?: {
-    primary?: string
-    tags?: string[]
-  }
-}
-
 type BootstrapPayload = {
   user_summary?: unknown
   project_context?: unknown
@@ -63,11 +50,25 @@ type LocalAssistantEvent =
       messageType: string
       message: unknown
     }
+type LocalRunnerPromptRequest = {
+  apiBaseUrl: string
+  authToken: string
+  cwd: string
+  maxTurns?: number
+  model?: string
+  prompt: string
+}
+
+type LocalRunnerPromptResponse = {
+  result: string
+  messages: unknown[]
+}
 
 interface DesktopApi {
   getHealth: (apiBaseUrl: string) => Promise<HealthResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
+  runAgentPrompt: (request: LocalRunnerPromptRequest) => Promise<LocalRunnerPromptResponse>
 }
 
 declare global {

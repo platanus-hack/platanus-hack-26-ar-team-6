@@ -4,6 +4,11 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { runLocalAssistant } from '../runner.js'
 import type { RunLocalAssistantOptions } from '../types.js'
+import {
+  runLocalAgentPrompt,
+  type LocalRunnerPromptRequest,
+  type LocalRunnerPromptResponse
+} from './local_runner'
 
 type HealthResponse = {
   status?: string
@@ -72,6 +77,13 @@ app.whenReady().then(() => {
       event.sender.send('assistant:event', assistantEvent)
     }
   })
+
+  ipcMain.handle(
+    'runner:query',
+    async (_, request: LocalRunnerPromptRequest): Promise<LocalRunnerPromptResponse> => {
+      return runLocalAgentPrompt(request)
+    }
+  )
 
   createWindow()
 

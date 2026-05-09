@@ -4,6 +4,7 @@ type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  isStreaming?: boolean
 }
 
 type ChatState = {
@@ -30,7 +31,10 @@ const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByWorkspace: {
         ...state.messagesByWorkspace,
-        [workspaceId]: [...(state.messagesByWorkspace[workspaceId] ?? []), { id, role: 'assistant', text: '' }]
+        [workspaceId]: [
+          ...(state.messagesByWorkspace[workspaceId] ?? []),
+          { id, role: 'assistant', text: '', isStreaming: true }
+        ]
       }
     })),
   appendMessageText: (workspaceId, id, text) =>
@@ -38,7 +42,7 @@ const useChatStore = create<ChatState>((set) => ({
       messagesByWorkspace: {
         ...state.messagesByWorkspace,
         [workspaceId]: (state.messagesByWorkspace[workspaceId] ?? []).map((message) =>
-          message.id === id ? { ...message, text: `${message.text}${text}` } : message
+          message.id === id ? { ...message, text: `${message.text}${text}`, isStreaming: true } : message
         )
       }
     })),

@@ -1,98 +1,87 @@
-"""Pydantic schemas for seed YAML files.
+"""Pydantic schemas for demo seed YAML files.
 
-These models lock the YAML shape so authors of seed files (Jorf for personas,
-Jerf for memories, etc.) get a clear error when shapes drift instead of silent
-garbage at insert time.
+These models lock the YAML shape so authors of seed files get a clear error
+when shapes drift instead of silent garbage at insert time.
+
+Storage recap (see migrations/0001_init.sql):
+  - Single project per demo install.
+  - app_user rows hold per-user identity, auth token, and a domain_summary.
+  - context_entry holds per-user content, partitioned by user_id; the seed
+    file contributes kind='seed' rows.
+  - project_context_entry holds shared project-scoped content (read by V3).
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-MemoryTier = Literal["personal", "pool", "timeline"]
-TaskStatus = Literal["proposed", "open", "in_progress", "blocked", "review", "done"]
+ContextEntryKind = Literal["seed", "prompt_answer", "cross_user_qa"]
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class PersonaVoice(StrictModel):
-    tone: str
+class UserProfileVoice(StrictModel):
+    """Optional voice fields. Carried over from the old persona contract so the
+    on-demand agent (V2) can read them; nothing in V1 enforces their use.
+    """
+
+    tone: str | None = None
     first_person: bool = True
     signature_phrases: list[str] = Field(default_factory=list)
 
 
-class PersonaDomain(StrictModel):
+class UserProfileDomain(StrictModel):
     primary: str
     tags: list[str] = Field(default_factory=list)
-    expertise_summary: str
+    expertise_summary: str = Field(min_length=20, max_length=280)
 
 
-class PersonaEntry(StrictModel):
-    """One row in seeds/personas.yaml.
+class UserEntry(StrictModel):
+    """One row in seeds/users.yaml.
 
-    Maps to: a `person` row + an `agent` row (1-to-1). The full persona JSON is
-    stored on `agent.persona`.
+    Maps to: an app_user row. The voice + domain blocks are denormalized into
+    app_user.profile JSONB for the on-demand agent to consume.
     """
 
-    key: str = Field(description="Stable handle used to reference this persona from other seed files (e.g. memories/<key>.yaml).")
+    key: str = Field(
+        description="Stable handle used to reference this user from other seed files (e.g. context/<key>.yaml)."
+    )
     display_name: str
-    domain_summary: str = Field(description="Stored on person.domain_summary.")
-    voice: PersonaVoice
-    domain: PersonaDomain
+    domain_summary: str = Field(description="Stored on app_user.domain_summary.")
+    auth_token: str = Field(
+        min_length=8,
+        description="Bearer token the local app uses to identify as this user. Hackathon-only.",
+    )
+    voice: UserProfileVoice = Field(default_factory=UserProfileVoice)
+    domain: UserProfileDomain
 
 
-class PersonasFile(StrictModel):
-    personas: list[PersonaEntry]
+class UsersFile(StrictModel):
+    users: list[UserEntry]
 
 
-class MemoryEntry(StrictModel):
-    """One row in seeds/memories/<persona_key>.yaml or pool.yaml.
+class ContextEntrySeed(StrictModel):
+    """One row in seeds/context/<user_key>.yaml — every entry is kind='seed'."""
 
-    For personal-tier memories the file path implies the agent (filename = persona key).
-    For pool-tier memories agent_key must be omitted.
-    """
-
-    tier: MemoryTier
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PersonalMemoriesFile(StrictModel):
-    """seeds/memories/<persona_key>.yaml — every entry is tier='personal'."""
+class UserContextFile(StrictModel):
+    """seeds/context/<user_key>.yaml — non-overlapping per-user seed entries."""
 
-    persona_key: str
-    entries: list[MemoryEntry]
-
-
-class PoolFile(StrictModel):
-    entries: list[MemoryEntry]
+    user_key: str
+    entries: list[ContextEntrySeed]
 
 
-class TimelineEventEntry(StrictModel):
-    occurred_at: datetime
-    actor_persona_key: str | None = None
-    event_type: str
-    subject_type: str | None = None
-    subject_id: UUID | None = None
-    payload: dict[str, Any] = Field(default_factory=dict)
-
-
-class TimelineFile(StrictModel):
-    events: list[TimelineEventEntry]
-
-
-class TaskEntry(StrictModel):
-    title: str
+class ProjectEntry(StrictModel):
+    name: str
     description: str | None = None
-    owner_persona_key: str | None = None
-    status: TaskStatus = "proposed"
-    dependencies: list[str] = Field(default_factory=list, description="Titles of tasks this depends on; resolved to UUIDs at insert time.")
 
 
-class TasksFile(StrictModel):
-    tasks: list[TaskEntry]
+class ProjectFile(StrictModel):
+    project: ProjectEntry
+    context_entries: list[ContextEntrySeed] = Field(default_factory=list)

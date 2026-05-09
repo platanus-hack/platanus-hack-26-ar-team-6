@@ -1,0 +1,54 @@
+# User2's per-user seed context. Deployment / server / infra domain.
+#
+# Deliberately disjoint from user1's frontend context. A V2 cross-user
+# query about deployment from user1's session must escalate to user2's
+# on-demand agent — there is no overlap to fall back to.
+
+user_key: user2
+
+entries:
+  - content: |
+      The shared server is FastAPI, deployed to Railway. The Railway
+      service points at apps/server/Dockerfile and reads PORT from the
+      environment. Health checks hit /health, which returns
+      {status, sha, models}; the sha comes from RAILWAY_GIT_COMMIT_SHA
+      automatically.
+    metadata:
+      tags: [deployment, railway, fastapi]
+      kind: decision
+
+  - content: |
+      Auth in V2 is a per-user bearer token. Every endpoint except /health
+      requires the token. Tokens are dev-token-user1 and dev-token-user2 in
+      the seeds; production-grade auth is out of scope for the hackathon.
+    metadata:
+      tags: [auth, security]
+      kind: decision
+
+  - content: |
+      Postgres lives on Railway's managed Postgres add-on. Connection
+      string comes from DATABASE_URL. Locally, docker-compose at
+      infra/docker-compose.yml runs pgvector/pgvector:pg16 with relevo /
+      relevo / relevo (user / password / db) on port 5432.
+    metadata:
+      tags: [postgres, infra]
+      kind: decision
+
+  - content: |
+      API endpoints in V2: GET /health, GET /bootstrap?user_id=…,
+      POST /context-entries, POST /request-context. The request-context
+      handler retrieves the target user's context, synthesizes a grounded
+      answer, writes qa_ledger, materializes a cross_user_qa context row for
+      the target user, and returns the answer.
+    metadata:
+      tags: [api, endpoints]
+      kind: design
+
+  - content: |
+      OpenAPI is published at /openapi.json and /docs by FastAPI. Marirf
+      and Jorf treat that as the contract; if the deployed shape diverges
+      from what the local app expects, the deployed shape wins and the
+      client adjusts.
+    metadata:
+      tags: [api, contract, openapi]
+      kind: rule

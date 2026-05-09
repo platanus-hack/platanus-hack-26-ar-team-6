@@ -1,0 +1,54 @@
+# User1's per-user seed context. Frontend / local app domain.
+#
+# Each entry is content + freeform metadata. embedding is left NULL in V1.
+# Keep entries deliberately specific to User1's domain so a V2 cross-user
+# query about deployment cannot accidentally be answered from these.
+
+user_key: user1
+
+entries:
+  - content: |
+      The local desktop app boots into a single chat window. The user types,
+      the runner streams tokens back, and the final answer settles in the
+      conversation pane. There is no multi-tab UI in V2 — keep it boring.
+    metadata:
+      tags: [ui, chat]
+      kind: decision
+
+  - content: |
+      The roster panel is the visible proof that bootstrap worked. It lives
+      on the left side of the chat window and lists every user in the
+      project (display_name + a one-line domain summary). The local AI also
+      receives the roster in its initial context so it can target
+      request_context calls.
+    metadata:
+      tags: [ui, bootstrap, roster]
+      kind: decision
+
+  - content: |
+      Runner IPC: the desktop app starts the local runner as a subprocess
+      with `cwd` set to the user's configured repo path. Tokens stream back
+      over stdout; tool calls are captured and rendered as inline status
+      cards in the chat surface.
+    metadata:
+      tags: [runner, ipc]
+      kind: design
+
+  - content: |
+      Settings (V2): three values — server URL, user id (or auth token),
+      and the local repo path. Stored in a flat config file in the user's
+      home directory. There is no settings panel in V1; users edit the
+      file directly.
+    metadata:
+      tags: [settings, config]
+      kind: decision
+
+  - content: |
+      When the AI invokes request_context, the desktop app renders a small
+      "querying <target>…" status card in the conversation. Once the tool
+      result lands, the card collapses. This affordance must be visible in
+      V2 because it proves the request_context call happened and the server
+      returned a real teammate-context answer.
+    metadata:
+      tags: [ui, request_context]
+      kind: decision
