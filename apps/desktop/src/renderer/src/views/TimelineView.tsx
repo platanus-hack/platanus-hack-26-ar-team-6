@@ -26,8 +26,8 @@ type GraphLayout = {
   width: number
 }
 
-const USER_COLORS = ['#2f80ed', '#c94840', '#2e8b57', '#c07c21', '#7d4bc2', '#008f8c']
-const TOPIC_COLORS = ['#2563eb', '#0f766e', '#a16207', '#7c3aed', '#be123c', '#475569']
+const USER_COLORS = ['#6d28d9', '#7c3aed', '#5b21b6', '#4c1d95', '#6b21a8', '#581c87']
+const TOPIC_COLORS = ['#6d28d9', '#5b21b6', '#4c1d95', '#7c3aed', '#6b21a8', '#581c87']
 const NODE_W = 236
 const NODE_H = 96
 const DETAIL_W = 320
@@ -522,18 +522,18 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
         >
           <defs>
             <pattern id="timeline-grid" width="28" height="28" patternUnits="userSpaceOnUse">
-              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#eef1f5" strokeWidth="1" />
+              <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(109, 40, 217, 0.08)" strokeWidth="1" />
             </pattern>
             <filter id="timeline-node-shadow" x="-20%" y="-35%" width="140%" height="170%">
-              <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#111827" floodOpacity="0.12" />
+              <feDropShadow dx="0" dy="8" stdDeviation="8" floodColor="#000000" floodOpacity="0.4" />
             </filter>
             <filter id="timeline-node-selected-shadow" x="-20%" y="-35%" width="140%" height="170%">
-              <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#111827" floodOpacity="0.18" />
+              <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#6d28d9" floodOpacity="0.3" />
             </filter>
           </defs>
 
-          <rect width={graph.width} height={graph.height} fill="#fbfcfe" />
-          <rect width={graph.width} height={graph.height} fill="url(#timeline-grid)" opacity="0.7" />
+          <rect width={graph.width} height={graph.height} fill="#09090b" />
+          <rect width={graph.width} height={graph.height} fill="url(#timeline-grid)" opacity="1" />
 
           {graph.groups.map((group) => {
             const bounds = groupBandBounds(group, graph.width)
@@ -569,7 +569,7 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
             const b = graph.positions.get(edge.b)
             if (!a || !b) return null
             const topicGroup = edge.topicKey ? graph.groups.find((group) => group.key === edge.topicKey) : undefined
-            const stroke = edge.kind === 'topic' ? (topicGroup?.color ?? '#64748b') : '#98a2b3'
+            const stroke = edge.kind === 'topic' ? (topicGroup?.color ?? '#6d28d9') : '#4a4a5a'
 
             return (
               <g key={`${edge.kind}:${edge.a}:${edge.b}`}>
@@ -615,7 +615,7 @@ function TimelineView({ projectFolderPath }: TimelineViewProps): React.JSX.Eleme
                   width={NODE_W}
                   height={NODE_H}
                   rx={8}
-                  fill={isSelected ? '#f8fbff' : '#ffffff'}
+                  fill={isSelected ? '#1c1c26' : '#16161d'}
                   stroke={color}
                   strokeWidth={isSelected ? 2.4 : 1.3}
                   filter={isSelected ? 'url(#timeline-node-selected-shadow)' : 'url(#timeline-node-shadow)'}
