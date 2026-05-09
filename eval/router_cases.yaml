@@ -1,0 +1,159 @@
+- id: r_001
+  question: "How do we deploy the backend to Railway?"
+  expected_tiers: ["pool", "personal"]
+  expected_agents_any_of: ["<infra_owner>", "<api_owner>"]
+  forbidden_agents: ["<frontend_owner>", "<agent_owner>"]
+  must_mention_any_of: ["Railway", "deploy", "health"]
+  category: factual
+
+- id: r_002
+  question: "Which model versions are we using for agent and router calls?"
+  expected_tiers: ["pool"]
+  expected_agents_any_of: ["<api_owner>", "<agent_owner>"]
+  forbidden_agents: ["<frontend_owner>"]
+  must_mention_any_of: ["model", "agent", "router"]
+  category: factual
+
+- id: r_003
+  question: "What are the three memory tiers and what are they for?"
+  expected_tiers: ["pool"]
+  expected_agents_any_of: ["<data_owner>", "<router_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["pool", "personal", "timeline"]
+  category: factual
+
+- id: r_004
+  question: "What SSE events should POST /workspaces/{id}/ask emit?"
+  expected_tiers: ["pool"]
+  expected_agents_any_of: ["<api_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["routing_decision", "citation", "done"]
+  category: factual
+
+- id: r_005
+  question: "How should citation chips be displayed in the desktop app?"
+  expected_tiers: ["pool"]
+  expected_agents_any_of: ["<agent_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["citation", "personal", "drawer"]
+  category: factual
+
+- id: r_006
+  question: "What statuses can a task move through?"
+  expected_tiers: ["pool"]
+  expected_agents_any_of: ["<api_owner>", "<data_owner>"]
+  forbidden_agents: ["<agent_owner>"]
+  must_mention_any_of: ["proposed", "in_progress", "done"]
+  category: factual
+
+- id: r_007
+  question: "Why did we pick Postgres with pgvector instead of Mongo?"
+  expected_tiers: ["personal", "pool"]
+  expected_agents_any_of: ["<data_owner>"]
+  forbidden_agents: ["<frontend_owner>", "<infra_owner>"]
+  must_mention_any_of: ["relational", "vector", "transactions"]
+  category: rationale
+
+- id: r_008
+  question: "Why are the router evals using placeholder agent identifiers?"
+  expected_tiers: ["personal"]
+  expected_agents_any_of: ["<router_owner>"]
+  forbidden_agents: ["<api_owner>", "<frontend_owner>"]
+  must_mention_any_of: ["placeholder", "personas", "Jorf"]
+  category: rationale
+
+- id: r_009
+  question: "Why should agents only use first person for personal memory?"
+  expected_tiers: ["personal", "pool"]
+  expected_agents_any_of: ["<agent_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["first-person", "personal", "grounded"]
+  category: rationale
+
+- id: r_010
+  question: "Why are we mocking first and wiring live services later?"
+  expected_tiers: ["personal", "pool"]
+  expected_agents_any_of: ["<product_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["mock", "converge", "fixtures"]
+  category: rationale
+
+- id: r_011
+  question: "Why did we choose SSE for the chat stream?"
+  expected_tiers: ["personal", "pool"]
+  expected_agents_any_of: ["<api_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["stream", "EventSource", "partial"]
+  category: rationale
+
+- id: r_012
+  question: "Are we ready for the h4 converge?"
+  expected_tiers: ["timeline", "personal"]
+  expected_agents_any_of: ["<product_owner>"]
+  forbidden_agents: ["<agent_owner>"]
+  must_mention_any_of: ["h4", "converge", "ready"]
+  category: status
+
+- id: r_013
+  question: "What is the current status of the database migration?"
+  expected_tiers: ["timeline", "personal"]
+  expected_agents_any_of: ["<data_owner>"]
+  forbidden_agents: ["<frontend_owner>"]
+  must_mention_any_of: ["migration", "schema", "pgvector"]
+  category: status
+
+- id: r_014
+  question: "Where does the desktop shell work stand right now?"
+  expected_tiers: ["timeline", "personal"]
+  expected_agents_any_of: ["<frontend_owner>"]
+  forbidden_agents: ["<data_owner>"]
+  must_mention_any_of: ["desktop", "shell", "health"]
+  category: status
+
+- id: r_015
+  question: "Is the health endpoint deployed and reachable?"
+  expected_tiers: ["timeline", "personal"]
+  expected_agents_any_of: ["<api_owner>", "<infra_owner>"]
+  forbidden_agents: ["<agent_owner>"]
+  must_mention_any_of: ["health", "deployed", "Railway"]
+  category: status
+
+- id: r_016
+  question: "Add a task that requires API, data storage, and UI changes."
+  expected_tiers: ["pool", "personal"]
+  expected_agents_any_of: ["<api_owner>", "<data_owner>", "<frontend_owner>"]
+  forbidden_agents: []
+  must_mention_any_of: ["task", "API", "UI"]
+  category: cross_cutting
+
+- id: r_017
+  question: "How should we wire cross-tier citations from answers into the desktop drawer?"
+  expected_tiers: ["pool", "personal"]
+  expected_agents_any_of: ["<agent_owner>", "<data_owner>", "<frontend_owner>"]
+  forbidden_agents: ["<infra_owner>"]
+  must_mention_any_of: ["citation", "memory", "drawer"]
+  category: cross_cutting
+
+- id: r_018
+  question: "If a judge asks how we built this, who should answer from team memory?"
+  expected_tiers: ["personal", "timeline"]
+  expected_agents_any_of: ["<router_owner>", "<agent_owner>", "<data_owner>"]
+  forbidden_agents: []
+  must_mention_any_of: ["team", "timeline", "built"]
+  category: cross_cutting
+
+- id: r_019
+  question: "Where should we go for dinner after the hackathon?"
+  expected_tiers: []
+  expected_agents_any_of: []
+  forbidden_agents: ["<api_owner>", "<infra_owner>", "<data_owner>", "<agent_owner>", "<router_owner>", "<frontend_owner>", "<product_owner>"]
+  must_mention_any_of: ["out of scope", "unrelated"]
+  category: out_of_scope
+
+- id: r_020
+  question: "Can you give me personal medical advice for chest pain?"
+  expected_tiers: []
+  expected_agents_any_of: []
+  forbidden_agents: ["<api_owner>", "<infra_owner>", "<data_owner>", "<agent_owner>", "<router_owner>", "<frontend_owner>", "<product_owner>"]
+  must_mention_any_of: ["out of scope", "medical"]
+  category: out_of_scope
