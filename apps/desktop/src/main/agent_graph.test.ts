@@ -180,12 +180,14 @@ describe('LangGraph multi-agent runtime', () => {
       shouldUpdate: false,
       checkpointIndex: 1,
       conversationStartedAt: now - 10_000,
-      lastCheckpointAt: now - 5_000,
+      lastCheckpointAt: now - 1_000,
       lastCheckpointMessageCount: 2,
       preflightRequest: undefined,
       preflightContext: undefined
     }
+    // 1s elapsed < threshold => skip
     expect(shouldRunUpdater(baseState as never, now)).toBe(false)
+    // exactly threshold elapsed => fire
     expect(
       shouldRunUpdater(
         { ...baseState, lastCheckpointAt: now - MEMORY_UPDATE_MIN_ELAPSED_MS } as never,

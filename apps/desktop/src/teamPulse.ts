@@ -76,6 +76,12 @@ export type TeamPulseClientOptions = {
   bucketSize?: number;
   /** count; default 24 */
   bucketCount?: number;
+  /**
+   * When true, instruct the server to bypass the responsibility-doc
+   * debounce. Defaults to true so an explicit user-initiated refresh
+   * always rewrites the doc.
+   */
+  forceResponsibility?: boolean;
 };
 
 function normalizeBaseUrl(url: string): string {
@@ -192,15 +198,23 @@ async function summarizeBucket(
 
 async function generateResponsibilityDoc(
   events: TeamPulseRawEvent[],
-  previousContent: string | null,
+  _previousContent: string | null,
   displayName: string,
   apiKey: string | null | undefined,
 ): Promise<{ content: string; wordCount: number } | null> {
-  if (events.length === 0 && !previousContent) {
+  // Important: we deliberately DO NOT pass the previous responsibility doc
+  // to the model. Smaller Haiku-class models tend to anchor on prior text
+  // and ignore newer events. Building from raw events each time keeps the
+  // doc honest about what the engineer is actually working on right now.
+  if (events.length === 0) {
+    // No raw events means we have nothing new to assert. Skip the upsert
+    // entirely. Any existing stale doc on the server is left in place so
+    // the demo still has something to show; it will be replaced as soon
+    // as new events land.
     return null;
   }
   if (!apiKey) {
-    // Cheap fallback: synthesise a simple bullet list. Better than nothing.
+    // Cheap fallback: synthesise a bullet list straight from events.
     const recent = events.slice(-12);
     const bullets = recent
       .map((event) => `- ${truncateSummary(event.content, 160)}`)
@@ -216,7 +230,15 @@ async function generateResponsibilityDoc(
   }
   try {
     const client = getAnthropic(apiKey);
-    const transcript = events
+    // Newest-first transcript. Mid-tier models pay more attention to the
+    // top of the context window; biasing towards recent events fights the
+    // "stale anchor" failure mode where the model keeps describing the
+    // engineer's old area of ownership instead of what they did today.
+    const ordered = [...events].sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+    const transcript = ordered
       .map(
         (event, idx) =>
           `[${idx + 1}] ${new Date(event.created_at).toISOString()} :: ${event.content
@@ -224,9 +246,8 @@ async function generateResponsibilityDoc(
             .trim()}`,
       )
       .join("\n");
-    const previousBlock = previousContent
-      ? `Previous responsibility document (use only as a hint; rewrite from scratch using the events as ground truth):\n${previousContent}\n\n`
-      : "";
+    const newestIso = ordered[0]?.created_at ?? "(unknown)";
+    const oldestIso = ordered[ordered.length - 1]?.created_at ?? "(unknown)";
     const response = await client.messages.create({
       model: RESPONSIBILITY_MODEL,
       max_tokens: 3500,
@@ -235,18 +256,29 @@ async function generateResponsibilityDoc(
         `The document MUST be at most ${RESPONSIBILITY_MAX_WORDS} words.`,
         "It must contain exactly two top-level sections, in this order:",
         "  ## General responsibility",
-        "    - 1-3 short paragraphs describing the engineer's enduring area of ownership.",
+        "    - 1-3 short paragraphs describing the engineer's enduring area of ownership, INFERRED FROM THE EVENTS BELOW. Do not invent areas that aren't reflected in the events.",
         "  ## Recent implementations",
-        "    - bullet list of concrete recent work; most recent first; each bullet ≤ 25 words.",
+        "    - Bullet list of concrete recent work, most recent first. Each bullet ≤ 25 words.",
+        "    - The MOST RECENT 5 events MUST appear as bullets if non-trivial. Older events are optional.",
         "Write in the third person using the engineer's display name.",
-        "Be concrete: cite files, modules, features, fixes, decisions when present in the events.",
+        "Be concrete: cite topics, files, modules, features, fixes, decisions when present in the events.",
+        "If the most recent events show a clear topic shift (e.g. from feature A to feature B), reflect that shift in 'General responsibility' rather than describing only the older area.",
         "Never invent facts that are not supported by the events.",
         "Output only the markdown document. No preamble, no closing remarks.",
       ].join("\n"),
       messages: [
         {
           role: "user",
-          content: `Engineer: ${displayName}\n\n${previousBlock}Recent events (oldest first):\n${transcript || "_(no events)_"}\n\nProduce the responsibility document.`,
+          content: [
+            `Engineer: ${displayName}`,
+            `Window: ${oldestIso} → ${newestIso}`,
+            `Number of events: ${ordered.length}`,
+            "",
+            "Events (newest first; the top of this list is what the engineer is working on right now):",
+            transcript,
+            "",
+            "Produce the responsibility document.",
+          ].join("\n"),
         },
       ],
     });
@@ -409,6 +441,7 @@ export async function refreshTeamPulse(
           },
         ]
       : [],
+    force_responsibility: opts.forceResponsibility ?? true,
   };
 
   if (refreshBody.summaries.length === 0 && refreshBody.responsibilities.length === 0) {
