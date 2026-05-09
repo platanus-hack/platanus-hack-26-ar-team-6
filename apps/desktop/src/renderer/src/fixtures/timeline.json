@@ -1,0 +1,17 @@
+[
+  {
+    "id": "event-001",
+    "time": "09:00",
+    "text": "repository created"
+  },
+  {
+    "id": "event-002",
+    "time": "10:15",
+    "text": "initial migration merged"
+  },
+  {
+    "id": "event-003",
+    "time": "11:40",
+    "text": "desktop scaffold pushed"
+  }
+]
