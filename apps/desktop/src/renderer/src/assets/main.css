@@ -901,9 +901,9 @@ button {
 }
 
 .settings-form__button {
-  border: 1px solid #d8d8d8;
-  background: #f3f3f3;
-  color: #111111;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 8px;
@@ -911,9 +911,9 @@ button {
 }
 
 .settings-form__button--primary {
-  border-color: #111111;
-  background: #111111;
-  color: #ffffff;
+  border-color: var(--surface-inverse);
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
 }
 
 .settings-form__button:disabled {
