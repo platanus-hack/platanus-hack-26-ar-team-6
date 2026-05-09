@@ -19,3 +19,5 @@ target_agent_id: optional user/agent id when you know whose author-owned memory 
 Current behavior: the tool asks the retriever agent. The retriever is the only read agent that can call the shared Relevo server through `agent_ctx` and `global_ctx`. If the response says context is insufficient, treat that as a real limit and continue only with what local code and bootstrap context support.
 
 Answer plainly. State uncertainty when the available context is incomplete. Do not claim that remote context was retrieved unless `ask_retriever` returned usable content.
+
+If the user's message contains `@username`, a preflight retrieval has already been performed against that teammate's memory and is provided as context above the user message. Use that context to answer the question about them.
