@@ -35,6 +35,11 @@ button {
   --bubble-user-text: #ffffff;
   --bubble-assistant-text: #0a0a0a;
   --input-surface: #f3f3f5;
+  --user-box-bg: #ececf0;
+  --user-box-avatar-bg: #030213;
+  --user-box-avatar-text: #ffffff;
+  --user-box-name: #0a0a0a;
+  --user-box-detail: #717182;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -61,6 +66,11 @@ button {
   --bubble-user-text: oklch(0.205 0 0);
   --bubble-assistant-text: oklch(0.985 0 0);
   --input-surface: oklch(0.269 0 0);
+  --user-box-bg: #262626;
+  --user-box-avatar-bg: #ffffff;
+  --user-box-avatar-text: #111111;
+  --user-box-name: #ffffff;
+  --user-box-detail: #a3a3a3;
 }
 
 .topbar {
@@ -151,7 +161,16 @@ button {
   padding: 12px;
   border-right: 1px solid var(--border);
   background: var(--surface);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.sidebar-list {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-item + .sidebar-item {
@@ -184,6 +203,62 @@ button {
 
 .sidebar-item:hover {
   background: var(--surface-muted);
+}
+
+.sidebar-user-section {
+  margin: -17px -24px;
+  padding: 15px 26px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-user-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.sidebar-user-box__avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 999px;
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.sidebar-user-box__content {
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebar-user-box__name {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-user-box__detail {
+  margin-top: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .main-pane {
@@ -363,10 +438,9 @@ button {
 .chat-input-row {
   display: flex;
   gap: 8px;
-  padding: 16px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border);
   background: var(--surface);
-  align-items: flex-end;
 }
 
 .chat-trace-list {
@@ -403,10 +477,10 @@ button {
 }
 
 .chat-save-status {
-  padding: 8px 16px;
-  border-top: 1px solid var(--border-soft);
-  background: var(--surface);
-  color: var(--text-secondary);
+  padding: 4px 16px;
+  border-top: 1px solid #eeeeee;
+  background: #ffffff;
+  color: #555555;
   font-size: 12px;
 }
 
@@ -423,7 +497,7 @@ button {
   resize: none;
   font: inherit;
   font-size: 13px;
-  padding: 8px 16px;
+  padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 8px;
   outline: none;

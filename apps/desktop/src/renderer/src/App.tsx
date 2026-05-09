@@ -93,6 +93,9 @@ function App(): React.JSX.Element {
         }
       }
 
+  const currentUserName = 'Your Name'
+  const currentUserDetail = 'your.email@company.com'
+
   let activeView: React.JSX.Element = (
     <ChatView
       apiBaseUrl={apiBaseUrl}
@@ -120,7 +123,12 @@ function App(): React.JSX.Element {
       />
 
       <div className="app-body">
-        <Sidebar agents={roster} currentUserId={userId} />
+        <Sidebar
+          agents={roster}
+          currentUserId={userId}
+          currentUserName={currentUserName}
+          currentUserDetail={currentUserDetail}
+        />
 
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
