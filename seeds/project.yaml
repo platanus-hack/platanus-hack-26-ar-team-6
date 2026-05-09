@@ -26,3 +26,23 @@ context_entries:
       AI's request_context tool route by these domains.
     metadata:
       tags: [roster, routing]
+
+  - content: |
+      Project-scoped questions should be routed to target="project" when they
+      ask about shared architecture, the cross-user context workflow, or facts
+      that belong to the whole demo rather than one teammate's private domain.
+    metadata:
+      tags: [project-target, routing, architecture]
+
+scripted_prompts:
+  - name: project_architecture_context_loop
+    ask_from_user_key: user1
+    prompt: |
+      What are the shared architecture pieces in this project, and when should the AI use project context instead of asking User1 or User2?
+    expected_target: project
+    expected_answer_facts:
+      - The project has a shared remote server.
+      - Each user has a local app that hosts their coding AI.
+      - The server can answer from project_context_entry for shared project facts.
+      - User1 owns frontend / desktop app work.
+      - User2 owns server, deployment, and infra work.

@@ -20,24 +20,37 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 def ensure_schema(database_url: str | None = None) -> bool:
-    """Apply the demo schema.
+    """Apply unapplied SQL migrations.
 
-    Empty DBs get the full edited 0001. Existing V1 demo DBs get the missing
-    V2 closure table/indexes added in place so Railway deploys can recover.
+    Fresh DBs run every file in migrations/. Existing demo DBs that predate
+    migration tracking are baselined at 0001, then receive later additive
+    migrations. That lets Railway deploys migrate the existing Postgres
+    service automatically when AUTO_MIGRATE=1.
     """
     url = database_url or get_database_url()
     with psycopg.connect(url, connect_timeout=get_connect_timeout()) as conn:
-        if _schema_ready(conn):
-            return False
-        if _has_public_tables(conn):
-            _ensure_v2_tables(conn)
-            conn.commit()
-            return True
-        sql = _migration_path().read_text(encoding="utf-8")
-        with conn.cursor() as cur:
-            cur.execute(sql)
-        conn.commit()
-    return True
+        migrations = _migration_files()
+        has_app_schema = _has_app_schema(conn)
+        _ensure_migration_table(conn)
+
+        applied = _applied_migration_versions(conn)
+        changed = False
+        if has_app_schema and migrations:
+            first = migrations[0]
+            first_version = _migration_version(first)
+            if first_version not in applied:
+                _record_migration(conn, first, mode="baseline")
+                applied.add(first_version)
+                changed = True
+
+        for migration in migrations:
+            version = _migration_version(migration)
+            if version in applied:
+                continue
+            _apply_migration(conn, migration)
+            applied.add(version)
+            changed = True
+    return changed
 
 
 def seed_if_empty(database_url: str | None = None) -> bool:
@@ -52,29 +65,7 @@ def seed_if_empty(database_url: str | None = None) -> bool:
     return True
 
 
-def _schema_ready(conn: psycopg.Connection) -> bool:
-    with conn.cursor() as cur:
-        cur.execute("SELECT to_regclass('public.qa_ledger') IS NOT NULL")
-        return bool(cur.fetchone()[0])
-
-
-def _has_public_tables(conn: psycopg.Connection) -> bool:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT EXISTS (
-              SELECT 1
-              FROM information_schema.tables
-              WHERE table_schema = 'public'
-                AND table_type = 'BASE TABLE'
-            )
-            """
-        )
-        return bool(cur.fetchone()[0])
-
-
-def _ensure_v2_tables(conn: psycopg.Connection) -> None:
-    """Bring an existing V1 demo DB up to the V2 closure-write schema."""
+def _has_app_schema(conn: psycopg.Connection) -> bool:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -83,36 +74,58 @@ def _ensure_v2_tables(conn: psycopg.Connection) -> None:
                AND to_regclass('public.context_entry') IS NOT NULL
             """
         )
-        has_v1_core = bool(cur.fetchone()[0])
-        if not has_v1_core:
-            raise RuntimeError(
-                "Database has tables but is not the expected demo schema. "
-                "Recreate the DB or apply migrations manually."
-            )
+        return bool(cur.fetchone()[0])
+
+
+def _ensure_migration_table(conn: psycopg.Connection) -> None:
+    with conn.cursor() as cur:
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS qa_ledger (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              project_id UUID NOT NULL REFERENCES project(id) ON DELETE CASCADE,
-              asking_user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-              target_user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-              context_entry_id UUID NOT NULL UNIQUE REFERENCES context_entry(id) ON DELETE CASCADE,
-              question TEXT NOT NULL,
-              answer TEXT NOT NULL,
-              metadata JSONB NOT NULL DEFAULT '{}',
-              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            CREATE TABLE IF NOT EXISTS schema_migration (
+              version TEXT PRIMARY KEY,
+              filename TEXT NOT NULL,
+              mode TEXT NOT NULL DEFAULT 'apply',
+              applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
         )
+    conn.commit()
+
+
+def _applied_migration_versions(conn: psycopg.Connection) -> set[str]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT version FROM schema_migration")
+        rows = cur.fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _apply_migration(conn: psycopg.Connection, migration: Path) -> None:
+    sql = migration.read_text(encoding="utf-8")
+    with conn.cursor() as cur:
+        cur.execute(sql)
+    _record_migration(conn, migration, mode="apply")
+
+
+def _record_migration(conn: psycopg.Connection, migration: Path, *, mode: str) -> None:
+    version = _migration_version(migration)
+    with conn.cursor() as cur:
         cur.execute(
-            "CREATE INDEX IF NOT EXISTS qa_ledger_target_created ON qa_ledger (target_user_id, created_at DESC)"
+            """
+            INSERT INTO schema_migration (version, filename, mode)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (version) DO NOTHING
+            """,
+            (version, migration.name, mode),
         )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS qa_ledger_asking_created ON qa_ledger (asking_user_id, created_at DESC)"
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS qa_ledger_project_created ON qa_ledger (project_id, created_at DESC)"
-        )
+    conn.commit()
+
+
+def _migration_version(path: Path) -> str:
+    return path.stem.split("_", 1)[0]
+
+
+def _migration_files() -> list[Path]:
+    return sorted(_migrations_dir().glob("[0-9][0-9][0-9][0-9]_*.sql"))
 
 
 def _migration_path() -> Path:
@@ -127,6 +140,12 @@ def _migration_path() -> Path:
         if path.exists():
             return path
     raise FileNotFoundError("Could not find migrations/0001_init.sql")
+
+
+def _migrations_dir() -> Path:
+    if os.environ.get("MIGRATIONS_DIR"):
+        return Path(os.environ["MIGRATIONS_DIR"])
+    return _migration_path().parent
 
 
 def _seeds_dir() -> Path:
