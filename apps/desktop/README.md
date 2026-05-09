@@ -1,34 +1,15 @@
-# electron-app
+desktop app run instructions
 
-An Electron application with React and TypeScript
+install and run:
 
-## Recommended IDE Setup
-
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
-
-## Project Setup
-
-### Install
-
-```bash
-$ npm install
+```sh
+cd /Users/maria/IdeaProjects/platanus-hack-26-ar-team-6/apps/desktop
+npm install
+npm run dev
 ```
 
-### Development
+environment:
 
-```bash
-$ npm run dev
-```
-
-### Build
-
-```bash
-# For windows
-$ npm run build:win
-
-# For macOS
-$ npm run build:mac
-
-# For Linux
-$ npm run build:linux
+```env
+VITE_API_BASE_URL=https://creative-possibility-production-f2af.up.railway.app
 ```

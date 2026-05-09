@@ -1,0 +1,17 @@
+[
+  {
+    "id": "message-001",
+    "author": "user",
+    "text": "why did we choose postgres for memory storage?",
+    "citation": null
+  },
+  {
+    "id": "message-002",
+    "author": "jorf",
+    "text": "postgres gives us relational structure and works well with pgvector for retrieval.",
+    "citation": {
+      "label": "j",
+      "tier": "personal"
+    }
+  }
+]
