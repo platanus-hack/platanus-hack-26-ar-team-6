@@ -10,7 +10,7 @@ entries:
   - content: |
       The local desktop app boots into a single chat window. The user types,
       the runner streams tokens back, and the final answer settles in the
-      conversation pane. There is no multi-tab UI in V1 — keep it boring.
+      conversation pane. There is no multi-tab UI in V2 — keep it boring.
     metadata:
       tags: [ui, chat]
       kind: decision
@@ -35,7 +35,7 @@ entries:
       kind: design
 
   - content: |
-      Settings (V1): three values — server URL, user id (or auth token),
+      Settings (V2): three values — server URL, user id (or auth token),
       and the local repo path. Stored in a flat config file in the user's
       home directory. There is no settings panel in V1; users edit the
       file directly.
@@ -47,8 +47,8 @@ entries:
       When the AI invokes request_context, the desktop app renders a small
       "querying <target>…" status card in the conversation. Once the tool
       result lands, the card collapses. This affordance must be visible in
-      V1 even though the server returns a stub answer — it proves the
-      end-to-end wiring before V2 makes the result real.
+      V2 because it proves the request_context call happened and the server
+      returned a real teammate-context answer.
     metadata:
       tags: [ui, request_context]
       kind: decision

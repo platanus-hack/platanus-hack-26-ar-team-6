@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+import re
 from typing import Any, Iterator
 from uuid import UUID
 
@@ -95,6 +96,24 @@ def get_recent_context_entries(
     return [dict(r) for r in rows]
 
 
+def get_project_context_entries(
+    conn: psycopg.Connection, project_id: UUID, limit: int = 20
+) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, kind, content, metadata, created_at
+            FROM project_context_entry
+            WHERE project_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (project_id, limit),
+        )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_bootstrap(conn: psycopg.Connection, user_id: UUID) -> dict[str, Any]:
     """Bundle everything Narf's /bootstrap endpoint returns.
 
@@ -122,7 +141,81 @@ def get_bootstrap(conn: psycopg.Connection, user_id: UUID) -> dict[str, Any]:
         "project": project,
         "roster": roster,
         "recent_entries": recent,
+        "project_context": get_project_context_entries(conn, user["project_id"], limit=20),
     }
+
+
+def _search_tokens(text: str) -> set[str]:
+    stopwords = {
+        "about",
+        "after",
+        "again",
+        "before",
+        "being",
+        "does",
+        "from",
+        "have",
+        "into",
+        "should",
+        "that",
+        "their",
+        "there",
+        "this",
+        "what",
+        "when",
+        "where",
+        "which",
+        "with",
+        "your",
+    }
+    return {
+        token
+        for token in re.findall(r"[a-zA-Z0-9_/-]{3,}", text.lower())
+        if token not in stopwords
+    }
+
+
+def retrieve_user_context(
+    conn: psycopg.Connection,
+    user_id: UUID,
+    question: str,
+    limit: int = 6,
+    scan_limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Hackathon retrieval while embeddings are still nullable.
+
+    It uses lexical overlap against content + metadata tags, then falls back to
+    recent rows. Once embeddings are backfilled, this function is the single
+    call site to swap to vector ranking.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, kind, content, metadata, created_at
+            FROM context_entry
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (user_id, scan_limit),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    question_tokens = _search_tokens(question)
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    for index, row in enumerate(rows):
+        metadata = row.get("metadata") or {}
+        metadata_text = " ".join(str(value) for value in metadata.values())
+        text_tokens = _search_tokens(f"{row['content']} {metadata_text}")
+        overlap = len(question_tokens & text_tokens)
+        kind_boost = 1 if row.get("kind") == "cross_user_qa" else 0
+        ranked.append((overlap + kind_boost, -index, row))
+
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    selected = [row for score, _, row in ranked if score > 0][:limit]
+    if selected:
+        return selected
+    return rows[:limit]
 
 
 def write_prompt_answer_entry(

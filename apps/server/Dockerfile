@@ -7,8 +7,10 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml ./
-COPY src ./src
+COPY apps/server/pyproject.toml ./
+COPY apps/server/src ./src
+COPY migrations ./migrations
+COPY seeds ./seeds
 
 RUN uv pip install --system .
 
