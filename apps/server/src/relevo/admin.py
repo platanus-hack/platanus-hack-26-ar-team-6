@@ -5,7 +5,7 @@ from pathlib import Path
 
 import psycopg
 
-from relevo.db import get_database_url
+from relevo.db import get_connect_timeout, get_database_url
 from relevo.seeds.loader import run as run_seed_loader
 
 
@@ -26,7 +26,7 @@ def ensure_schema(database_url: str | None = None) -> bool:
     partial schema, fail loudly instead of trying to migrate in place.
     """
     url = database_url or get_database_url()
-    with psycopg.connect(url) as conn:
+    with psycopg.connect(url, connect_timeout=get_connect_timeout()) as conn:
         if _schema_ready(conn):
             return False
         if _has_public_tables(conn):
@@ -43,7 +43,7 @@ def ensure_schema(database_url: str | None = None) -> bool:
 
 def seed_if_empty(database_url: str | None = None) -> bool:
     url = database_url or get_database_url()
-    with psycopg.connect(url) as conn:
+    with psycopg.connect(url, connect_timeout=get_connect_timeout()) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM app_user")
             user_count = cur.fetchone()[0]

@@ -19,16 +19,25 @@ import psycopg
 from psycopg.rows import dict_row
 
 DEFAULT_DATABASE_URL = "postgresql://relevo:relevo@localhost:5432/relevo"
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 5
 
 
 def get_database_url() -> str:
     return os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
+def get_connect_timeout() -> int:
+    return int(os.environ.get("DB_CONNECT_TIMEOUT", DEFAULT_CONNECT_TIMEOUT_SECONDS))
+
+
 @contextmanager
 def connect(database_url: str | None = None) -> Iterator[psycopg.Connection]:
     url = database_url or get_database_url()
-    with psycopg.connect(url, row_factory=dict_row) as conn:
+    with psycopg.connect(
+        url,
+        row_factory=dict_row,
+        connect_timeout=get_connect_timeout(),
+    ) as conn:
         yield conn
 
 
