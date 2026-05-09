@@ -1,0 +1,42 @@
+[
+  {
+    "id": "agent-narf-001",
+    "display_name": "Narf",
+    "full_name": "Francisco Nattero",
+    "domain": { "primary": "API & Infrastructure", "tags": ["deploy", "railway", "fastapi", "devops"] },
+    "status": "online",
+    "avatar_hue": 200
+  },
+  {
+    "id": "agent-sarf-002",
+    "display_name": "Sarf",
+    "full_name": "Santiago Barron",
+    "domain": { "primary": "Data & Memory", "tags": ["postgres", "pgvector", "embeddings", "migrations"] },
+    "status": "online",
+    "avatar_hue": 150
+  },
+  {
+    "id": "agent-jorf-003",
+    "display_name": "Jorf",
+    "full_name": "Juan Kaplan",
+    "domain": { "primary": "Agent Runtime", "tags": ["llm", "synthesis", "persona", "citations"] },
+    "status": "idle",
+    "avatar_hue": 30
+  },
+  {
+    "id": "agent-jerf-004",
+    "display_name": "Jerf",
+    "full_name": "Jeremias Figueiredo",
+    "domain": { "primary": "Routing & Eval", "tags": ["router", "eval", "precision", "recall"] },
+    "status": "online",
+    "avatar_hue": 270
+  },
+  {
+    "id": "agent-marf-005",
+    "display_name": "Marf",
+    "full_name": "Mariia Osipova",
+    "domain": { "primary": "Frontend & UX", "tags": ["react", "electron", "zustand", "design"] },
+    "status": "busy",
+    "avatar_hue": 340
+  }
+]

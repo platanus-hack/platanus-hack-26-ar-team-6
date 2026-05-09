@@ -1,0 +1,30 @@
+:root {
+  --color-background: #ffffff;
+  --color-text: #111111;
+  --tier-personal: #e8a87c;
+  --tier-pool: #9ca3af;
+  --tier-timeline: #6fa8dc;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  font-weight: normal;
+}
+
+ul {
+  list-style: none;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--color-text);
+  background: var(--color-background);
+  line-height: 1.6;
+  font-family:
+    Arial,
+    Helvetica,
+    sans-serif;
+}

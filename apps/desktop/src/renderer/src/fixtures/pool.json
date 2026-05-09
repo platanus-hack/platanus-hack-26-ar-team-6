@@ -1,0 +1,20 @@
+[
+  {
+    "id": "pool-001",
+    "title": "deployment runbook",
+    "source": "pool",
+    "tag": "deploy"
+  },
+  {
+    "id": "pool-002",
+    "title": "workspace schema overview",
+    "source": "pool",
+    "tag": "schema"
+  },
+  {
+    "id": "pool-003",
+    "title": "agent persona contract",
+    "source": "pool",
+    "tag": "persona"
+  }
+]
