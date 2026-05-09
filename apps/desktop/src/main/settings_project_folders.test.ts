@@ -114,6 +114,8 @@ describe('desktop project folder settings', () => {
     const hookScript = await readFile(join(projectFolder, '.claude', 'hooks', 'relevo_activity.py'), 'utf-8')
     expect(hookScript).toContain('def handle_prompt_submit')
     expect(hookScript).toContain('def handle_stop')
+    expect(hookScript).toContain('no prompt, answer, or diff detected')
+    expect(hookScript).not.toContain('no file changes detected')
 
     const hookConfig = await readJson<{ serverUrl: string; authToken: string; projectId: string }>(
       join(electronMock.userDataPath, 'claude-hooks', `${PROJECT_ID}.json`)

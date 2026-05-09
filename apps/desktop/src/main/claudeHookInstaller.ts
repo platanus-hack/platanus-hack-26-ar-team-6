@@ -358,23 +358,66 @@ def post_activity(config: dict[str, Any], payload: dict[str, Any]) -> None:
         return
 
     body = json.dumps(payload).encode("utf-8")
+    url = f"{server_url}/claude-code/activity"
+    headers = {
+        "authorization": f"Bearer {auth_token}",
+        "content-type": "application/json",
+        "x-project-id": project_id,
+    }
+    debug(f"posting activity to {url} project_id={project_id} bytes={len(body)}")
     request = urllib.request.Request(
-        f"{server_url}/claude-code/activity",
+        url,
         data=body,
-        headers={
-            "authorization": f"Bearer {auth_token}",
-            "content-type": "application/json",
-            "x-project-id": project_id,
-        },
+        headers=headers,
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             response.read()
+            debug(f"post success status={response.status}")
     except urllib.error.HTTPError as exc:
         debug(f"server rejected activity: {exc.code} {exc.read().decode('utf-8', 'replace')}")
+    except urllib.error.URLError as exc:
+        debug(f"urllib post failed: {exc}; trying curl")
+        post_activity_with_curl(url, headers, body)
     except OSError as exc:
-        debug(f"could not post activity: {exc}")
+        debug(f"urllib post failed: {exc}; trying curl")
+        post_activity_with_curl(url, headers, body)
+
+
+def post_activity_with_curl(url: str, headers: dict[str, str], body: bytes) -> None:
+    command = [
+        "curl",
+        "--fail-with-body",
+        "--silent",
+        "--show-error",
+        "--request",
+        "POST",
+        url,
+    ]
+    for key, value in headers.items():
+        command.extend(["-H", f"{key}: {value}"])
+    command.extend(["--data-binary", "@-"])
+
+    try:
+        result = subprocess.run(
+            command,
+            input=body,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError as exc:
+        debug(f"curl unavailable or failed to start: {exc}")
+        return
+
+    if result.returncode == 0:
+        debug("post success via curl")
+        return
+
+    stderr = result.stderr.decode("utf-8", "replace").strip()
+    stdout = result.stdout.decode("utf-8", "replace").strip()
+    debug(f"curl post failed exit={result.returncode} stderr={stderr} stdout={stdout[:600]}")
 
 
 def handle_prompt_submit(data: dict[str, Any], repo_root: str, session_id: str) -> None:
@@ -403,9 +446,10 @@ def handle_stop(config: dict[str, Any], data: dict[str, Any], repo_root: str, se
         str(state.get("base_ref") or "") or None,
         list(state.get("untracked_at_prompt") or []),
     )
+    debug(f"stop changed_files={changed_files} diff_chars={len(diff)}")
 
-    if not changed_files and not diff.strip():
-        debug("no file changes detected; skipping post")
+    if not prompt.strip() and not answer.strip() and not diff.strip():
+        debug("no prompt, answer, or diff detected; skipping post")
         return
 
     post_activity(
@@ -440,6 +484,7 @@ def main() -> int:
 
     session_id = safe_session_id(data)
     event = str(data.get("hook_event_name") or "")
+    debug(f"hook event={event} session_id={session_id}")
     try:
         if event == "UserPromptSubmit":
             handle_prompt_submit(data, repo_root, session_id)
