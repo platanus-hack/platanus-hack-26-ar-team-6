@@ -12,10 +12,10 @@ Use local code and bootstrap context first. If a question appears to require tea
 Tool:
 ```text
 request_context(target, question)
-target: user id, "project", or an array containing either
+target: user id or "project"
 question: specific natural-language question for the target context
 ```
 
-V1 behavior: the tool is wired end to end but returns a deterministic placeholder from the server. Treat that placeholder as a signal that the path works, then continue with the best answer supported by local code and bootstrap context.
+Current behavior: the tool calls the shared Relevo server, which retrieves context for the requested user or project and returns an answer with citations when available. If the response says context is insufficient, treat that as a real limit and continue only with what local code and bootstrap context support.
 
 Answer plainly. State uncertainty when the available context is incomplete. Do not claim that remote context was retrieved unless `request_context` returned usable content.

@@ -1,4 +1,4 @@
-export type RequestContextTarget = string | string[];
+export type RequestContextTarget = string;
 
 export type RequestContextInput = {
   target: RequestContextTarget;
@@ -7,8 +7,7 @@ export type RequestContextInput = {
 
 export type RequestContextCitation = {
   claim?: string;
-  context_id?: string;
-  source_type?: string;
+  context_entry_id?: string;
   [key: string]: unknown;
 };
 

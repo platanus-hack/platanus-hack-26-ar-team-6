@@ -16,11 +16,11 @@ def answer_from_context(
     context_entries: list[dict[str, Any]],
     config: AppConfig,
 ) -> str:
-    """Return a grounded answer for request_context.
+    """Return a grounded answer for request_context project fallback.
 
-    If ANTHROPIC_API_KEY is available, use a stateless Messages call. If it is
-    missing or fails, fall back to an extractive answer so the integration path
-    keeps working during the hackathon.
+    User-target requests use Jorf's structured on-demand agent. This fallback
+    remains for project-target requests until the project context lane has its
+    own structured answer contract.
     """
     if not context_entries:
         return (
