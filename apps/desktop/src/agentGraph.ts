@@ -18,10 +18,22 @@ export const AGENT_NETWORK_NODE_ORDER = [
   "updater",
 ] as const;
 
-const CHECKPOINT_MIN_ELAPSED_MS = 3 * 60 * 1000;
+// Demo-friendly defaults. The previous gate of 3 minutes was structurally
+// unable to fire on the first checkpoint of a session because
+// `conversationStartedAt` resets to `Date.now()` on every fresh
+// `runLocalAssistant` invocation (each prompt creates a new graph instance).
+// Two changes below:
+//   1. The first checkpoint of a session ignores the elapsed-time gate
+//      entirely. Once it fires, `lastCheckpointAt` is real and the time
+//      rule applies again.
+//   2. The elapsed threshold is lowered to a value that's reasonable for
+//      both real use and demos.
+const CHECKPOINT_MIN_ELAPSED_MS = 5000;
 const CHECKPOINT_MIN_NEW_MESSAGES = 2;
 const CHECKPOINT_HARD_CAP_MESSAGES = 10;
 export const MEMORY_UPDATE_MESSAGE_THRESHOLD = CHECKPOINT_HARD_CAP_MESSAGES;
+export const MEMORY_UPDATE_MIN_ELAPSED_MS = CHECKPOINT_MIN_ELAPSED_MS;
+export const MEMORY_UPDATE_MIN_NEW_MESSAGES = CHECKPOINT_MIN_NEW_MESSAGES;
 
 export type UserAgentInput = {
   prompt: string;
@@ -113,12 +125,16 @@ export type AgentNetworkState = typeof AgentNetworkAnnotation.State;
 export type AgentNetworkUpdate = typeof AgentNetworkAnnotation.Update;
 type AgentNetworkGraph = CompiledStateGraph<AgentNetworkState, AgentNetworkUpdate, string>;
 
-function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
+export function shouldRunUpdater(state: AgentNetworkState, now: number): boolean {
   const messageCount = state.conversationMessages.length;
   const newMessages = messageCount - state.lastCheckpointMessageCount;
   if (newMessages < CHECKPOINT_MIN_NEW_MESSAGES) return false;
   if (newMessages >= CHECKPOINT_HARD_CAP_MESSAGES) return true;
-  const elapsed = now - (state.lastCheckpointAt ?? state.conversationStartedAt);
+  // First checkpoint of a session: skip the elapsed-time gate. Otherwise
+  // the updater never fires, because `conversationStartedAt` is reset
+  // every time the graph is recreated for a new prompt.
+  if (state.lastCheckpointAt == null) return true;
+  const elapsed = now - state.lastCheckpointAt;
   return elapsed >= CHECKPOINT_MIN_ELAPSED_MS;
 }
 

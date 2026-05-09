@@ -19,7 +19,7 @@ npm run build:mac
 config:
 
 ```env
-VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app
+VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production.up.railway.app
 VITE_ENABLE_HEALTHCHECK=true
 ```
 
