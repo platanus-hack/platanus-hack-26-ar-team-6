@@ -104,6 +104,7 @@ export type RunLocalAssistantOptions = {
   bootstrap: BootstrapContext;
   chatSessionId?: string;
   conversationMessages?: ConversationMessage[];
+  mentionedAgentIds?: string[];
   model?: string;
   maxTurns?: number;
   resumeSessionId?: string;

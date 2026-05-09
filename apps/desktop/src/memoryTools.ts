@@ -1,6 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
+import { createLogger, previewText as previewTextShared, serializeError } from "./logger.js";
 import type {
   ContextPacket,
   MemoryResult,
@@ -8,6 +9,8 @@ import type {
   MemoryUpdateResponse,
   RetrieverRequest,
 } from "./types.js";
+
+const memoryLogger = createLogger("relevo.memory-tools");
 
 export type FetchLike = (
   input: string | URL,
@@ -76,16 +79,10 @@ const commitMemoryUpdateSchema = z.object({
   operations: z.array(memoryUpdateOperationSchema).min(1),
 });
 
-function previewText(text: string, maxLength = 120): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength - 1)}…`;
-}
+const previewText = previewTextShared;
 
 function logMemoryTool(event: string, details: Record<string, unknown>): void {
-  console.info("[relevo.memory-tools]", event, details);
+  memoryLogger.info(event, details);
 }
 
 function clientSummary(options: MemoryClientOptions): Record<string, unknown> {
@@ -126,35 +123,58 @@ async function postJson<T>(
 ): Promise<T> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = endpointUrl(options.serverUrl, path);
-  logMemoryTool("http:request", {
+  const requestBody = JSON.stringify(body);
+  const startedAt = Date.now();
+  memoryLogger.info("http:request", {
     ...clientSummary(options),
+    method: "POST",
     path,
     url,
     summary,
+    requestBytes: requestBody.length,
+    requestBodyPreview: previewText(requestBody, 600),
   });
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: headersFor(options),
-    body: JSON.stringify(body),
-  });
-
-  const responseText = await response.text();
-  if (!response.ok) {
-    logMemoryTool("http:failed", {
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: "POST",
+      headers: headersFor(options),
+      body: requestBody,
+    });
+  } catch (error) {
+    memoryLogger.error("http:transport-error", {
       ...clientSummary(options),
       path,
+      url,
+      elapsedMs: Date.now() - startedAt,
+      error: serializeError(error),
+    });
+    throw error;
+  }
+
+  const responseText = await response.text();
+  const elapsedMs = Date.now() - startedAt;
+  if (!response.ok) {
+    memoryLogger.error("http:failed", {
+      ...clientSummary(options),
+      path,
+      url,
       status: response.status,
       statusText: response.statusText,
-      responsePreview: previewText(responseText, 240),
+      elapsedMs,
+      responseBytes: responseText.length,
+      responseBody: previewText(responseText, 1200),
     });
     throw new Error(`${errorLabel} failed: ${response.status} ${response.statusText}: ${responseText}`);
   }
 
-  logMemoryTool("http:success", {
+  memoryLogger.info("http:success", {
     ...clientSummary(options),
     path,
     status: response.status,
+    elapsedMs,
     responseBytes: responseText.length,
+    responseBodyPreview: previewText(responseText, 600),
   });
   return (responseText ? JSON.parse(responseText) : {}) as T;
 }

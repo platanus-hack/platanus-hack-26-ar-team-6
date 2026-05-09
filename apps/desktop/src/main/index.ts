@@ -78,6 +78,7 @@ type StartAssistantRunPayload = {
   userId: string
   chatSessionId?: string
   conversationMessages?: ConversationMessage[]
+  mentionedAgentIds?: string[]
   model?: string
   maxTurns?: number
 }
