@@ -93,6 +93,20 @@ function TopBar({
             projects
           </button>
         )}
+        {projects.length > 0 && selectedProjectId && onProjectSelect && (
+          <select
+            className="topbar-select"
+            value={selectedProjectId}
+            onChange={(event) => onProjectSelect(event.target.value)}
+            aria-label="Project"
+          >
+            {projects.map((project) => (
+              <option key={project.project_id} value={project.project_id}>
+                {project.project_name}
+              </option>
+            ))}
+          </select>
+        )}
         {onNewProject && (
           <button
             className={`settings-form__button ${isProjectCreateOpen ? '' : 'settings-form__button--primary'}`}
@@ -109,20 +123,6 @@ function TopBar({
         )}
       </div>
       <div className="topbar-group">
-        {projects.length > 0 && selectedProjectId && onProjectSelect && (
-          <select
-            className="topbar-select"
-            value={selectedProjectId}
-            onChange={(event) => onProjectSelect(event.target.value)}
-            aria-label="Project"
-          >
-            {projects.map((project) => (
-              <option key={project.project_id} value={project.project_id}>
-                {project.project_name}
-              </option>
-            ))}
-          </select>
-        )}
         {bootstrapStatus && (
           <div className="topbar-status">
             <span className={`health-indicator ${bootstrapClassName}`} />

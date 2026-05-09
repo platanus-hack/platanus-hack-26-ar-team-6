@@ -58,17 +58,12 @@ function LoginScreen({
   return (
     <main className="auth-page">
       <section className="auth-panel">
-        <div className="auth-panel__header">
-          <h1>Relevo</h1>
-          <p>Sign in to choose a project workspace.</p>
-        </div>
-
+        <h1 className="auth-panel__title">omni</h1>
         <form className="auth-form" onSubmit={handleSubmit}>
           <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
           </button>
         </form>
-
         {displayStatus && <div className="auth-status">{displayStatus}</div>}
       </section>
     </main>

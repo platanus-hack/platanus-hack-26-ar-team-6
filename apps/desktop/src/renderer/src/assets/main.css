@@ -362,7 +362,10 @@ button {
   justify-content: center;
   min-height: 100vh;
   padding: 24px;
-  background: var(--app-bg);
+  background: #f5f5f5;
+  font-family: Inter, Arial, sans-serif;
+  font-size: 14px;
+  color: #0a0a0a;
 }
 
 .project-page {
@@ -375,10 +378,21 @@ button {
 }
 
 .auth-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   width: min(420px, 100%);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
+  padding: 32px 24px;
+}
+
+.auth-panel__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
 }
 
 .project-panel {
@@ -421,7 +435,13 @@ button {
   font-size: 18px;
 }
 
-.auth-form,
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .project-create-form {
   display: flex;
   flex-direction: column;
@@ -547,7 +567,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--surface-subtle);
 }
@@ -563,8 +583,9 @@ button {
   border-radius: 8px;
   background: var(--input-surface);
   color: var(--text-primary);
-  padding: 7px 8px;
+  padding: 4px 8px;
   font: inherit;
+  font-size: 13px;
 }
 
 .member-management__status {

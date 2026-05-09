@@ -286,7 +286,7 @@ function ChatView({
         {messages.map((message) => (
           <div key={message.id} className={`chat-msg chat-msg--${message.role}`}>
             <div className="chat-msg__header">
-              <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'obni'}</span>
+              <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
             </div>
             <div className="chat-msg__text">{renderMessageText(message.text)}</div>
           </div>
