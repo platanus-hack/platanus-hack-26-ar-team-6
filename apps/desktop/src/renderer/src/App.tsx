@@ -5,6 +5,7 @@ import Sidebar, { type SidebarAgent } from './components/Sidebar'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
 import agents from './fixtures/agents.json'
+import useWorkspaceStore from './stores/workspaceStore'
 import ChatView from './views/ChatView'
 import PoolView from './views/PoolView'
 import TasksView from './views/TasksView'
@@ -35,6 +36,9 @@ function App(): React.JSX.Element {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const authToken = import.meta.env.VITE_AUTH_TOKEN || ''
   const userId = import.meta.env.VITE_USER_ID || 'user1'
+  const workspaces = useWorkspaceStore((state) => state.workspaces)
+  const currentWorkspaceId = useWorkspaceStore((state) => state.currentWorkspaceId)
+  const goHome = useWorkspaceStore((state) => state.goHome)
 
   const bootstrapQuery = useQuery({
     queryKey: ['bootstrap', apiBaseUrl, authToken, userId],
@@ -42,7 +46,8 @@ function App(): React.JSX.Element {
     queryFn: (): Promise<BootstrapResponse> => window.api.getBootstrap({ apiBaseUrl, authToken, userId })
   })
 
-  const workspaceName = bootstrapQuery.data?.project?.name || 'main'
+  const workspaceName =
+    workspaces.find((workspace) => workspace.id === currentWorkspaceId)?.name ?? bootstrapQuery.data?.project?.name ?? 'main'
   const bootstrapStatus: 'live' | 'fallback' = bootstrapQuery.data ? 'live' : 'fallback'
   const bootstrapError =
     bootstrapQuery.error instanceof Error ? `bootstrap failed: ${bootstrapQuery.error.message}` : null
@@ -105,7 +110,7 @@ function App(): React.JSX.Element {
 
   return (
     <div className="app-shell">
-      <TopBar workspaceName={workspaceName} bootstrapStatus={bootstrapStatus} />
+      <TopBar workspaceName={workspaceName} onBack={goHome} bootstrapStatus={bootstrapStatus} />
 
       <div className="app-body">
         <Sidebar agents={roster} currentUserId={userId} />

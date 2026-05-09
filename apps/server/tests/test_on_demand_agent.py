@@ -50,6 +50,16 @@ class FakeClient:
         self.messages = FakeMessages(text)
 
 
+class FailingMessages:
+    def create(self, **kwargs):
+        raise RuntimeError("network down")
+
+
+class FailingClient:
+    def __init__(self) -> None:
+        self.messages = FailingMessages()
+
+
 def make_context_slice(entries: list[ContextSliceEntry] | None = None) -> OnDemandContextSlice:
     return OnDemandContextSlice(
         target=ContextSliceTarget(
@@ -180,6 +190,14 @@ class OnDemandAgentTest(unittest.TestCase):
                 make_context_slice(),
                 "Where is the server deployed?",
                 client=client,
+            )
+
+    def test_client_call_failure_raises_clear_agent_error(self) -> None:
+        with self.assertRaisesRegex(OnDemandAgentError, "call failed"):
+            answer_on_demand(
+                make_context_slice(),
+                "Where is the server deployed?",
+                client=FailingClient(),
             )
 
 

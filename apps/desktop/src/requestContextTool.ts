@@ -18,7 +18,7 @@ export type RequestContextClientOptions = {
 const targetSchema = z.string().min(1);
 
 export const requestContextInputSchema = z.object({
-  target: targetSchema.describe("Target teammate user_id (UUID)."),
+  target: targetSchema.describe('User id or "project".'),
   question: z.string().min(1).describe("Specific natural-language question for the target context."),
 });
 

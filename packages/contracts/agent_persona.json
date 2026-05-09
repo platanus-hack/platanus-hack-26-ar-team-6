@@ -1,32 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://relevo.local/contracts/agent_persona.json",
-  "title": "AgentPersona",
-  "description": "Persona contract for a delegated worker agent in the Relevo workspace.",
+  "$id": "https://relevo.local/contracts/user_context_profile.json",
+  "title": "UserContextProfile",
+  "description": "Seed profile contract for a Relevo user whose stored context can be bootstrapped locally or queried by request_context.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "agent_id",
-    "person_id",
+    "key",
     "display_name",
+    "domain_summary",
+    "auth_token",
     "voice",
     "domain"
   ],
   "properties": {
-    "agent_id": {
+    "key": {
       "type": "string",
-      "format": "uuid",
-      "description": "Stable identifier for this worker-tied agent."
-    },
-    "person_id": {
-      "type": "string",
-      "format": "uuid",
-      "description": "Stable identifier for the human worker/person this agent is tied to."
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "description": "Stable seed handle used by context seed files. Runtime UUIDs are assigned by the database."
     },
     "display_name": {
       "type": "string",
       "minLength": 1,
-      "description": "Human-readable worker name the agent is tied to."
+      "description": "Human-readable name shown in bootstrap roster entries."
+    },
+    "domain_summary": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Brief ownership summary stored on app_user.domain_summary."
+    },
+    "auth_token": {
+      "type": "string",
+      "minLength": 8,
+      "description": "Demo bearer token used by the local app to identify this user."
     },
     "voice": {
       "type": "object",
@@ -43,7 +50,7 @@
         },
         "first_person": {
           "type": "boolean",
-          "description": "Whether the agent may use first person for claims grounded in personal-tier memory."
+          "description": "Whether generated answers may use first person when grounded in this user's stored context."
         },
         "signature_phrases": {
           "type": "array",
@@ -82,46 +89,17 @@
           "type": "string",
           "minLength": 20,
           "maxLength": 280,
-          "description": "One or two precise sentences used by the router to decide whether to involve this agent."
-        }
-      }
-    },
-    "collaboration": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "handoff_triggers",
-        "suggested_peer_tags"
-      ],
-      "properties": {
-        "handoff_triggers": {
-          "type": "array",
-          "description": "Situations where this agent should suggest involving another worker-tied agent.",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 0,
-          "uniqueItems": true
-        },
-        "suggested_peer_tags": {
-          "type": "array",
-          "description": "Domain tags to suggest before the full agent roster is stable.",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 0,
-          "uniqueItems": true
+          "description": "One or two precise sentences used in bootstrap roster entries and on-demand context answering."
         }
       }
     }
   },
   "examples": [
     {
-      "agent_id": "55d836df-2efb-4edc-b28c-fea517852e05",
-      "person_id": "3a835ae5-3d9c-4a76-a170-a4c278b2f8b9",
+      "key": "jorf",
       "display_name": "Jorf",
+      "domain_summary": "Owns local assistant prompts, request-context tool contracts, and on-demand answer behavior.",
+      "auth_token": "dev-token-jorf",
       "voice": {
         "tone": "Direct, pragmatic, and coordination-focused; challenges weak assumptions without derailing delivery.",
         "first_person": true,
@@ -131,25 +109,13 @@
         ]
       },
       "domain": {
-        "primary": "Agent persona contracts and runtime prompts",
+        "primary": "Agent runtime prompts",
         "tags": [
           "agent-runtime",
-          "persona-contracts",
-          "prompting",
-          "coordination"
+          "profile-contracts",
+          "prompting"
         ],
-        "expertise_summary": "Owns the worker-agent persona contract and system prompt behavior. Useful for questions about agent voice, cited answers, and agent-to-agent handoffs."
-      },
-      "collaboration": {
-        "handoff_triggers": [
-          "Router behavior or eval expectations are unclear.",
-          "Retrieved memory shape affects prompt inputs."
-        ],
-        "suggested_peer_tags": [
-          "routing",
-          "memory",
-          "synthesis"
-        ]
+        "expertise_summary": "Owns the local assistant prompt, request-context tool contract, and on-demand context answer template."
       }
     }
   ]

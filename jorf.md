@@ -1,73 +1,63 @@
-# Jorf — V2 Task: On-Demand Agent + Retrieval Glue
+# Jorf — V3 Task: Agent + Retrieval Stretch
 
 > Read [goal.md](goal.md) and [plan.md](plan.md) first. This file scopes
-> Jorf's lane in V2.
+> Jorf's lane in V3.
 
 ## Lane
 
-The on-demand agent that the server spins up to answer cross-user
-questions. Given a retrieved slice of a target user's context plus a
-question, produce a grounded answer. This is the "queried user's agent"
-in goal.md's flow.
+The on-demand agent and retrieval, extended past V2's single-target,
+single-hop, recency-only baseline. V3 only happens if V2 is green at
+h20; otherwise jump to V4 hardening.
 
-You also own the agent's system prompt and any retrieval-quality
-tweaks that come out of V2 testing.
+You own the agent module (`relevo.agents.on_demand`), the agent system
+prompt, and retrieval quality. You do not own routing (Narf), the
+client tool (Jerf), the schema (Sarf), or the desktop UI (Marf).
 
-You do not own: HTTP routing (Narf), the schema (Sarf), the client-side
-tool registration (Jerf), the desktop UI (Marf). You own a function the
-server imports.
+## V2 baseline you inherit
 
-## Coordination
+- `answer_on_demand(slice, question)` returns `{answer,
+  source_user_ids, citations, confidence, insufficient_context}`.
+- Slice = top-N most-recent `context_entries` for one target user.
+- `POST /request_context` accepts a single `target = user_id` and runs
+  one stateless LLM call.
 
-- Pair with Narf at h0 on the function signature: what shape of slice
-  comes in, what shape of answer goes out.
-- Pair with Jerf at h0 on the `POST /request_context` payload contract
-  (your output is part of that response).
-- Pair with Sarf early to confirm the slice shape returned by retrieval
-  matches what your prompt expects.
+V3 expands all three.
 
-## Starting state
+## Pick from this list (only what V2 failures actually demand)
 
-`prompts/agent_system.md` is the most salvageable piece in the V0
-codebase. It already expects retrieval + citation. Strip the multi-agent
-coordination language and the `handoff` field; rebind variables to the
-on-demand agent's context (a slice of one target user's DB).
-
-## Deliverables
-
-1. **On-demand agent module.** A function the server's `POST
-   /request_context` handler can call: `(slice, question) → {answer,
-   source_user_ids}`. Stateless LLM call with the slice inlined into
-   the prompt is fine for V2 — no sub-agent process needed.
-2. **Reworked `prompts/agent_system.md`** for the on-demand agent role.
-3. **Retrieval glue (with Narf).** If V2 testing shows retrieval is
-   pulling the wrong slice, tune top-k, embedding strategy, or filter
-   metadata. Joint lane with Narf.
-4. **Citations.** `source_user_ids` is required. Citing specific
-   `context_entries` rows is nice-to-have.
+1. **Vector retrieval.** Replace the V2 recency baseline with a real
+   pgvector query against the question's embedding. Pair with whoever
+   wires the embedding model on the server side.
+2. **`target = "project"`.** Agent prompt and retrieval glue for the
+   shared project context. Same answer-shape contract; the slice just
+   has `project_id` rows instead of one user's rows.
+3. **Multi-target consolidation.** When `target = [user2, "project"]`,
+   pick a strategy: single agent over a combined slice, or parallel
+   agents + merge. Document the choice. Single-agent-combined is
+   simpler; default to that unless V2 evidence says otherwise.
+4. **Multi-hop prompt.** Allow the asking user's AI to call
+   `request_context` more than once per turn with a clean termination
+   signal. Coordinate with Jerf on the tool-result shape; you only
+   own the prompt-side instructions, not the loop control.
+5. **Retrieval-quality fixes.** Drive these from V2 eval failures, not
+   from speculation. Examples: top-k tuning, metadata filtering by
+   `kind`, dedup of near-identical rows.
 
 ## Decisions you own
 
-Model choice, prompt structure, citation format, top-k retrieval depth.
-Pick defaults that work and document them in the PR. Don't bikeshed.
+Top-k value, embedding model selection (align with whatever Sarf seeded
+with), consolidation strategy, prompt phrasing for multi-hop. Pick
+defaults and document inline.
 
-## Out of scope for V2
+## Out of scope for V3
 
-- Multi-target consolidation (V3 stretch).
-- Project-context grounding (V3 stretch).
-- Sub-agent processes / persistent agent state.
-- Eval harness population (P2).
-
-## PR note for V3
-
-- Desktop currently has a renderer-side duplicate guard because the local
-  runner can emit streamed assistant text and then the completed assistant
-  message as another `assistant_text` event. V3 should make the runner event
-  contract explicit, e.g. separate delta/final events or suppress the final
-  full-text event after streaming, so the renderer does not need this heuristic.
+- IPC event contract for the renderer (Marf's lane, separate V3 item).
+- Closure write changes (Jerf still owns).
+- New schema columns (Sarf).
 
 ## Done when
 
-V2 converge in plan.md §8 passes: User1 prompts something only User2's
-context can answer, the server retrieves User2's slice, your agent
-answers grounded in that slice, the answer cites User2 as a source.
+V2 smoke tests still pass. Whichever V3 items you pick are demoable
+end-to-end on the deployed server with at least one eval-style case
+showing the V2 baseline could not have answered as well. If you only
+land item 1 (vector retrieval) and skip 2–5, that is fine.
