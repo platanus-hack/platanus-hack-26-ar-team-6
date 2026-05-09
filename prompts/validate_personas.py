@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate seeded agent personas against the shared JSON Schema contract."""
+"""Validate seeded user context profiles against the shared JSON Schema."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ try:
     from jsonschema.exceptions import ValidationError
 except ModuleNotFoundError as error:
     print(
-        "Missing Python dependency for persona validation. "
+        "Missing Python dependency for profile validation. "
         "Install PyYAML and jsonschema, then rerun python3 prompts/validate_personas.py. "
         f"Original error: {error}",
         file=sys.stderr,
@@ -24,7 +24,7 @@ except ModuleNotFoundError as error:
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = REPO_ROOT / "packages" / "contracts" / "agent_persona.json"
-PERSONAS_PATH = REPO_ROOT / "seeds" / "personas.yaml"
+PROFILES_PATH = REPO_ROOT / "seeds" / "personas.yaml"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -48,17 +48,17 @@ def format_error(label: str, error: ValidationError) -> str:
     return f"{location}: {error.message}"
 
 
-def add_unique_value_errors(personas: list[Any], field: str, errors: list[str]) -> None:
+def add_unique_value_errors(profiles: list[Any], field: str, errors: list[str]) -> None:
     seen: dict[str, int] = {}
-    for index, persona in enumerate(personas):
-        if not isinstance(persona, dict):
+    for index, profile in enumerate(profiles):
+        if not isinstance(profile, dict):
             continue
-        value = persona.get(field)
+        value = profile.get(field)
         if not isinstance(value, str):
             continue
         key = value.strip().lower()
         if key in seen:
-            errors.append(f"personas[{index}]/{field}: duplicates personas[{seen[key]}]/{field}")
+            errors.append(f"profiles[{index}]/{field}: duplicates profiles[{seen[key]}]/{field}")
         else:
             seen[key] = index
 
@@ -67,28 +67,27 @@ def main() -> int:
     schema = load_json(SCHEMA_PATH)
     Draft202012Validator.check_schema(schema)
 
-    personas = load_yaml(PERSONAS_PATH)
+    profiles = load_yaml(PROFILES_PATH)
 
-    if not isinstance(personas, list):
-        print(f"{PERSONAS_PATH}: expected a top-level YAML list of personas", file=sys.stderr)
+    if not isinstance(profiles, list):
+        print(f"{PROFILES_PATH}: expected a top-level YAML list of profiles", file=sys.stderr)
         return 1
-    if not personas:
-        print(f"{PERSONAS_PATH}: expected at least one persona", file=sys.stderr)
+    if not profiles:
+        print(f"{PROFILES_PATH}: expected at least one profile", file=sys.stderr)
         return 1
 
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
     errors: list[str] = []
 
-    for index, persona in enumerate(personas):
-        persona_errors = sorted(
-            validator.iter_errors(persona),
+    for index, profile in enumerate(profiles):
+        profile_errors = sorted(
+            validator.iter_errors(profile),
             key=lambda error: list(error.absolute_path),
         )
-        errors.extend(format_error(f"personas[{index}]", error) for error in persona_errors)
+        errors.extend(format_error(f"profiles[{index}]", error) for error in profile_errors)
 
-    add_unique_value_errors(personas, "agent_id", errors)
-    add_unique_value_errors(personas, "person_id", errors)
-    add_unique_value_errors(personas, "display_name", errors)
+    add_unique_value_errors(profiles, "user_id", errors)
+    add_unique_value_errors(profiles, "display_name", errors)
 
     examples = schema.get("examples", [])
     if not isinstance(examples, list):
@@ -102,12 +101,12 @@ def main() -> int:
             errors.extend(format_error(f"schema/examples[{index}]", error) for error in example_errors)
 
     if errors:
-        print("Persona validation failed:", file=sys.stderr)
+        print("Profile validation failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    print(f"Validated {len(personas)} persona(s) against {SCHEMA_PATH.relative_to(REPO_ROOT)}")
+    print(f"Validated {len(profiles)} profile(s) against {SCHEMA_PATH.relative_to(REPO_ROOT)}")
     return 0
 
 

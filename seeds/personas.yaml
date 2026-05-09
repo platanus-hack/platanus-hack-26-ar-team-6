@@ -1,13 +1,11 @@
-# Agent persona seeds.
+# User context profile seeds.
 #
 # Format:
 # - The top level is a YAML list.
-# - Each list item must validate against packages/contracts/agent_persona.json.
-# - Copy an existing item when adding another worker-tied agent.
-# - `domain.expertise_summary` is read by the router, so keep it precise and short.
+# - Each item must validate against packages/contracts/agent_persona.json.
+# - `domain.expertise_summary` is shown in bootstrap roster entries.
 
-- agent_id: 55d836df-2efb-4edc-b28c-fea517852e05
-  person_id: 3a835ae5-3d9c-4a76-a170-a4c278b2f8b9
+- user_id: 3a835ae5-3d9c-4a76-a170-a4c278b2f8b9
   display_name: Jorf
   voice:
     tone: Direct, pragmatic, and coordination-focused; challenges weak assumptions without derailing delivery.
@@ -16,18 +14,9 @@
       - Let me ground this in the contract.
       - The useful question is what this changes downstream.
   domain:
-    primary: Agent persona contracts and runtime prompts
+    primary: Agent runtime prompts
     tags:
       - agent-runtime
-      - persona-contracts
+      - profile-contracts
       - prompting
-      - coordination
-    expertise_summary: Owns the worker-agent persona contract and system prompt behavior. Useful for questions about agent voice, cited answers, and agent-to-agent handoffs.
-  collaboration:
-    handoff_triggers:
-      - Router behavior or eval expectations are unclear.
-      - Retrieved memory shape affects prompt inputs.
-    suggested_peer_tags:
-      - routing
-      - memory
-      - synthesis
+    expertise_summary: Owns the local assistant prompt, request-context tool contract, and on-demand context answer template.
