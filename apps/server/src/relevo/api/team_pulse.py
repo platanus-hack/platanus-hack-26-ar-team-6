@@ -175,6 +175,10 @@ class TeamPulseRefreshRequest(BaseModel):
     buckets: int = Field(default=DEFAULT_BUCKET_COUNT, gt=0, le=MAX_BUCKET_COUNT)
     summaries: list[PulseSummaryInput] = Field(default_factory=list)
     responsibilities: list[ResponsibilityInput] = Field(default_factory=list)
+    # When true, ignore the per-user responsibility debounce. The desktop
+    # client sets this on explicit refresh-button clicks so the demo cycle
+    # is fast: every click writes a fresh responsibility doc.
+    force_responsibility: bool = Field(default=False)
 
 
 class TeamPulseRefreshResponse(BaseModel):
@@ -376,7 +380,8 @@ def refresh_team_pulse(
             conn, project_id=project_id, author_agent_id=entry.agent_id
         )
         if (
-            last_updated is not None
+            not body.force_responsibility
+            and last_updated is not None
             and (_now_utc() - last_updated).total_seconds() < RESPONSIBILITY_DEBOUNCE_SECONDS
         ):
             skipped_responsibility_agent_ids.append(entry.agent_id)
