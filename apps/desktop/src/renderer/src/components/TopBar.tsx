@@ -7,26 +7,37 @@ type HealthResponse = {
 
 type TopBarProps = {
   workspaceName: string
+  serverBaseUrl: string
+  projects?: Array<{ project_id: string; project_name: string }>
+  selectedProjectId?: string | null
+  accountEmail?: string | null
   onBack?: () => void
-  bootstrapStatus?: 'live' | 'fallback'
+  bootstrapStatus?: 'live' | 'loading' | 'error'
   anthropicKeyConfigured?: boolean
   onSettings?: () => void
+  onProjectSelect?: (projectId: string) => void
+  onLogout?: () => void
 }
 
 function TopBar({
   workspaceName,
+  serverBaseUrl,
+  projects = [],
+  selectedProjectId,
+  accountEmail,
   onBack,
   bootstrapStatus,
   anthropicKeyConfigured,
-  onSettings
+  onSettings,
+  onProjectSelect,
+  onLogout
 }: TopBarProps): React.JSX.Element {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
   const { data, isError } = useQuery({
-    queryKey: ['health', apiBaseUrl],
+    queryKey: ['health', serverBaseUrl],
     enabled: isHealthcheckEnabled,
-    queryFn: (): Promise<HealthResponse> => window.api.getHealth(apiBaseUrl)
+    queryFn: (): Promise<HealthResponse> => window.api.getHealth(serverBaseUrl)
   })
 
   const isHealthy = isHealthcheckEnabled && data?.status === 'ok' && !isError
@@ -37,11 +48,25 @@ function TopBar({
     <header className="topbar">
       {onBack && (
         <button className="topbar-back" type="button" onClick={onBack}>
-          back
+          projects
         </button>
       )}
       <span>relevo</span>
       <span>workspace: {workspaceName}</span>
+      {projects.length > 0 && selectedProjectId && onProjectSelect && (
+        <select
+          className="topbar-select"
+          value={selectedProjectId}
+          onChange={(event) => onProjectSelect(event.target.value)}
+          aria-label="Project"
+        >
+          {projects.map((project) => (
+            <option key={project.project_id} value={project.project_id}>
+              {project.project_name}
+            </option>
+          ))}
+        </select>
+      )}
       {bootstrapStatus && (
         <>
           <span className={`health-indicator ${isBootstrapLive ? 'health-indicator--ok' : 'health-indicator--off'}`} />
@@ -56,9 +81,15 @@ function TopBar({
       )}
       <span className={`health-indicator ${isHealthy ? 'health-indicator--ok' : 'health-indicator--off'}`} />
       <span title={data?.sha || ''}>{healthText}</span>
+      {accountEmail && <span className="topbar-account">{accountEmail}</span>}
       {onSettings && (
         <button className="topbar-button" type="button" onClick={onSettings}>
           settings
+        </button>
+      )}
+      {onLogout && (
+        <button className="topbar-button" type="button" onClick={onLogout}>
+          logout
         </button>
       )}
     </header>

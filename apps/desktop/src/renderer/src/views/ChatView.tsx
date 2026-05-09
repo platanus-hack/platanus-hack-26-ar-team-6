@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import useChatStore from '../stores/chatStore'
-import useWorkspaceStore from '../stores/workspaceStore'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
 
@@ -15,8 +14,8 @@ type RunnerBootstrapPayload = {
 }
 
 type ChatViewProps = {
-  apiBaseUrl: string
-  authToken: string
+  workspaceId: string
+  userId: string
   bootstrap: RunnerBootstrapPayload
   isAssistantConfigured: boolean
   onConfigureAssistant: () => void
@@ -83,13 +82,12 @@ function renderMessageText(text: string): React.ReactNode {
 }
 
 function ChatView({
-  apiBaseUrl,
-  authToken,
+  workspaceId,
+  userId,
   bootstrap,
   isAssistantConfigured,
   onConfigureAssistant
 }: ChatViewProps): React.JSX.Element {
-  const currentWorkspaceId = useWorkspaceStore((state) => state.currentWorkspaceId)
   const messagesByWorkspace = useChatStore((state) => state.messagesByWorkspace)
   const toolTraceByWorkspace = useChatStore((state) => state.toolTraceByWorkspace)
   const saveStatusByWorkspace = useChatStore((state) => state.saveStatusByWorkspace)
@@ -109,7 +107,6 @@ function ChatView({
   const activeAssistantIdRef = useRef<string | null>(null)
   const activePromptRef = useRef('')
   const hasAssistantTextRef = useRef(false)
-  const workspaceId = currentWorkspaceId ?? 'default'
   const messages = messagesByWorkspace[workspaceId] ?? []
   const toolTrace = toolTraceByWorkspace[workspaceId] ?? []
   const saveStatus = saveStatusByWorkspace[workspaceId] ?? null
@@ -174,27 +171,21 @@ function ChatView({
         setIsRunning(false)
         setRunStatus(workspaceId, null)
 
-        if (!authToken.trim()) {
-          setSaveStatus(workspaceId, 'not saved: missing auth token')
-        } else {
-          void window.api
-            .savePromptAnswer({
-              apiBaseUrl,
-              authToken,
-              prompt: activePromptRef.current,
-              finalAnswer: event.result,
-              metadata: {
-                source: 'desktop-app'
-              }
-            })
-            .then(() => {
-              setSaveStatus(workspaceId, 'saved')
-            })
-            .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : 'save failed'
-              setSaveStatus(workspaceId, `save failed: ${message}`)
-            })
-        }
+        void window.api
+          .savePromptAnswer({
+            prompt: activePromptRef.current,
+            finalAnswer: event.result,
+            metadata: {
+              source: 'desktop-app'
+            }
+          })
+          .then(() => {
+            setSaveStatus(workspaceId, 'saved')
+          })
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : 'save failed'
+            setSaveStatus(workspaceId, `save failed: ${message}`)
+          })
 
         activeAssistantIdRef.current = null
         activePromptRef.current = ''
@@ -221,9 +212,7 @@ function ChatView({
     })
   }, [
     addToolTraceEntry,
-    apiBaseUrl,
     appendMessageText,
-    authToken,
     rosterById,
     setMessageText,
     setSaveStatus,
@@ -250,7 +239,6 @@ function ChatView({
     const userMessageId = Date.now().toString()
     const assistantMessageId = `${userMessageId}-assistant`
     const repoPath = import.meta.env.VITE_LOCAL_REPO_PATH || '.'
-    const userId = import.meta.env.VITE_USER_ID || 'user1'
 
     addMessage(workspaceId, { id: userMessageId, role: 'user', text })
     startAssistantMessage(workspaceId, assistantMessageId)
@@ -269,9 +257,7 @@ function ChatView({
         prompt: text,
         cwd: repoPath,
         bootstrap,
-        serverUrl: apiBaseUrl,
-        userId,
-        authToken
+        userId
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'unknown runner error'

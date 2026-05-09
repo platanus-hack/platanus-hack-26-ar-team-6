@@ -12,6 +12,7 @@ export type RequestContextClientOptions = {
   serverUrl: string;
   userId: string;
   authToken?: string;
+  projectId?: string;
   fetchImpl?: FetchLike;
 };
 
@@ -34,6 +35,9 @@ function headersFor(options: RequestContextClientOptions): Record<string, string
 
   if (options.authToken) {
     headers.authorization = `Bearer ${options.authToken}`;
+  }
+  if (options.projectId) {
+    headers["x-project-id"] = options.projectId;
   }
 
   return headers;

@@ -25,20 +25,35 @@ Jerf depend on. If you change anything here, sync with them.
    `project_context_entry(kind='project_qa')` plus an audit row in
    `project_qa_ledger`. The user-target `qa_ledger` FK constraints stay
    unchanged.
+6. **Google account login is separate from project persona**. `account` is
+   the real login identity. `app_user` remains the project-scoped membership
+   and persona row, so one Google account can have different `app_user.id`,
+   `role`, and `domain_summary` in different projects.
 
 ## Schema
 
-See [`migrations/0001_init.sql`](../../../../migrations/0001_init.sql).
+See [`migrations/0001_init.sql`](../../../../migrations/0001_init.sql),
+[`migrations/0002_v3_project_context.sql`](../../../../migrations/0002_v3_project_context.sql),
+and [`migrations/0003_accounts_projects_login.sql`](../../../../migrations/0003_accounts_projects_login.sql).
 
 Tables:
 
 - **`project`** — one row for the demo. Other tables FK to it.
+- **`account`** — Google login identity with `google_sub`, email fields,
+  display name, avatar, verification flag, creation time, and last login.
+- **`account_session`** — opaque account sessions. Only `token_hash` is stored;
+  raw session tokens exist only in the client and request headers.
+- **`oauth_login_state`** — short-lived Google OAuth state records containing
+  CSRF state plus desktop redirect information.
+- **`desktop_login_exchange`** — short-lived one-time codes returned to the
+  desktop deep link and exchanged for an account session.
 - **`schema_migration`** — versioned SQL migration history. Existing demo DBs
   that predate this table are baselined at `0001`, then receive `0002` and
   later migrations through `AUTO_MIGRATE=1`.
-- **`app_user`** — one row per user. Holds `auth_token` (Narf's bearer
-  auth), `domain_summary` (one-line role description), and `profile`
-  JSONB (denormalized voice + domain blocks for Jorf's on-demand agent).
+- **`app_user`** — one row per project membership/persona. Holds optional
+  legacy `auth_token`, optional `account_id`, `role`, `domain_summary`, and
+  `profile` JSONB. `(project_id, account_id)` is unique for non-null
+  `account_id`, and legacy `auth_token` stays unique only when non-null.
 - **`context_entry`** — per-user content. `kind` is one of `seed`,
   `prompt_answer`, `cross_user_qa`, `project_qa`. Append-only. `project_qa`
   is only used by `project_context_entry`.
@@ -63,7 +78,21 @@ Key functions and their return shapes:
   local-AI prompt embeds the user, project, and roster into the AI's
   initial context.
 - `get_user_by_token(conn, token) -> dict | None` — Narf's auth
-  middleware uses this.
+  middleware uses this for legacy seeded tokens.
+- `get_account_by_session_token(conn, token) -> dict | None` — account-session
+  auth path. It hashes the supplied opaque token and ignores expired or revoked
+  sessions.
+- `get_project_memberships_for_account(conn, account_id) -> list[dict]` —
+  returns the project picker rows: project id/name/description plus membership
+  `user_id`, `display_name`, `domain_summary`, and `role`.
+- `get_project_membership_for_account(conn, account_id, project_id) -> dict | None`
+  — resolves the current account's `app_user` membership for a selected project.
+- `create_project_for_account(conn, account_id, name, ...) -> dict` — creates a
+  project and the account's first `leader` membership.
+- `delete_project_by_id(conn, project_id) -> bool` — deletes a project row.
+  Project-owned data is removed by `ON DELETE CASCADE` foreign keys.
+- `add_existing_account_to_project(conn, project_id, account_id, ...) -> dict`
+  — creates a `member` membership for an account that already exists.
 - `get_user_directory(conn, project_id) -> list[dict]` — Jerf's eval
   fixtures and the roster both consume this.
 - `write_prompt_answer_entry(conn, user_id, prompt, final_answer, …) -> UUID`
