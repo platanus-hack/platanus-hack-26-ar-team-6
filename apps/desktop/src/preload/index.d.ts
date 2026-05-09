@@ -123,6 +123,18 @@ type DesktopSettingsResponse = {
   selectedProjectId: string | null
   projectFolders: Record<string, string>
   selectedProjectFolderPath: string | null
+  activityGraphEnabled: boolean
+}
+
+type ActivityNote = {
+  id: string
+  date: string
+  user: string
+  userEmail: string
+  project: string
+  title: string
+  wikilinks: string[]
+  filesChanged: string[]
 }
 
 type DesktopAccountSummary = {
@@ -180,8 +192,13 @@ interface DesktopApi {
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
   getBootstrap: () => Promise<BootstrapResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
+  loadConversation: (workspaceId: string) => Promise<{ sessionId: string | null; messages: Array<{ id: string; role: 'user' | 'assistant'; text: string }> }>
+  saveConversation: (workspaceId: string, data: { sessionId: string | null; messages: Array<{ id: string; role: 'user' | 'assistant'; text: string }> }) => Promise<void>
+  clearConversation: (workspaceId: string) => Promise<void>
   onAuthEvent: (callback: (event: AuthEvent) => void) => () => void
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
+  toggleActivityGraph: (enabled: boolean) => Promise<DesktopSettingsResponse>
+  getActivityNotes: (projectFolderPath: string) => Promise<ActivityNote[]>
 }
 
 declare global {
