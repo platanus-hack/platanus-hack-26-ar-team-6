@@ -7,7 +7,14 @@ import psycopg
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from relevo.agent import answer_from_context
+from relevo.agents import (
+    ContextSliceEntry,
+    ContextSliceTarget,
+    OnDemandAgentAnswer,
+    OnDemandAgentError,
+    OnDemandContextSlice,
+    answer_on_demand,
+)
 from relevo.db import (
     connect,
     get_bootstrap,
@@ -77,12 +84,21 @@ class RetrievedContextEntry(BaseModel):
     created_at: Any
 
 
+class ContextEntryCitationOut(BaseModel):
+    claim: str
+    context_entry_id: str
+
+
 class RequestContextResponse(BaseModel):
     answer: str
     source_user_ids: list[UUID]
     target_user_id: UUID
     context_entry_id: UUID
     retrieved_context_entries: list[RetrievedContextEntry]
+    source_context_entry_ids: list[str]
+    citations: list[ContextEntryCitationOut]
+    confidence: float
+    insufficient_context: bool
 
 
 router = APIRouter()
@@ -100,6 +116,7 @@ def _extract_token(
         if authorization.strip():
             return authorization.strip()
     return x_user_token or x_auth_token
+
 
 def get_db() -> Iterator[psycopg.Connection]:
     with connect() as conn:
@@ -188,30 +205,47 @@ def request_context(
             detail="Target user is not in the authenticated user's project",
         )
 
-    retrieved = retrieve_user_context(conn, target_user_id, body.question, limit=6)
-    answer = answer_from_context(
-        question=body.question,
-        target_user=target_user,
-        context_entries=retrieved,
-        config=request.app.state.config,
+    on_demand_config = request.app.state.config.on_demand_agent
+    retrieved = retrieve_user_context(
+        conn,
+        target_user_id,
+        body.question,
+        limit=on_demand_config.retrieval_top_k,
     )
+    context_slice = _build_on_demand_context_slice(target_user, retrieved)
+    try:
+        answer = answer_on_demand(
+            context_slice,
+            body.question,
+            config=on_demand_config,
+        )
+    except OnDemandAgentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"on-demand agent failed: {exc}",
+        ) from exc
+
+    answer_metadata = _answer_metadata(body.metadata, retrieved, answer)
     context_entry_id = write_cross_user_qa_entry(
         conn,
         target_user_id=target_user_id,
         asker_user_id=current_user["id"],
         question=body.question,
-        answer=answer,
-        extra_metadata={
-            **body.metadata,
-            "retrieved_context_entry_ids": [str(row["id"]) for row in retrieved],
-        },
+        answer=answer.answer,
+        extra_metadata=answer_metadata,
     )
     return RequestContextResponse(
-        answer=answer,
-        source_user_ids=[target_user_id],
+        answer=answer.answer,
+        source_user_ids=answer.source_user_ids,
         target_user_id=target_user_id,
         context_entry_id=context_entry_id,
         retrieved_context_entries=[RetrievedContextEntry(**row) for row in retrieved],
+        source_context_entry_ids=answer_metadata["source_context_entry_ids"],
+        citations=[
+            ContextEntryCitationOut(**citation.model_dump()) for citation in answer.citations
+        ],
+        confidence=answer.confidence,
+        insufficient_context=answer.insufficient_context,
     )
 
 
@@ -226,3 +260,54 @@ def _resolve_target_user_id(body: RequestContextRequest) -> UUID:
         return UUID(body.target)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="target must be a user UUID") from exc
+
+
+def _build_on_demand_context_slice(
+    target_user: dict[str, Any],
+    retrieved: list[dict[str, Any]],
+) -> OnDemandContextSlice:
+    target_user_id = target_user["id"]
+    return OnDemandContextSlice(
+        target=ContextSliceTarget(
+            id=target_user_id,
+            display_name=target_user["display_name"],
+            domain_summary=target_user.get("domain_summary"),
+            profile=target_user.get("profile") or {},
+        ),
+        entries=[
+            ContextSliceEntry(
+                id=row["id"],
+                user_id=target_user_id,
+                kind=row["kind"],
+                content=row["content"],
+                metadata=row.get("metadata") or {},
+                created_at=row.get("created_at"),
+            )
+            for row in retrieved
+        ],
+    )
+
+
+def _answer_metadata(
+    request_metadata: dict[str, Any],
+    retrieved: list[dict[str, Any]],
+    answer: OnDemandAgentAnswer,
+) -> dict[str, Any]:
+    source_context_entry_ids = _source_context_entry_ids(answer)
+    return {
+        **request_metadata,
+        "retrieved_context_entry_ids": [str(row["id"]) for row in retrieved],
+        "source_context_entry_ids": source_context_entry_ids,
+        "citations": [citation.model_dump() for citation in answer.citations],
+        "confidence": answer.confidence,
+        "insufficient_context": answer.insufficient_context,
+    }
+
+
+def _source_context_entry_ids(answer: OnDemandAgentAnswer) -> list[str]:
+    ids: list[str] = []
+    for citation in answer.citations:
+        context_entry_id = citation.context_entry_id
+        if context_entry_id not in ids:
+            ids.append(context_entry_id)
+    return ids

@@ -177,7 +177,10 @@ def _get_client(client: Any | None) -> Any:
         raise OnDemandAgentError(
             "anthropic package is required for live on-demand agent calls"
         ) from error
-    return Anthropic()
+    try:
+        return Anthropic()
+    except Exception as error:
+        raise OnDemandAgentError("on-demand agent client initialization failed") from error
 
 
 def answer_on_demand(
@@ -206,14 +209,17 @@ def answer_on_demand(
     selected_model = model or runtime_config.model
     prompt = build_agent_prompt(parsed_slice, question)
     anthropic_client = _get_client(client)
-    response = anthropic_client.messages.create(
-        model=selected_model,
-        max_tokens=runtime_config.max_tokens,
-        temperature=0,
-        system=prompt,
-        messages=[{"role": "user", "content": question}],
-        timeout=runtime_config.timeout_seconds,
-    )
+    try:
+        response = anthropic_client.messages.create(
+            model=selected_model,
+            max_tokens=runtime_config.max_tokens,
+            temperature=0,
+            system=prompt,
+            messages=[{"role": "user", "content": question}],
+            timeout=runtime_config.timeout_seconds,
+        )
+    except Exception as error:
+        raise OnDemandAgentError("on-demand agent call failed") from error
     response_text = _extract_text(response)
     if not response_text:
         raise OnDemandAgentError("on-demand agent returned no text content")

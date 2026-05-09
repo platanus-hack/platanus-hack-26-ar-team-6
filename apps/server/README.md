@@ -77,7 +77,16 @@ The response includes:
   "source_user_ids": ["<user2 uuid>"],
   "target_user_id": "<user2 uuid>",
   "context_entry_id": "<materialized cross_user_qa row>",
-  "retrieved_context_entries": []
+  "retrieved_context_entries": [],
+  "source_context_entry_ids": ["<grounding context_entry uuid>"],
+  "citations": [
+    {
+      "claim": "...",
+      "context_entry_id": "<grounding context_entry uuid>"
+    }
+  ],
+  "confidence": 0.8,
+  "insufficient_context": false
 }
 ```
 
@@ -152,7 +161,8 @@ On-demand agent defaults for V2:
 | `ON_DEMAND_RETRIEVAL_TOP_K` | `6` |
 
 Live on-demand calls use the Anthropic Python SDK, which reads
-`ANTHROPIC_API_KEY` from the environment.
+`ANTHROPIC_API_KEY` from the environment. Without that variable,
+`/request-context` returns a 502 and writes no closure row.
 
 ## Docker
 
@@ -177,10 +187,8 @@ and `seeds/` into the container for first boot. Generate a public domain and
 set `/health` as the healthcheck path.
 
 Add a Railway Postgres service and set the server service `DATABASE_URL` to
-the Postgres connection string. If you want live LLM synthesis instead of the
-retrieved-context fallback, set `ANTHROPIC_API_KEY` and optionally
-`ANTHROPIC_MODEL`. Without those variables, `/request-context` still works and
-returns an extractive answer from retrieved rows.
+the Postgres connection string. Set `ANTHROPIC_API_KEY` on the server service
+so `/request-context` can run the on-demand agent.
 
 For a fresh hackathon DB, set these variables on the server service:
 
