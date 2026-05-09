@@ -62,24 +62,6 @@ function PoolIcon(): React.JSX.Element {
   )
 }
 
-function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
-  return (
-    <svg 
-      width="16" 
-      height="16" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-      style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  )
-}
-
 // Navigation items configuration - reordered for priority
 const navItems: { key: TabKey; label: string; icon: () => React.JSX.Element }[] = [
   { key: 'chat', label: 'Chat', icon: ChatIcon },
