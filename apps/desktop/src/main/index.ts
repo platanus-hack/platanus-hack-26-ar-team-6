@@ -17,10 +17,12 @@ import {
   saveRelevoAuthState,
   saveRelevoSession,
   saveSelectedProjectId,
+  toggleActivityGraph,
   type DesktopAccountSummary,
   type DesktopProjectMembership,
   type DesktopSettingsResponse
 } from './settings.js'
+import { saveActivityNote, readActivityNotes, type ActivityToolEntry, type ActivityNote } from '../activityMarkdown.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const DEFAULT_API_BASE_URL = viteEnv['VITE_API_BASE_URL'] || process.env['VITE_API_BASE_URL'] || ''
@@ -539,6 +541,14 @@ app.whenReady().then(() => {
   })
 
 
+  ipcMain.handle('settings:activity-graph:toggle', async (_, enabled: boolean): Promise<DesktopSettingsResponse> => {
+    return toggleActivityGraph(enabled, DEFAULT_API_BASE_URL)
+  })
+
+  ipcMain.handle('activity-graph:get-notes', async (_, projectFolderPath: string): Promise<ActivityNote[]> => {
+    return readActivityNotes(projectFolderPath)
+  })
+
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
     const anthropicApiKey = await readAnthropicApiKey()
     if (!anthropicApiKey) {
@@ -556,8 +566,42 @@ app.whenReady().then(() => {
       projectId: selectedProjectId
     }
 
+    const runToolTrace: ActivityToolEntry[] = []
+    let finalSessionId: string | undefined
+    let finalAnswer = ''
+    let activityTitle: string | undefined
+
     for await (const assistantEvent of runLocalAssistant(runOptions)) {
       event.sender.send('assistant:event', assistantEvent)
+      if (assistantEvent.type === 'tool_call') {
+        runToolTrace.push({
+          toolName: assistantEvent.toolName,
+          toolUseId: assistantEvent.toolUseId,
+          input: assistantEvent.input
+        })
+      } else if (assistantEvent.type === 'result') {
+        finalSessionId = assistantEvent.sessionId
+        finalAnswer = assistantEvent.result
+      } else if (assistantEvent.type === 'activity_title') {
+        activityTitle = assistantEvent.title
+      }
+    }
+
+    if (settings.activityGraphEnabled && settings.account && settings.selectedProjectFolderPath) {
+      const project = settings.projects.find((p) => p.project_id === selectedProjectId)
+      if (project) {
+        void saveActivityNote({
+          sessionId: finalSessionId ?? `${Date.now()}`,
+          prompt: payload.prompt,
+          finalAnswer,
+          activityTitle,
+          toolTrace: runToolTrace,
+          displayName: settings.account.display_name,
+          email: settings.account.email,
+          projectName: project.project_name,
+          projectFolderPath: settings.selectedProjectFolderPath
+        }).catch((err) => console.error('[activity-graph]', err))
+      }
     }
   })
 

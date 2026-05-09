@@ -1,7 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
-import { createLogger, previewText as previewTextShared, serializeError } from "./logger.js";
+import { createLogger, serializeError } from "./logger.js";
 import type {
   ContextPacket,
   MemoryResult,
@@ -79,7 +79,17 @@ const commitMemoryUpdateSchema = z.object({
   operations: z.array(memoryUpdateOperationSchema).min(1),
 });
 
-const previewText = previewTextShared;
+const activityTitleSchema = z.object({
+  title: z.string().min(3).max(80),
+});
+
+function previewText(text: string, maxLength = 120): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
 
 function logMemoryTool(event: string, details: Record<string, unknown>): void {
   memoryLogger.info(event, details);
@@ -323,6 +333,7 @@ export async function commitMemoryUpdate(
 
 export function createUserRetrieverMcpServer(
   askRetriever: (input: RetrieverRequest) => Promise<ContextPacket>,
+  onActivityTitle?: (title: string) => void,
 ): ReturnType<typeof createSdkMcpServer> {
   return createSdkMcpServer({
     name: "relevo-user-retriever",
@@ -355,6 +366,25 @@ export function createUserRetrieverMcpServer(
           });
           return {
             content: [{ type: "text", text: JSON.stringify(result) }],
+          };
+        },
+        { alwaysLoad: true },
+      ),
+      tool(
+        "set_activity_title",
+        "Set the private graph node title for this user turn. The title must be a self-contained 3-6 word noun phrase, not a sentence.",
+        {
+          title: z.string().min(3).max(80),
+        },
+        async (args) => {
+          const parsedArgs = activityTitleSchema.parse(args);
+          const title = parsedArgs.title.trim();
+          logMemoryTool("set_activity_title:called", {
+            titlePreview: previewText(title, 80),
+          });
+          onActivityTitle?.(title);
+          return {
+            content: [{ type: "text", text: JSON.stringify({ ok: true, title }) }],
           };
         },
         { alwaysLoad: true },

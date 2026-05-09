@@ -586,7 +586,7 @@ function App(): React.JSX.Element {
   } else if (activeTab === 'pool') {
     activeView = <PoolView />
   } else if (activeTab === 'timeline') {
-    activeView = <TimelineView />
+    activeView = <TimelineView projectFolderPath={selectedProjectFolderPath} />
   } else if (activeTab === 'tasks') {
     activeView = <TasksView />
   }

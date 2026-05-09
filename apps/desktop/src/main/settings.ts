@@ -32,6 +32,7 @@ type StoredSettings = {
   projects?: DesktopProjectMembership[]
   selectedProjectId?: string | null
   projectFolders?: Record<string, string>
+  activityGraphEnabled?: boolean
 }
 
 export type DesktopSettingsResponse = {
@@ -44,6 +45,7 @@ export type DesktopSettingsResponse = {
   selectedProjectId: string | null
   projectFolders: Record<string, string>
   selectedProjectFolderPath: string | null
+  activityGraphEnabled: boolean
 }
 
 function settingsPath(): string {
@@ -190,7 +192,8 @@ export async function getDesktopSettings(defaultServerBaseUrl: string): Promise<
     projects,
     selectedProjectId,
     projectFolders,
-    selectedProjectFolderPath: selectedProjectId ? (projectFolders[selectedProjectId] ?? null) : null
+    selectedProjectFolderPath: selectedProjectId ? (projectFolders[selectedProjectId] ?? null) : null,
+    activityGraphEnabled: settings.activityGraphEnabled ?? false
   }
 }
 
@@ -314,6 +317,15 @@ export async function saveProjectFolder(
       [projectId]: resolvedFolderPath
     }
   })
+  return getDesktopSettings(defaultServerBaseUrl)
+}
+
+export async function toggleActivityGraph(
+  enabled: boolean,
+  defaultServerBaseUrl: string
+): Promise<DesktopSettingsResponse> {
+  const settings = await readStoredSettings()
+  await writeStoredSettings({ ...settings, activityGraphEnabled: enabled })
   return getDesktopSettings(defaultServerBaseUrl)
 }
 

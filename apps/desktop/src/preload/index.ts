@@ -41,6 +41,8 @@ const api = {
     data: { sessionId: string | null; messages: Array<{ id: string; role: 'user' | 'assistant'; text: string }> }
   ) => ipcRenderer.invoke('conversation:save', workspaceId, data),
   clearConversation: (workspaceId: string) => ipcRenderer.invoke('conversation:clear', workspaceId),
+  toggleActivityGraph: (enabled: boolean) => ipcRenderer.invoke('settings:activity-graph:toggle', enabled),
+  getActivityNotes: (projectFolderPath: string) => ipcRenderer.invoke('activity-graph:get-notes', projectFolderPath),
   onAuthEvent: (callback: (event: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
     ipcRenderer.on('auth:event', listener)

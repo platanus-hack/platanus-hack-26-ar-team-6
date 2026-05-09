@@ -16,6 +16,7 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
   const [apiKey, setApiKey] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [isSavingKey, setIsSavingKey] = useState(false)
+  const [isTogglingGraph, setIsTogglingGraph] = useState(false)
   const hasAnthropicApiKey = Boolean(settings?.hasAnthropicApiKey)
   const displayStatus = status ?? (hasAnthropicApiKey ? 'Anthropic API key saved' : null)
 
@@ -39,6 +40,20 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
       setStatus(`Save failed: ${toErrorMessage(error)}`)
     } finally {
       setIsSavingKey(false)
+    }
+  }
+
+  async function handleToggleActivityGraph(): Promise<void> {
+    setIsTogglingGraph(true)
+    setStatus(null)
+    try {
+      const nextSettings = await window.api.toggleActivityGraph(!settings?.activityGraphEnabled)
+      onSettingsChange(nextSettings)
+      setStatus(settings?.activityGraphEnabled ? 'Activity graph disabled' : 'Activity graph enabled')
+    } catch (error) {
+      setStatus(`Toggle failed: ${toErrorMessage(error)}`)
+    } finally {
+      setIsTogglingGraph(false)
     }
   }
 
@@ -102,6 +117,20 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
             </button>
           </div>
         </form>
+
+        <div className="settings-form">
+          <label className="settings-form__label">Activity graph</label>
+          <div className="settings-form__actions">
+            <button
+              className={`settings-form__button${settings?.activityGraphEnabled ? ' settings-form__button--primary' : ''}`}
+              type="button"
+              onClick={handleToggleActivityGraph}
+              disabled={isTogglingGraph}
+            >
+              {isTogglingGraph ? 'saving...' : settings?.activityGraphEnabled ? 'enabled' : 'disabled'}
+            </button>
+          </div>
+        </div>
 
         {displayStatus && <div className="settings-form__status settings-form__status--panel">{displayStatus}</div>}
       </div>
