@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ContextEntryKind = Literal["seed", "prompt_answer", "cross_user_qa"]
+ContextEntryKind = Literal["seed", "prompt_answer", "cross_user_qa", "project_qa"]
 
 
 class StrictModel(BaseModel):
@@ -82,6 +82,15 @@ class ProjectEntry(StrictModel):
     description: str | None = None
 
 
+class ProjectScriptedPrompt(StrictModel):
+    name: str
+    ask_from_user_key: str
+    prompt: str
+    expected_target: Literal["project"]
+    expected_answer_facts: list[str] = Field(default_factory=list)
+
+
 class ProjectFile(StrictModel):
     project: ProjectEntry
     context_entries: list[ContextEntrySeed] = Field(default_factory=list)
+    scripted_prompts: list[ProjectScriptedPrompt] = Field(default_factory=list)

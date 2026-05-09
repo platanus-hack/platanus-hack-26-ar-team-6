@@ -2,90 +2,67 @@ import { create } from 'zustand'
 
 type ChatMessage = {
   id: string
-  author: string
+  role: 'user' | 'assistant'
   text: string
   isStreaming?: boolean
 }
 
 type ChatState = {
-  messages: ChatMessage[]
-  setMessages: (messages: ChatMessage[]) => void
-  appendMessage: (message: ChatMessage) => void
-  appendAssistantText: (replyId: string, text: string) => void
-  finishAssistantText: (replyId: string, finalText?: string) => void
-}
-
-const ASSISTANT_AUTHOR = 'assistant'
-
-function mergeAssistantText(messages: ChatMessage[], replyId: string, text: string): ChatMessage[] {
-  if (text.length === 0) {
-    return messages
-  }
-
-  const existing = messages.find(
-    (message) => message.id === replyId && message.author === ASSISTANT_AUTHOR
-  )
-
-  if (!existing) {
-    return [
-      ...messages,
-      {
-        id: replyId,
-        author: ASSISTANT_AUTHOR,
-        text,
-        isStreaming: true
-      }
-    ]
-  }
-
-  // V2 workaround: the runner emits streamed deltas and then the final full
-  // assistant message as the same assistant_text event. When the new text
-  // already contains the streamed prefix, treat it as the full message rather
-  // than another chunk to append. V3 should split delta/final event semantics.
-  if (text === existing.text || existing.text.startsWith(text)) {
-    return messages
-  }
-
-  const nextText = text.startsWith(existing.text) ? text : `${existing.text}${text}`
-
-  return messages.map((message) =>
-    message.id === existing.id
-      ? {
-          ...message,
-          text: nextText,
-          isStreaming: true
-        }
-      : message
-  )
-}
-
-function completeAssistantText(
-  messages: ChatMessage[],
-  replyId: string,
-  finalText?: string
-): ChatMessage[] {
-  const withFinalText = finalText ? mergeAssistantText(messages, replyId, finalText) : messages
-
-  return withFinalText.map((message) =>
-    message.id === replyId && message.author === ASSISTANT_AUTHOR
-      ? {
-          ...message,
-          isStreaming: false
-        }
-      : message
-  )
+  messagesByWorkspace: Record<string, ChatMessage[]>
+  toolStatusByWorkspace: Record<string, string | null>
+  addMessage: (workspaceId: string, message: ChatMessage) => void
+  startAssistantMessage: (workspaceId: string, id: string) => void
+  appendMessageText: (workspaceId: string, id: string, text: string) => void
+  setMessageText: (workspaceId: string, id: string, text: string) => void
+  setToolStatus: (workspaceId: string, status: string | null) => void
 }
 
 const useChatStore = create<ChatState>((set) => ({
-  messages: [],
-  setMessages: (messages) => set({ messages }),
-  appendMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
-  appendAssistantText: (replyId, text) =>
-    set((state) => ({ messages: mergeAssistantText(state.messages, replyId, text) })),
-  finishAssistantText: (replyId, finalText) =>
-    set((state) => ({ messages: completeAssistantText(state.messages, replyId, finalText) }))
+  messagesByWorkspace: {},
+  toolStatusByWorkspace: {},
+  addMessage: (workspaceId, message) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: [...(state.messagesByWorkspace[workspaceId] ?? []), message]
+      }
+    })),
+  startAssistantMessage: (workspaceId, id) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: [
+          ...(state.messagesByWorkspace[workspaceId] ?? []),
+          { id, role: 'assistant', text: '', isStreaming: true }
+        ]
+      }
+    })),
+  appendMessageText: (workspaceId, id, text) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: (state.messagesByWorkspace[workspaceId] ?? []).map((message) =>
+          message.id === id ? { ...message, text: `${message.text}${text}`, isStreaming: true } : message
+        )
+      }
+    })),
+  setMessageText: (workspaceId, id, text) =>
+    set((state) => ({
+      messagesByWorkspace: {
+        ...state.messagesByWorkspace,
+        [workspaceId]: (state.messagesByWorkspace[workspaceId] ?? []).map((message) =>
+          message.id === id ? { ...message, text } : message
+        )
+      }
+    })),
+  setToolStatus: (workspaceId, status) =>
+    set((state) => ({
+      toolStatusByWorkspace: {
+        ...state.toolStatusByWorkspace,
+        [workspaceId]: status
+      }
+    }))
 }))
 
-export { completeAssistantText, mergeAssistantText }
 export type { ChatMessage, ChatState }
 export default useChatStore

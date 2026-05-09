@@ -4,7 +4,24 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   getHealth: (apiBaseUrl: string) => ipcRenderer.invoke('health:check', apiBaseUrl),
-  runAgentPrompt: (request: unknown) => ipcRenderer.invoke('runner:query', request)
+  startAssistantRun: (payload: {
+    prompt: string
+    cwd: string
+    bootstrap: unknown
+    serverUrl: string
+    userId: string
+    authToken?: string
+    model?: string
+    maxTurns?: number
+  }) => ipcRenderer.invoke('assistant:run:start', payload),
+  onAssistantEvent: (callback: (event: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
+    ipcRenderer.on('assistant:event', listener)
+
+    return () => {
+      ipcRenderer.removeListener('assistant:event', listener)
+    }
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

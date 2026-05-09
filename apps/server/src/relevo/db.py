@@ -1,4 +1,4 @@
-"""V2 data-access layer.
+"""V2/V3 data-access layer.
 
 Narf's API routes call into these functions. They are the only place that
 should issue SQL. Everything is synchronous psycopg for hackathon simplicity; if we
@@ -9,9 +9,10 @@ If you need to change a return shape, sync with Narf first.
 """
 from __future__ import annotations
 
+import json
 import os
-from contextlib import contextmanager
 import re
+from contextlib import contextmanager
 from typing import Any, Iterator
 from uuid import UUID
 
@@ -184,6 +185,33 @@ def _search_tokens(text: str) -> set[str]:
     }
 
 
+def _metadata_search_text(metadata: dict[str, Any]) -> str:
+    return json.dumps(metadata, default=str, sort_keys=True)
+
+
+def _rank_context_rows(
+    rows: list[dict[str, Any]],
+    question: str,
+    *,
+    closure_kind: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    question_tokens = _search_tokens(question)
+    ranked: list[tuple[int, int, dict[str, Any]]] = []
+    for index, row in enumerate(rows):
+        metadata = row.get("metadata") or {}
+        text_tokens = _search_tokens(f"{row['content']} {_metadata_search_text(metadata)}")
+        overlap = len(question_tokens & text_tokens)
+        kind_boost = 1 if row.get("kind") == closure_kind else 0
+        ranked.append((overlap + kind_boost, -index, row))
+
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    selected = [row for score, _, row in ranked if score > 0][:limit]
+    if selected:
+        return selected
+    return rows[:limit]
+
+
 def retrieve_user_context(
     conn: psycopg.Connection,
     user_id: UUID,
@@ -210,21 +238,46 @@ def retrieve_user_context(
         )
         rows = [dict(r) for r in cur.fetchall()]
 
-    question_tokens = _search_tokens(question)
-    ranked: list[tuple[int, int, dict[str, Any]]] = []
-    for index, row in enumerate(rows):
-        metadata = row.get("metadata") or {}
-        metadata_text = " ".join(str(value) for value in metadata.values())
-        text_tokens = _search_tokens(f"{row['content']} {metadata_text}")
-        overlap = len(question_tokens & text_tokens)
-        kind_boost = 1 if row.get("kind") == "cross_user_qa" else 0
-        ranked.append((overlap + kind_boost, -index, row))
+    return _rank_context_rows(
+        rows,
+        question,
+        closure_kind="cross_user_qa",
+        limit=limit,
+    )
 
-    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    selected = [row for score, _, row in ranked if score > 0][:limit]
-    if selected:
-        return selected
-    return rows[:limit]
+
+def retrieve_project_context(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    question: str,
+    limit: int = 6,
+    scan_limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Project-scoped retrieval while embeddings are still nullable.
+
+    This intentionally mirrors retrieve_user_context's lexical fallback over
+    project_context_entry rows so vector ranking can replace it at one call
+    site after embeddings are backfilled.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, kind, content, metadata, created_at
+            FROM project_context_entry
+            WHERE project_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (project_id, scan_limit),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    return _rank_context_rows(
+        rows,
+        question,
+        closure_kind="project_qa",
+        limit=limit,
+    )
 
 
 def write_prompt_answer_entry(
@@ -343,3 +396,85 @@ def write_cross_user_qa_entry(
         )
         conn.commit()
     return context_entry_id  # type: ignore[return-value]
+
+
+def write_project_qa_entry(
+    conn: psycopg.Connection,
+    project_id: UUID,
+    asker_user_id: UUID,
+    question: str,
+    answer: str,
+    extra_metadata: dict[str, Any] | None = None,
+) -> UUID:
+    """Project closure write for target='project'.
+
+    The Q&A is appended to project_context_entry so later project-scoped
+    retrieval can surface it, and a project_qa_ledger row gives the demo a
+    schema-safe audit trail without weakening qa_ledger's user-target FKs.
+    """
+    project = get_project(conn, project_id)
+    if project is None:
+        raise ValueError(f"project not found: {project_id}")
+    asker_user = get_user(conn, asker_user_id)
+    if asker_user is None:
+        raise ValueError(f"asker user not found: {asker_user_id}")
+    if asker_user["project_id"] != project_id:
+        raise ValueError("asking user must belong to the target project")
+
+    metadata: dict[str, Any] = {
+        "source": "request_context",
+        "asker_user_id": str(asker_user_id),
+        "target": "project",
+        "target_project_id": str(project_id),
+        "question": question,
+        "answer": answer,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    content = f"PROJECT QUESTION (from {asker_user_id}):\n{question}\n\nANSWER:\n{answer}"
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO project_context_entry (project_id, kind, content, metadata)
+            VALUES (%s, 'project_qa', %s, %s)
+            RETURNING id
+            """,
+            (project_id, content, psycopg.types.json.Jsonb(metadata)),
+        )
+        project_context_entry_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO project_qa_ledger (
+              project_id,
+              asking_user_id,
+              project_context_entry_id,
+              question,
+              answer,
+              metadata
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                project_id,
+                asker_user_id,
+                project_context_entry_id,
+                question,
+                answer,
+                psycopg.types.json.Jsonb({"source": "request_context"}),
+            ),
+        )
+        project_qa_ledger_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            UPDATE project_context_entry
+            SET metadata = metadata || %s
+            WHERE id = %s
+            """,
+            (
+                psycopg.types.json.Jsonb({"project_qa_ledger_id": str(project_qa_ledger_id)}),
+                project_context_entry_id,
+            ),
+        )
+        conn.commit()
+    return project_context_entry_id  # type: ignore[return-value]
