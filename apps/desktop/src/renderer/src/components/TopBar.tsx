@@ -7,12 +7,18 @@ type HealthResponse = {
 
 type TopBarProps = {
   workspaceName: string
+  serverBaseUrl: string
+  projects?: Array<{ project_id: string; project_name: string }>
+  selectedProjectId?: string | null
+  accountEmail?: string | null
   onBack?: () => void
-  bootstrapStatus?: 'live' | 'fallback'
+  bootstrapStatus?: 'live' | 'loading' | 'error'
   isDark: boolean
   onToggleTheme: () => void
   anthropicKeyConfigured?: boolean
   onSettings?: () => void
+  onProjectSelect?: (projectId: string) => void
+  onLogout?: () => void
 }
 
 function SunIcon(): React.JSX.Element {
@@ -45,25 +51,31 @@ function MoonIcon(): React.JSX.Element {
 
 function TopBar({
   workspaceName,
+  serverBaseUrl,
+  projects = [],
+  selectedProjectId,
+  accountEmail,
   onBack,
   bootstrapStatus,
   isDark,
   onToggleTheme,
   anthropicKeyConfigured,
-  onSettings
+  onSettings,
+  onProjectSelect,
+  onLogout
 }: TopBarProps): React.JSX.Element {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
   const isHealthcheckEnabled = import.meta.env.VITE_ENABLE_HEALTHCHECK === 'true'
 
   const { data, isError } = useQuery({
-    queryKey: ['health', apiBaseUrl],
+    queryKey: ['health', serverBaseUrl],
     enabled: isHealthcheckEnabled,
-    queryFn: (): Promise<HealthResponse> => window.api.getHealth(apiBaseUrl)
+    queryFn: (): Promise<HealthResponse> => window.api.getHealth(serverBaseUrl)
   })
 
   const isHealthy = isHealthcheckEnabled && data?.status === 'ok' && !isError
   const healthText = isHealthy ? 'status: online' : 'status: offline'
-  const isBootstrapLive = bootstrapStatus === 'live'
+  const bootstrapClassName =
+    bootstrapStatus === 'live' ? 'health-indicator--ok' : bootstrapStatus === 'loading' ? 'health-indicator--pending' : 'health-indicator--off'
 
   return (
     <header className="topbar">
@@ -76,9 +88,23 @@ function TopBar({
         <span className="topbar-subtle">workspace: {workspaceName}</span>
       </div>
       <div className="topbar-group">
+        {projects.length > 0 && selectedProjectId && onProjectSelect && (
+          <select
+            className="topbar-select"
+            value={selectedProjectId}
+            onChange={(event) => onProjectSelect(event.target.value)}
+            aria-label="Project"
+          >
+            {projects.map((project) => (
+              <option key={project.project_id} value={project.project_id}>
+                {project.project_name}
+              </option>
+            ))}
+          </select>
+        )}
         {bootstrapStatus && (
           <div className="topbar-status">
-            <span className={`health-indicator ${isBootstrapLive ? 'health-indicator--ok' : 'health-indicator--off'}`} />
+            <span className={`health-indicator ${bootstrapClassName}`} />
             <span>bootstrap: {bootstrapStatus}</span>
           </div>
         )}
@@ -94,9 +120,15 @@ function TopBar({
           <span className={`health-indicator ${isHealthy ? 'health-indicator--ok' : 'health-indicator--off'}`} />
           <span title={data?.sha || ''}>{healthText}</span>
         </div>
+        {accountEmail && <span className="topbar-account">{accountEmail}</span>}
         {onSettings && (
           <button className="topbar-button" type="button" onClick={onSettings}>
             settings
+          </button>
+        )}
+        {onLogout && (
+          <button className="topbar-button" type="button" onClick={onLogout}>
+            logout
           </button>
         )}
         <button className="theme-toggle" type="button" onClick={onToggleTheme}>

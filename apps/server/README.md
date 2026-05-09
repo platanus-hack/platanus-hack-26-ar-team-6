@@ -40,9 +40,38 @@ Expected local response:
 }
 ```
 
-## V2 endpoints
+## Auth and endpoints
 
-Every endpoint except `/health` expects a per-user bearer token:
+Every endpoint except `/health` expects either a Relevo account session token or
+a legacy seeded `app_user.auth_token`.
+
+Account sessions come from Google login:
+
+```txt
+GET  /auth/google/start?desktop_redirect_uri=relevo://auth/callback
+GET  /auth/google/callback
+POST /auth/desktop/exchange
+POST /auth/logout
+```
+
+The desktop app opens `/auth/google/start` in the system browser. The callback
+creates a short-lived one-time desktop code and redirects to
+`relevo://auth/callback?code=...`. The app posts that code to
+`/auth/desktop/exchange` and receives `{session_token, account, projects}`.
+
+Account/project routes:
+
+```txt
+GET  /me/projects
+POST /projects
+POST /projects/{project_id}/members
+```
+
+`POST /projects` creates the project and the caller's `leader` membership.
+`POST /projects/{project_id}/members` requires caller role `leader`; the target
+email must already belong to an account that logged in at least once.
+
+Legacy demo tokens still work:
 
 ```sh
 Authorization: Bearer dev-token-user1
@@ -57,6 +86,13 @@ curl -H 'Authorization: Bearer dev-token-user1' \
   http://localhost:8000/bootstrap
 ```
 
+Session-token bootstrap is project-scoped:
+
+```sh
+curl -H 'Authorization: Bearer <session-token>' \
+  'http://localhost:8000/bootstrap?project_id=<project uuid>'
+```
+
 Cross-user context request:
 
 ```sh
@@ -66,6 +102,19 @@ curl -X POST http://localhost:8000/request-context \
   -d '{
     "target": "<user2 uuid from bootstrap roster>",
     "question": "How is the shared server deployed, what auth does the local app use, and what health endpoint should I check before the demo?"
+  }'
+```
+
+For session-token auth, include the selected project:
+
+```sh
+curl -X POST http://localhost:8000/request-context \
+  -H 'Authorization: Bearer <session-token>' \
+  -H 'X-Project-Id: <project uuid>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "target": "<member app_user uuid from bootstrap roster>",
+    "question": "What does this teammate know?"
   }'
 ```
 
@@ -129,6 +178,8 @@ curl -X POST http://localhost:8000/context-entries \
     "final_answer": "FastAPI on Railway; check /health."
   }'
 ```
+
+Session-token writes also require `X-Project-Id`.
 
 Both dashed and underscored route names are mounted for client compatibility:
 `/request-context`, `/request_context`, `/context-entries`, and
@@ -208,6 +259,39 @@ On-demand agent defaults for V2:
 Live on-demand calls use the Anthropic Python SDK, which reads
 `ANTHROPIC_API_KEY` from the environment. Without that variable,
 `/request-context` returns a 502 and writes no closure row.
+
+Google OAuth defaults:
+
+| Variable | Default |
+|---|---|
+| `GOOGLE_CLIENT_ID` | empty |
+| `GOOGLE_CLIENT_SECRET` | empty |
+| `GOOGLE_REDIRECT_URI` | generated from `/auth/google/callback` |
+| `GOOGLE_AUTH_URL` | `https://accounts.google.com/o/oauth2/v2/auth` |
+| `GOOGLE_TOKEN_URL` | `https://oauth2.googleapis.com/token` |
+| `GOOGLE_USERINFO_URL` | `https://openidconnect.googleapis.com/v1/userinfo` |
+| `GOOGLE_OAUTH_STATE_TTL_SECONDS` | `600` |
+| `DESKTOP_LOGIN_EXCHANGE_TTL_SECONDS` | `120` |
+| `ACCOUNT_SESSION_TTL_SECONDS` | `2592000` |
+
+For Railway, create a Google OAuth Client ID with application type **Web
+application**. Add this authorized redirect URI exactly:
+
+```txt
+https://<railway-domain>/auth/google/callback
+```
+
+Then set these Railway variables on the server service:
+
+```txt
+GOOGLE_CLIENT_ID=<client id from Google Cloud>
+GOOGLE_CLIENT_SECRET=<client secret from Google Cloud>
+GOOGLE_REDIRECT_URI=https://<railway-domain>/auth/google/callback
+```
+
+The desktop redirect remains `relevo://auth/callback`; it is passed to the
+server as `desktop_redirect_uri` and is not registered as the Google OAuth
+redirect URI.
 
 ## Docker
 

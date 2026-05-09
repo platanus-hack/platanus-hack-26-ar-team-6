@@ -194,6 +194,7 @@ export async function* runLocalAssistant(
     serverUrl: options.serverUrl,
     userId: options.userId,
     authToken: options.authToken,
+    projectId: options.projectId,
   });
 
   const sdkMessages = query({

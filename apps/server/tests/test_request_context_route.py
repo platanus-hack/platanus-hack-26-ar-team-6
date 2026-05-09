@@ -13,6 +13,7 @@ SERVER_SRC = REPO_ROOT / "apps" / "server" / "src"
 sys.path.insert(0, str(SERVER_SRC))
 
 
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from relevo.agents import (  # noqa: E402
@@ -28,8 +29,10 @@ from relevo.main import create_app  # noqa: E402
 ASKER_ID = UUID("11111111-1111-4111-8111-111111111111")
 TARGET_ID = UUID("22222222-2222-4222-8222-222222222222")
 PROJECT_ID = UUID("33333333-3333-4333-8333-333333333333")
+OTHER_PROJECT_ID = UUID("66666666-6666-4666-8666-666666666666")
 ENTRY_ID = UUID("44444444-4444-4444-8444-444444444444")
 CLOSURE_ENTRY_ID = UUID("55555555-5555-4555-8555-555555555555")
+ACCOUNT_ID = UUID("77777777-7777-4777-8777-777777777777")
 
 
 class RequestContextRouteTest(unittest.TestCase):
@@ -41,12 +44,17 @@ class RequestContextRouteTest(unittest.TestCase):
             )
         )
         self.app.dependency_overrides[context_api.get_db] = lambda: SimpleNamespace()
-        self.app.dependency_overrides[context_api.require_user] = lambda: {
-            "id": ASKER_ID,
-            "project_id": PROJECT_ID,
-            "display_name": "User1",
-            "domain_summary": "Frontend",
-            "profile": {},
+        self.app.dependency_overrides[context_api.require_auth] = lambda: {
+            "kind": "legacy",
+            "user": {
+                "id": ASKER_ID,
+                "project_id": PROJECT_ID,
+                "display_name": "User1",
+                "domain_summary": "Frontend",
+                "profile": {},
+                "role": "member",
+                "account_id": None,
+            },
         }
         self.client = TestClient(self.app, raise_server_exceptions=False)
 
@@ -183,6 +191,66 @@ class RequestContextRouteTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "self-target rejected")
         retrieve.assert_not_called()
         write.assert_not_called()
+
+    def test_target_outside_selected_project_is_rejected(self) -> None:
+        retrieve = Mock()
+        write = Mock()
+
+        with (
+            patch.object(
+                context_api,
+                "get_user",
+                Mock(
+                    return_value={
+                        "id": TARGET_ID,
+                        "project_id": OTHER_PROJECT_ID,
+                        "display_name": "User2",
+                        "domain_summary": "Deployment",
+                        "profile": {},
+                    }
+                ),
+            ),
+            patch.object(context_api, "retrieve_user_context", retrieve),
+            patch.object(context_api, "write_cross_user_qa_entry", write),
+        ):
+            response = self.client.post(
+                "/request-context",
+                json={"target": str(TARGET_ID), "question": "How do we deploy?"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"],
+            "Target user is not in the authenticated user's project",
+        )
+        retrieve.assert_not_called()
+        write.assert_not_called()
+
+    def test_session_bootstrap_requires_project_id(self) -> None:
+        self.app.dependency_overrides[context_api.require_auth] = lambda: {
+            "kind": "session",
+            "account": {"id": ACCOUNT_ID, "email": "user@example.com"},
+        }
+
+        response = self.client.get("/bootstrap")
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("project_id", response.json()["detail"])
+
+    def test_session_bootstrap_rejects_non_member_project(self) -> None:
+        self.app.dependency_overrides[context_api.require_auth] = lambda: {
+            "kind": "session",
+            "account": {"id": ACCOUNT_ID, "email": "user@example.com"},
+        }
+
+        with patch.object(
+            context_api,
+            "require_project_membership",
+            Mock(side_effect=HTTPException(status_code=403, detail="not a member")),
+        ):
+            response = self.client.get(f"/bootstrap?project_id={PROJECT_ID}")
+
+        self.assertEqual(response.status_code, 403)
 
     def test_empty_slice_still_writes_insufficient_context_answer(self) -> None:
         answer = OnDemandAgentAnswer(

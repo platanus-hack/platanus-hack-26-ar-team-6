@@ -10,6 +10,8 @@ type BootstrapUser = {
   display_name: string
   domain_summary: string
   profile: Record<string, unknown>
+  role?: string | null
+  account_id?: string | null
 }
 
 type BootstrapProject = {
@@ -43,9 +45,7 @@ type StartAssistantRunPayload = {
   prompt: string
   cwd: string
   bootstrap: BootstrapPayload
-  serverUrl: string
   userId: string
-  authToken?: string
   model?: string
   maxTurns?: number
 }
@@ -99,6 +99,49 @@ type SavePromptAnswerResponse = {
 type DesktopSettingsResponse = {
   hasAnthropicApiKey: boolean
   encryptionAvailable: boolean
+  serverBaseUrl: string
+  isLoggedIn: boolean
+  account: DesktopAccountSummary | null
+  projects: DesktopProjectMembership[]
+  selectedProjectId: string | null
+}
+
+type DesktopAccountSummary = {
+  id: string
+  email: string
+  display_name: string
+  avatar_url?: string | null
+  email_verified: boolean
+}
+
+type DesktopProjectMembership = {
+  project_id: string
+  project_name: string
+  description?: string | null
+  user_id: string
+  display_name: string
+  domain_summary: string
+  role: string
+}
+
+type AuthEvent =
+  | { type: 'login:pending' }
+  | { type: 'login:succeeded'; settings: DesktopSettingsResponse }
+  | { type: 'login:failed'; message: string }
+  | { type: 'logout:succeeded'; settings: DesktopSettingsResponse }
+  | { type: 'projects:updated'; settings: DesktopSettingsResponse }
+  | { type: 'project:selected'; settings: DesktopSettingsResponse }
+
+type CreateProjectRequest = {
+  name: string
+  description?: string | null
+  domainSummary?: string | null
+}
+
+type AddProjectMemberRequest = {
+  projectId: string
+  email: string
+  domainSummary: string
 }
 
 interface DesktopApi {
@@ -106,15 +149,20 @@ interface DesktopApi {
   getSettings: () => Promise<DesktopSettingsResponse>
   saveAnthropicApiKey: (apiKey: string) => Promise<DesktopSettingsResponse>
   clearAnthropicApiKey: () => Promise<DesktopSettingsResponse>
-  getBootstrap: (request: { apiBaseUrl: string; authToken: string; userId: string }) => Promise<BootstrapResponse>
+  startGoogleLogin: () => Promise<DesktopSettingsResponse>
+  logout: () => Promise<DesktopSettingsResponse>
+  refreshProjects: () => Promise<DesktopSettingsResponse>
+  selectProject: (projectId: string) => Promise<DesktopSettingsResponse>
+  createProject: (request: CreateProjectRequest) => Promise<DesktopSettingsResponse>
+  addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
+  getBootstrap: () => Promise<BootstrapResponse>
   savePromptAnswer: (request: {
-    apiBaseUrl: string
-    authToken: string
     prompt: string
     finalAnswer: string
     metadata?: Record<string, unknown>
   }) => Promise<SavePromptAnswerResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
+  onAuthEvent: (callback: (event: AuthEvent) => void) => () => void
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
 }
 
