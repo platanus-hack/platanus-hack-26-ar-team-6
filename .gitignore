@@ -1,0 +1,148 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets & environment
+# ─────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+.secrets/
+.anthropic
+.railway/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Python — apps/server (FastAPI, loader, eval)
+# ─────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+coverage.xml
+*.cover
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Node / TypeScript — apps/desktop, packages/contracts
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarn-integrity
+.pnp.*
+*.tsbuildinfo
+.eslintcache
+.parcel-cache/
+.turbo/
+.next/
+.nuxt/
+.svelte-kit/
+.cache/
+.vite/
+
+# Build output
+dist/
+out/
+build/
+release/
+storybook-static/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Electron — apps/desktop
+# ─────────────────────────────────────────────────────────────────────────────
+apps/desktop/dist-electron/
+apps/desktop/release/
+apps/desktop/out/
+*.dmg
+*.exe
+*.deb
+*.AppImage
+*.snap
+*.msi
+*.pkg
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Postgres / docker-compose volumes & dumps
+# ─────────────────────────────────────────────────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+pgdata/
+infra/pgdata/
+*.dump
+*.sql.gz
+*.backup
+seeds/snapshots/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generated artifacts (TS types from contracts, eval reports, fallbacks)
+# ─────────────────────────────────────────────────────────────────────────────
+packages/contracts/dist/
+packages/contracts/generated/
+apps/desktop/src/api/generated/
+eval/reports/
+eval/.cache/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editor / OS
+# ─────────────────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logs & temp
+# ─────────────────────────────────────────────────────────────────────────────
+*.log
+logs/
+tmp/
+.tmp/
+*.tmp
+*.bak
+*.orig
