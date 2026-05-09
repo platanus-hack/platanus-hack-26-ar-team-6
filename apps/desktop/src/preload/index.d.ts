@@ -48,8 +48,20 @@ type StartAssistantRunPayload = {
   userId: string
   chatSessionId?: string
   conversationMessages?: Array<{ role: 'user' | 'assistant'; text: string }>
+  mentionedAgentIds?: string[]
   model?: string
   maxTurns?: number
+}
+
+type PersistedConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+}
+
+type PersistedConversation = {
+  sessionId: string | null
+  messages: PersistedConversationMessage[]
 }
 
 type LocalAssistantEvent =
@@ -180,6 +192,9 @@ interface DesktopApi {
   addProjectMember: (request: AddProjectMemberRequest) => Promise<DesktopProjectMembership>
   getBootstrap: () => Promise<BootstrapResponse>
   startAssistantRun: (payload: StartAssistantRunPayload) => Promise<void>
+  loadConversation: (workspaceId: string) => Promise<PersistedConversation>
+  saveConversation: (workspaceId: string, data: PersistedConversation) => Promise<void>
+  clearConversation: (workspaceId: string) => Promise<void>
   onAuthEvent: (callback: (event: AuthEvent) => void) => () => void
   onAssistantEvent: (callback: (event: LocalAssistantEvent) => void) => () => void
 }

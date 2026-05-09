@@ -112,7 +112,7 @@ function ChatView({
   const [input, setInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [mentionSuggestions, setMentionSuggestions] = useState<typeof bootstrap.project_context.roster>([])
-  const [mentionQuery, setMentionQuery] = useState('')
+  const [, setMentionQuery] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
   const hasAssistantTextRef = useRef(false)
