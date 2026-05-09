@@ -1,0 +1,28 @@
+# V1 project seed.
+#
+# A single project row is created for the demo. Project context entries are
+# read by V3's target="project" flow; V1 just needs the rows to exist so V3
+# can build on top.
+
+project:
+  name: "Cross-User Context Demo"
+  description: |
+    The hackathon demo project. Two users (frontend + deployment) share a
+    single project; each prompt either resolves locally or escalates via
+    request_context to the other user's on-demand agent.
+
+context_entries:
+  - content: |
+      The project is built as three components: a shared remote server, a
+      local app (per user) hosting the user's coding AI, and an on-demand
+      agent the server spins up to answer cross-user queries grounded in
+      a target user's stored context.
+    metadata:
+      tags: [architecture, overview]
+
+  - content: |
+      Users on this project: User1 owns the frontend / desktop app surface;
+      User2 owns the server, deployment, and infra. Roster lookups for the
+      AI's request_context tool route by these domains.
+    metadata:
+      tags: [roster, routing]
