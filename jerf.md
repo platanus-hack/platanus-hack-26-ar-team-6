@@ -1,81 +1,85 @@
-# Jerf — V2 Task: Wire Real Agent Into `POST /request_context`
+# Jerf — V3 Task: Tool Surface Stretch + V2 Polish
 
 > Read [goal.md](goal.md) and [plan.md](plan.md) first. This file scopes
-> Jerf's lane in V2.
+> Jerf's lane in V3. V3 only happens if V2 is green at h20.
 
 ## Lane
 
-The seam between Jerf's V1 stub answer and Jorf's V2 on-demand agent.
-After V1, `POST /request-context` returns a deterministic placeholder
-and writes a closure entry. After V2, the same handler must:
+The `request_context` client tool and the `POST /request-context`
+write/error path. V2 left a clean single-target single-hop loop
+working. V3 expands the tool surface (multi-hop, multi-target) and
+finishes the polish items V2 deferred.
 
-1. retrieve a slice of the target user's `context_entries`,
-2. call `answer_on_demand(slice, question)` (Jorf's module),
-3. write the real answer into `qa_ledger` + a `cross_user_qa` row on
-   the target user,
-4. return `{answer, source_user_ids, source_context_entry_ids}`.
+You do not own retrieval (Jorf/Narf), the agent prompt internals
+(Jorf), the schema (Sarf), or the desktop UI (Marf). You own the
+contract between the AI's tool call and the server's write.
 
-Same route file, same closure-write call, same MCP tool surface. Only
-the answer source changes.
+## V2 polish to land first
 
-## V1 baseline you inherit (already on main)
+Cheap, no design debate. Do these before any V3 stretch:
 
-- `apps/server/src/relevo/api/request_context.py` — handler, stub
-  answer, `write_cross_user_qa_entry(...)`.
-- `apps/desktop/src/main/tools/request_context.ts` — MCP tool
-  registration, allowed tool name `mcp__relevo__request_context`.
-- `apps/server/scripts/smoke_closure.py` — closure smoke against the
-  stub answer.
+1. **`OnDemandAgentError` → 502.** Wrap the `answer_from_context` call
+   in `apps/server/src/relevo/api/context.py` with try/except. On
+   error: HTTP 502, no `qa_ledger` row, no `cross_user_qa` row.
+   Failure ≠ context.
+2. **Empty-target-user smoke.** Add a case to
+   `apps/server/scripts/smoke_closure.py`: target user with zero
+   `context_entry` rows. Expect: response with
+   `insufficient_context=true` flag in metadata, Q&A row still
+   written, no exception.
+3. **`source_context_entry_ids` field.** Plan §6 says the response
+   carries `source_context_entry_ids`. Current code returns
+   `retrieved_context_entries` (full rows). Either rename to a
+   separate ID-only field or update the plan. Pair with Jorf — pick
+   whichever stays on main.
+4. **Delete `apps/server/src/relevo/api/request_context.py`.**
+   Orphaned after Sarf's V2 consolidation into `context.py`. Verify
+   nothing imports it, then remove.
 
-## V2 deliverables
+## V3 stretch (only after polish)
 
-1. **Naive retrieval** inside `POST /request-context`:
-   `SELECT ... FROM context_entry WHERE owner_user_id = $target ORDER
-   BY created_at DESC LIMIT N`. No query-embedding yet — vector ranking
-   is V3 (Jorf/Narf). Build the slice in the shape
-   `OnDemandContextSlice` from `relevo.agents`.
-2. **Replace the stub** with `answer_on_demand(slice, question)`.
-3. **Plumb fields:** add `source_context_entry_ids` to the HTTP
-   response (from Jorf's `citations[].context_entry_id`). Write
-   `confidence`, `insufficient_context`, and `citations` into the
-   `cross_user_qa` row's metadata. The MCP tool result keeps its
-   minimal `{answer, source_user_ids}` shape; client AI does not need
-   the extras yet.
-4. **Error path:** catch `OnDemandAgentError`, return HTTP 502, write
-   nothing. Failure ≠ context.
-5. **`insufficient_context = true`** still writes the Q&A row, with
-   the flag in metadata. Closure invariant holds even when the agent
-   didn't ground.
-6. **Update `smoke_closure.py`:** assert `kind='cross_user_qa'` row
-   exists with the question text and asker metadata. Do not assert
-   exact answer text — the real LLM is non-deterministic now.
-7. **One new smoke case:** empty target user (no `context_entries`)
-   → response carries `insufficient_context=true` in the row metadata,
-   Q&A row still written, no LLM call charged.
+Pick from this list based on what V2 evals expose:
 
-## Coordination
+1. **Multi-hop loop.** AI can call `request_context` more than once
+   per turn. Coordinate with Jorf on prompt-side termination
+   signal. Tool registration on the client doesn't change; what
+   changes is how the agent runtime treats repeat tool calls and
+   when it stops. Add a `max_hops` guard (default 3) on the client
+   broker so a runaway agent can't fan out.
+2. **Multi-target single call.** Accept `target = list[user_id]`
+   on the tool schema and the route. Server orchestration
+   (consolidation strategy: combined slice vs parallel agents) is
+   Jorf's call; you only own the request/response shape and the
+   per-target Q&A writes. **Each target user still gets exactly one
+   `cross_user_qa` row** — the closure invariant scales linearly,
+   not as one combined entry.
+3. **Citations passthrough to MCP tool result.** Today the tool
+   result is `{answer, source_user_ids}`. If V2 evals show the AI
+   would benefit from seeing which entries grounded the answer
+   (e.g. for follow-up questions), surface
+   `source_context_entry_ids` in the MCP tool result too. Costs
+   token budget; only do this if there's evidence it helps.
 
-- Pair with Jorf at h0 on import path and slice/answer Pydantic shapes
-  (already published in `relevo.agents`).
-- When Narf wakes, hand him the route — vector retrieval upgrade is
-  his lane, not yours. Don't block on him; ship naive retrieval.
+Skip whatever V2 didn't expose pain on. Don't build for hypotheticals.
 
 ## Decisions you own
 
-`N` for top-N recency, error response payload shape, exact metadata
-keys for `confidence` / `citations` / `insufficient_context`. Pick
-defaults and document inline.
+`max_hops` value, multi-target request shape (single key vs array),
+whether citations enter the MCP result. Document inline.
 
-## Out of scope for V2
+## Out of scope for V3
 
-- Vector retrieval (V3, Narf/Jorf).
-- `target = "project"` / multi-target / multi-hop (V3 stretch).
-- IPC streaming event contract on the desktop (V3 stretch, Marf).
+- `target = "project"` retrieval/agent (Jorf's lane).
+- Vector retrieval (Narf/Jorf).
+- Renderer streaming event contract (Marf, separate V3 stretch
+  item).
 - New schema columns (Sarf).
 
 ## Done when
 
-`smoke_closure.py` passes against the deployed server with the real
-LLM in the loop, the Q&A row on User2 contains the actual model
-answer, and `OnDemandAgentError` (simulate via bad API key) returns
-502 without a Q&A row.
+V2 smoke tests still pass. The 4 polish items are in. Whichever
+stretch items you picked are demoable: multi-hop produces a final
+answer that integrates two teammates' contributions, or multi-target
+produces matching `cross_user_qa` rows on each targeted user. If
+V2 evals don't justify any stretch item, ship just the polish and
+move on.
