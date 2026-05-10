@@ -496,6 +496,10 @@ function TasksView({
         bootstrap,
         userId,
         maxTurns: 4,
+        suggestionsContextQueries: [
+          'team responsibilities, current assignments, and recent activity',
+          `${targetDisplayName} work in progress, blockers, and open items`,
+        ],
       })
     } catch (err) {
       unsubscribeRef.current = null

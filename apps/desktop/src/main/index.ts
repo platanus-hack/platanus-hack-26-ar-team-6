@@ -38,7 +38,7 @@ import {
   loadProjectGraph as loadProjectGraphClient,
   type ProjectGraphResponse
 } from '../projectGraph.js'
-import { commitMemoryUpdate } from '../memoryTools.js'
+import { commitMemoryUpdate, retrieveContext } from '../memoryTools.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
@@ -102,6 +102,7 @@ type StartAssistantRunPayload = {
   mentionedAgentIds?: string[]
   model?: string
   maxTurns?: number
+  suggestionsContextQueries?: string[]
 }
 
 type CreateProjectPayload = {
@@ -728,6 +729,34 @@ app.whenReady().then(() => {
         serverUrl: serverBaseUrl,
         authToken: sessionToken,
         projectId: selectedProjectId
+      }
+
+      if (payload.suggestionsContextQueries?.length) {
+        try {
+          const packets = await Promise.all(
+            payload.suggestionsContextQueries.map((query) =>
+              retrieveContext(
+                {
+                  serverUrl: serverBaseUrl,
+                  userId: payload.userId,
+                  authToken: sessionToken,
+                  projectId: selectedProjectId ?? undefined,
+                },
+                { query },
+              ),
+            ),
+          )
+          const contextBlock = packets
+            .map((p, i) => `### Pre-fetched context for: "${payload.suggestionsContextQueries![i]}"\n${p.summary}`)
+            .join('\n\n')
+          runOptions.prompt =
+            `[IMPORTANT: Context has been pre-fetched. Do NOT call ask_retriever. Use the context below to complete the task.]\n\n` +
+            `${contextBlock}\n\n---\n\n` +
+            runOptions.prompt
+          runOptions.maxTurns = 1
+        } catch (err) {
+          console.warn('[suggestions] context pre-fetch failed, using tool-call fallback:', err)
+        }
       }
 
       const runToolTrace: ActivityToolEntry[] = []
