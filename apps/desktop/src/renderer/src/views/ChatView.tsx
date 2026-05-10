@@ -4,6 +4,7 @@ import { parseMentions } from '../../../mentionParser.js'
 import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
 import MarkdownMessage from '../components/MarkdownMessage'
+import ThinkingIndicator from '../components/ThinkingIndicator'
 import ChatHistorySidebar, {
   type ChatHistoryEntry,
   deriveTitle,
@@ -452,9 +453,11 @@ function ChatView({
               <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
             </div>
             <div className="chat-msg__text">
-              {message.role === 'assistant'
-                ? <MarkdownMessage text={message.text} />
-                : renderUserText(message.text)
+              {message.role === 'assistant' && message.text === 'thinking...' && isRunning
+                ? <ThinkingIndicator toolTrace={toolTrace} />
+                : message.role === 'assistant'
+                  ? <MarkdownMessage text={message.text} />
+                  : renderUserText(message.text)
               }
             </div>
           </div>
