@@ -753,7 +753,7 @@ app.whenReady().then(() => {
             `[IMPORTANT: Context has been pre-fetched. Do NOT call ask_retriever. Use the context below to complete the task.]\n\n` +
             `${contextBlock}\n\n---\n\n` +
             runOptions.prompt
-          runOptions.maxTurns = 1
+          runOptions.maxTurns = 3
         } catch (err) {
           console.warn('[suggestions] context pre-fetch failed, using tool-call fallback:', err)
         }
