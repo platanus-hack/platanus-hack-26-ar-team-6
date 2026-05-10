@@ -4,6 +4,7 @@ import {
   callAgentContext,
   callGlobalContext,
   commitMemoryUpdate,
+  retrieveContext,
   retrieverRequestSchema
 } from '../memoryTools'
 
@@ -102,6 +103,87 @@ describe('active multi-agent memory desktop client', () => {
         target_agent_id: 'user-2'
       }).success
     ).toBe(false)
+  })
+
+  it('posts retriever requests to retrieve-context and strips routing diagnostics', async () => {
+    const calls: Array<{ url: string | URL; body?: string }> = []
+    const responses = [
+      {
+        route: { name: 'agent_ctx', target_agent_id: 'user-2' },
+        diagnostics: { reason: 'mentioned teammate' },
+        context_exchange_id: 'exchange-agent',
+        insufficient_context: false,
+        results: [
+          {
+            id: 'entry-agent',
+            kind: 'agent_memory_document',
+            content: 'Jorf owns Railway deployment.',
+            metadata: { importance: 'local' },
+            created_at: '2026-05-09T00:00:00Z'
+          }
+        ]
+      },
+      {
+        route: 'global_ctx',
+        diagnostics: { reason: 'shared project question' },
+        context_exchange_id: 'exchange-global',
+        insufficient_context: true,
+        results: []
+      }
+    ]
+    const options = {
+      serverUrl: 'http://localhost:8000',
+      userId: 'user-1',
+      fetchImpl: async (url: string | URL, init?: RequestInit) => {
+        calls.push({ url, body: String(init?.body) })
+        return new Response(
+          JSON.stringify(responses.shift()),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      }
+    }
+
+    const agentPacket = await retrieveContext(options, {
+      query: 'What does Jorf own?',
+      target_agent_id: 'user-2',
+      reason: 'preflight before user-agent turn'
+    })
+    const globalPacket = await retrieveContext(options, {
+      query: 'shared architecture',
+      reason: 'preflight before user-agent turn'
+    })
+
+    expect(calls.map((call) => new URL(String(call.url)).pathname)).toEqual([
+      '/retrieve-context',
+      '/retrieve-context'
+    ])
+    expect(JSON.parse(calls[0].body ?? '{}')).toEqual({
+      query: 'What does Jorf own?',
+      target_agent_id: 'user-2',
+      reason: 'preflight before user-agent turn'
+    })
+    expect(JSON.parse(calls[1].body ?? '{}')).toEqual({
+      query: 'shared architecture',
+      reason: 'preflight before user-agent turn'
+    })
+    expect(agentPacket).toMatchObject({
+      query: 'What does Jorf own?',
+      scope: 'agent',
+      target_agent_id: 'user-2',
+      context_exchange_id: 'exchange-agent',
+      insufficient_context: false
+    })
+    expect(agentPacket.summary).toBe('1. Jorf owns Railway deployment.')
+    expect((agentPacket as Record<string, unknown>).route).toBeUndefined()
+    expect((agentPacket as Record<string, unknown>).diagnostics).toBeUndefined()
+    expect(globalPacket).toMatchObject({
+      query: 'shared architecture',
+      scope: 'global',
+      target_agent_id: undefined,
+      context_exchange_id: 'exchange-global',
+      insufficient_context: true,
+      results: []
+    })
   })
 
   it('commits updater memory operations', async () => {

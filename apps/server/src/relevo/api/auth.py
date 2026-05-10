@@ -32,6 +32,7 @@ from relevo.db import (
     get_user_by_token,
     remove_project_membership_for_account,
     revoke_account_session,
+    SESSION_TOKEN_PREFIX,
     upsert_account_from_google,
 )
 
@@ -132,13 +133,22 @@ def require_auth(
             detail="Missing bearer token",
         )
 
-    account = get_account_by_session_token(conn, token)
-    if account is not None:
-        return {"kind": "session", "account": account, "token": token}
+    if token.startswith(SESSION_TOKEN_PREFIX):
+        account = get_account_by_session_token(conn, token)
+        if account is not None:
+            return {"kind": "session", "account": account, "token": token}
 
-    user = get_user_by_token(conn, token)
-    if user is not None:
-        return {"kind": "legacy", "user": user, "token": token}
+        user = get_user_by_token(conn, token)
+        if user is not None:
+            return {"kind": "legacy", "user": user, "token": token}
+    else:
+        user = get_user_by_token(conn, token)
+        if user is not None:
+            return {"kind": "legacy", "user": user, "token": token}
+
+        account = get_account_by_session_token(conn, token)
+        if account is not None:
+            return {"kind": "session", "account": account, "token": token}
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

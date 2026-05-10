@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class ModelVersions(BaseModel):
     user_agent: str = "claude-code-sdk-session"
-    retriever: str = "claude-code-sdk-session"
+    retriever: str = "vector-retrieval-client"
     updater: str = "claude-code-sdk-session"
 
 
@@ -23,10 +23,17 @@ class GoogleOAuthConfig(BaseModel):
     session_ttl_seconds: int = 60 * 60 * 24 * 30
 
 
+class EmbeddingConfig(BaseModel):
+    api_key: str | None = None
+    model: str = "text-embedding-3-small"
+    dimensions: int = 1536
+
+
 class AppConfig(BaseModel):
     sha: str
     models: ModelVersions = Field(default_factory=ModelVersions)
     google_oauth: GoogleOAuthConfig = Field(default_factory=GoogleOAuthConfig)
+    embeddings: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
 
 
 class ServerConfig(BaseModel):
@@ -40,6 +47,7 @@ def load_app_config() -> AppConfig:
         or os.environ.get("RAILWAY_GIT_COMMIT_SHA")
         or "dev",
         google_oauth=load_google_oauth_config(),
+        embeddings=load_embedding_config(),
     )
 
 
@@ -66,4 +74,12 @@ def load_google_oauth_config() -> GoogleOAuthConfig:
         session_ttl_seconds=int(
             os.environ.get("ACCOUNT_SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30))
         ),
+    )
+
+
+def load_embedding_config() -> EmbeddingConfig:
+    return EmbeddingConfig(
+        api_key=os.environ.get("OPENAI_API_KEY"),
+        model=os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small"),
+        dimensions=int(os.environ.get("EMBEDDING_DIMENSIONS", "1536")),
     )

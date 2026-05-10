@@ -139,6 +139,78 @@ class MemoryRouteTest(unittest.TestCase):
         self.assertEqual(record.call_args.kwargs["target_agent_id"], None)
         self.assertEqual(record.call_args.kwargs["tool_name"], "global_ctx")
 
+    def test_retrieve_context_routes_vector_packet_and_records_exchange(self) -> None:
+        retrieved = {
+            "query": "How do we deploy?",
+            "route": "agents",
+            "selected_agent_ids": [TARGET_ID],
+            "results": [
+                {
+                    "id": ENTRY_ID,
+                    "kind": "agent_memory_document",
+                    "content": "Railway deploys the FastAPI server.",
+                    "metadata": {
+                        "source_table": "memory_chunk",
+                        "importance": "local",
+                        "author_agent_id": str(TARGET_ID),
+                    },
+                    "created_at": "2026-05-09T00:00:00Z",
+                }
+            ],
+            "diagnostics": {
+                "pool_top_score": 0.2,
+                "agent_top_score": 0.91,
+                "embedding_model": "text-embedding-3-small",
+            },
+        }
+
+        with (
+            patch.object(
+                context_api,
+                "get_user",
+                Mock(
+                    return_value={
+                        "id": TARGET_ID,
+                        "project_id": PROJECT_ID,
+                        "display_name": "User2",
+                        "domain_summary": "Deployment",
+                        "profile": {},
+                    }
+                ),
+            ),
+            patch.object(context_api, "retrieve_context", Mock(return_value=retrieved)) as retrieve,
+            patch.object(context_api, "record_context_exchange", Mock(return_value=EXCHANGE_ID)) as record,
+        ):
+            response = self.client.post(
+                "/retrieve-context",
+                json={
+                    "query": "How do we deploy?",
+                    "target_agent_id": str(TARGET_ID),
+                    "limit": 4,
+                    "metadata": {"source": "test"},
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["query"], "How do we deploy?")
+        self.assertEqual(payload["route"], "agents")
+        self.assertEqual(payload["selected_agent_ids"], [str(TARGET_ID)])
+        self.assertEqual(payload["context_exchange_id"], str(EXCHANGE_ID))
+        self.assertFalse(payload["insufficient_context"])
+        self.assertEqual(payload["diagnostics"]["agent_top_score"], 0.91)
+        retrieve.assert_called_once_with(
+            unittest.mock.ANY,
+            PROJECT_ID,
+            "How do we deploy?",
+            target_agent_ids=[TARGET_ID],
+            limit=4,
+        )
+        record.assert_called_once()
+        self.assertEqual(record.call_args.kwargs["target_agent_id"], TARGET_ID)
+        self.assertEqual(record.call_args.kwargs["tool_name"], "retrieve_context")
+        self.assertEqual(record.call_args.kwargs["metadata"]["route"], "agents")
+
     def test_memory_updates_commit_append_and_canonical_operations(self) -> None:
         commit = Mock(return_value={"event_ids": ["event-1"], "document_ids": ["doc-1"]})
 

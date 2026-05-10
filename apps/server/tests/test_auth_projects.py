@@ -138,6 +138,37 @@ class AuthProjectsTest(unittest.TestCase):
         self.assertNotEqual(token_hash(raw), raw)
         self.assertEqual(token_hash(raw), token_hash(raw))
 
+    def test_legacy_auth_token_skips_session_lookup_when_user_matches(self) -> None:
+        legacy_user = {
+            "id": USER_ID,
+            "project_id": PROJECT_ID,
+            "display_name": "User Example",
+            "domain_summary": "Owns the demo.",
+            "profile": {},
+            "role": "member",
+            "account_id": None,
+        }
+        with (
+            patch.object(auth_api, "get_user_by_token", Mock(return_value=legacy_user)) as get_user,
+            patch.object(auth_api, "get_account_by_session_token", Mock()) as get_account_by_session,
+        ):
+            auth = auth_api.require_auth(SimpleNamespace(), authorization="Bearer dev-token-user1")
+
+        self.assertEqual(auth["kind"], "legacy")
+        get_user.assert_called_once_with(unittest.mock.ANY, "dev-token-user1")
+        get_account_by_session.assert_not_called()
+
+    def test_session_auth_token_prefers_session_lookup(self) -> None:
+        with (
+            patch.object(auth_api, "get_account_by_session_token", Mock(return_value=account())) as get_session,
+            patch.object(auth_api, "get_user_by_token", Mock()) as get_user,
+        ):
+            auth = auth_api.require_auth(SimpleNamespace(), authorization="Bearer rlv_session")
+
+        self.assertEqual(auth["kind"], "session")
+        get_session.assert_called_once_with(unittest.mock.ANY, "rlv_session")
+        get_user.assert_not_called()
+
     def test_create_project_creates_leader_membership(self) -> None:
         self.app.dependency_overrides[auth_api.require_account] = account
         create = Mock(return_value=membership(role="leader"))
