@@ -1,22 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import {
+  buildSim,
+  createLayoutMotion,
+  prewarmLayout,
+  stepSettlingLayout,
+  warmLayout,
+  type CachedNodeState,
+  type GraphLayoutEdge as SimEdge,
+  type GraphLayoutNode as SimNode,
+  type LayoutMotion
+} from './graphLayout'
+
 type ProjectGraphResponse = Awaited<ReturnType<typeof window.api.loadProjectGraph>>
 type GraphNode = ProjectGraphResponse['nodes'][number]
 type GraphEdge = ProjectGraphResponse['edges'][number]
-
-type SimNode = GraphNode & {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  radius: number
-  fixed?: boolean
-}
-
-type SimEdge = GraphEdge & {
-  sourceNode: SimNode
-  targetNode: SimNode
-}
 
 const NODE_COLORS: Record<GraphNode['kind'], string> = {
   agent: '#7dd3fc',
@@ -28,64 +26,6 @@ const EDGE_COLORS: Record<GraphEdge['kind'], string> = {
   authored: 'rgba(180, 200, 220, 0.45)',
   asked: 'rgba(244, 114, 182, 0.55)',
   provenance: 'rgba(160, 220, 180, 0.4)'
-}
-
-const NODE_RADIUS_BY_KIND: Record<GraphNode['kind'], number> = {
-  agent: 12,
-  doc: 7,
-  event: 5
-}
-
-type CachedNodeState = { x: number; y: number; vx: number; vy: number }
-
-function buildSim(
-  nodes: GraphNode[],
-  edges: GraphEdge[],
-  cache?: Map<string, CachedNodeState>
-): { nodes: SimNode[]; edges: SimEdge[] } {
-  const sim: SimNode[] = nodes.map((node, idx) => {
-    const cached = cache?.get(node.id)
-    if (cached) {
-      return {
-        ...node,
-        x: cached.x,
-        y: cached.y,
-        vx: cached.vx,
-        vy: cached.vy,
-        radius: NODE_RADIUS_BY_KIND[node.kind]
-      }
-    }
-    const angle = (idx / Math.max(1, nodes.length)) * Math.PI * 2
-    const ringScale = Math.max(1, Math.sqrt(nodes.length / 30))
-    const ring = (node.kind === 'agent' ? 80 : node.kind === 'doc' ? 200 : 320) * ringScale
-    return {
-      ...node,
-      x: Math.cos(angle) * ring + (Math.random() - 0.5) * 30,
-      y: Math.sin(angle) * ring + (Math.random() - 0.5) * 30,
-      vx: 0,
-      vy: 0,
-      radius: NODE_RADIUS_BY_KIND[node.kind]
-    }
-  })
-  const byId = new Map(sim.map((n) => [n.id, n]))
-  const simEdges: SimEdge[] = []
-  for (const edge of edges) {
-    const a = byId.get(edge.source)
-    const b = byId.get(edge.target)
-    if (!a || !b) continue
-    simEdges.push({ ...edge, sourceNode: a, targetNode: b })
-  }
-  return { nodes: sim, edges: simEdges }
-}
-
-// Run sim iterations synchronously to settle layout before first paint.
-function prewarm(nodes: SimNode[], edges: SimEdge[]): void {
-  const iters = Math.min(800, 120 + nodes.length * 4)
-  for (let i = 0; i < iters; i++) step(nodes, edges, 1)
-  for (const n of nodes) {
-    n.vx = 0
-    n.vy = 0
-  }
 }
 
 // Module-level state survives component unmount (tab switch).
@@ -103,65 +43,11 @@ const persistedGraphState: {
   selectedId: null
 }
 
-function step(nodes: SimNode[], edges: SimEdge[], dt: number): void {
-  const repulsion = 1800
-  const spring = 0.04
-  const damping = 0.82
-  const gravity = 0.012
-
-  for (let i = 0; i < nodes.length; i++) {
-    const a = nodes[i]!
-    for (let j = i + 1; j < nodes.length; j++) {
-      const b = nodes[j]!
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const distSq = dx * dx + dy * dy + 0.01
-      const dist = Math.sqrt(distSq)
-      const force = repulsion / distSq
-      const fx = (dx / dist) * force
-      const fy = (dy / dist) * force
-      a.vx -= fx * dt
-      a.vy -= fy * dt
-      b.vx += fx * dt
-      b.vy += fy * dt
-    }
-  }
-
-  for (const edge of edges) {
-    const a = edge.sourceNode
-    const b = edge.targetNode
-    const dx = b.x - a.x
-    const dy = b.y - a.y
-    const dist = Math.sqrt(dx * dx + dy * dy) + 0.01
-    const target = a.kind === 'agent' && b.kind === 'agent' ? 140 : 90
-    const diff = dist - target
-    const fx = (dx / dist) * diff * spring
-    const fy = (dy / dist) * diff * spring
-    a.vx += fx * dt
-    a.vy += fy * dt
-    b.vx -= fx * dt
-    b.vy -= fy * dt
-  }
-
-  for (const n of nodes) {
-    if (n.fixed) {
-      n.vx = 0
-      n.vy = 0
-      continue
-    }
-    n.vx -= n.x * gravity * dt
-    n.vy -= n.y * gravity * dt
-    n.vx *= damping
-    n.vy *= damping
-    n.x += n.vx * dt
-    n.y += n.vy * dt
-  }
-}
-
 function GraphView(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const animationRef = useRef<number | null>(null)
+  const fetchRequestRef = useRef(0)
   const stateRef = useRef<{
     nodes: SimNode[]
     edges: SimEdge[]
@@ -169,13 +55,15 @@ function GraphView(): React.JSX.Element {
     hoverId: string | null
     dragNode: SimNode | null
     dragPan: { x: number; y: number } | null
+    motion: LayoutMotion
   }>({
     nodes: [],
     edges: [],
     transform: { ...persistedGraphState.transform },
     hoverId: null,
     dragNode: null,
-    dragPan: null
+    dragPan: null,
+    motion: createLayoutMotion({ hasUncachedNodes: false })
   })
 
   const [graph, setGraph] = useState<ProjectGraphResponse | null>(persistedGraphState.graph)
@@ -189,14 +77,21 @@ function GraphView(): React.JSX.Element {
   })
   const hasCachedGraph = useRef<boolean>(persistedGraphState.graph !== null)
 
-  const fetchGraph = useCallback(async (): Promise<void> => {
+  const fetchGraph = useCallback(async (requestedIncludeLocal = includeLocal): Promise<void> => {
+    const requestId = fetchRequestRef.current + 1
+    fetchRequestRef.current = requestId
     setIsLoading(true)
     setError(null)
     try {
-      const res = await window.api.loadProjectGraph({ includeLocal })
+      const res = await window.api.loadProjectGraph({ includeLocal: requestedIncludeLocal })
+      if (requestId !== fetchRequestRef.current) return
       setGraph(res)
+      setSelected((current) => {
+        if (!current) return null
+        return res.nodes.find((node) => node.id === current.id) ?? null
+      })
       persistedGraphState.graph = res
-      persistedGraphState.includeLocal = includeLocal
+      persistedGraphState.includeLocal = requestedIncludeLocal
       // Keep positions cache across refresh: known nodes restore, new nodes get fresh placement.
       const live = stateRef.current.nodes
       if (live.length > 0) {
@@ -205,9 +100,10 @@ function GraphView(): React.JSX.Element {
         )
       }
     } catch (err) {
+      if (requestId !== fetchRequestRef.current) return
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setIsLoading(false)
+      if (requestId === fetchRequestRef.current) setIsLoading(false)
     }
   }, [includeLocal])
 
@@ -216,7 +112,7 @@ function GraphView(): React.JSX.Element {
       hasCachedGraph.current = false
       return
     }
-    void fetchGraph()
+    void fetchGraph(includeLocal)
   }, [fetchGraph, includeLocal])
 
   useEffect(() => {
@@ -241,13 +137,14 @@ function GraphView(): React.JSX.Element {
       }
     }
     const hasUncached = !cache || graph.nodes.some((n) => !cache.has(n.id))
-    if (hasUncached) prewarm(built.nodes, built.edges)
+    if (hasUncached) prewarmLayout(built.nodes, built.edges)
     stateRef.current.nodes = built.nodes
     stateRef.current.edges = built.edges
     stateRef.current.transform = { ...persistedGraphState.transform }
     stateRef.current.hoverId = null
     stateRef.current.dragNode = null
     stateRef.current.dragPan = null
+    stateRef.current.motion = createLayoutMotion({ hasUncachedNodes: hasUncached })
   }, [graph])
 
   useEffect(() => {
@@ -309,7 +206,9 @@ function GraphView(): React.JSX.Element {
 
     function frame(): void {
       const state = stateRef.current
-      step(state.nodes, state.edges, 1)
+      if (state.dragNode || !state.motion.settled) {
+        stepSettlingLayout(state.nodes, state.edges, state.motion, 1)
+      }
       if (!ctx) return
 
       ctx.save()
@@ -390,6 +289,7 @@ function GraphView(): React.JSX.Element {
         state.dragNode.y = w.y
         state.dragNode.vx = 0
         state.dragNode.vy = 0
+        warmLayout(state.motion)
         return
       }
       if (state.dragPan) {
@@ -410,6 +310,7 @@ function GraphView(): React.JSX.Element {
       if (hit) {
         hit.fixed = true
         state.dragNode = hit
+        warmLayout(state.motion)
         setSelected({ id: hit.id, kind: hit.kind, label: hit.label, meta: hit.meta })
       } else {
         state.dragPan = { x: e.clientX, y: e.clientY }
@@ -418,7 +319,10 @@ function GraphView(): React.JSX.Element {
 
     function onUp(): void {
       const state = stateRef.current
-      if (state.dragNode) state.dragNode.fixed = false
+      if (state.dragNode) {
+        state.dragNode.fixed = false
+        warmLayout(state.motion)
+      }
       state.dragNode = null
       state.dragPan = null
     }
@@ -465,7 +369,7 @@ function GraphView(): React.JSX.Element {
         <button
           type="button"
           className="graph-toolbar__refresh"
-          onClick={() => void fetchGraph()}
+          onClick={() => void fetchGraph(includeLocal)}
           disabled={isLoading}
         >
           {isLoading ? 'loading…' : 'refresh'}
@@ -480,7 +384,7 @@ function GraphView(): React.JSX.Element {
             <div className="graph-empty__hint">
               the graph projects global memory documents, events, and agent context exchanges.
               run the assistant a few times so the updater publishes global entries — or toggle
-              "include private" above to show local memory.
+              &quot;include private&quot; above to show local memory.
             </div>
           </div>
         )}
