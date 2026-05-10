@@ -39,6 +39,7 @@ import {
   type ProjectGraphResponse
 } from '../projectGraph.js'
 import { commitMemoryUpdate, retrieveContext } from '../memoryTools.js'
+import { resolveAssistantRunCwd } from './assistantRunCwd.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-copy-production-5a85.up.railway.app'
@@ -94,7 +95,6 @@ type DesktopExchangeResponse = AuthStateResponse & {
 
 type StartAssistantRunPayload = {
   prompt: string
-  cwd?: string
   bootstrap: BootstrapContext
   userId: string
   chatSessionId?: string
@@ -158,10 +158,6 @@ function notifyAuthEvent(event: AuthEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send('auth:event', event)
   }
-}
-
-function fallbackRunnerCwd(payloadCwd?: string): string {
-  return payloadCwd ?? viteEnv['VITE_LOCAL_REPO_PATH'] ?? process.env['VITE_LOCAL_REPO_PATH'] ?? '.'
 }
 
 function conversationFilePath(workspaceId: string): string {
@@ -724,7 +720,7 @@ app.whenReady().then(() => {
       const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
       const runOptions: RunLocalAssistantOptions = {
         ...payload,
-        cwd: settings.selectedProjectFolderPath ?? fallbackRunnerCwd(payload.cwd),
+        cwd: resolveAssistantRunCwd(settings.selectedProjectFolderPath),
         anthropicApiKey,
         serverUrl: serverBaseUrl,
         authToken: sessionToken,

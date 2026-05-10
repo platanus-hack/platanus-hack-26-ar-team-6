@@ -43,7 +43,6 @@ type BootstrapPayload = {
 
 type StartAssistantRunPayload = {
   prompt: string
-  cwd?: string
   bootstrap: BootstrapPayload
   userId: string
   chatSessionId?: string
