@@ -373,9 +373,19 @@ function GraphView(): React.JSX.Element {
           {isLoading ? 'loading…' : 'refresh'}
         </button>
       </div>
-      {error && <div className="content-status">{error}</div>}
+      {error && <div className="content-status">graph load failed: {error}</div>}
       <div ref={containerRef} className="graph-canvas-host">
         <canvas ref={canvasRef} className="graph-canvas" />
+        {!error && graph && graph.nodes.length === 0 && (
+          <div className="graph-empty">
+            <div className="graph-empty__title">no nodes yet</div>
+            <div className="graph-empty__hint">
+              the graph projects global memory documents, events, and agent context exchanges.
+              run the assistant a few times so the updater publishes global entries — or toggle
+              "include private" above to show local memory.
+            </div>
+          </div>
+        )}
         {selected && (
           <aside className="graph-detail">
             <header className="graph-detail__header">

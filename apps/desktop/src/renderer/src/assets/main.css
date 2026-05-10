@@ -2983,3 +2983,29 @@ button {
   font-size: 11px;
   color: var(--text-secondary);
 }
+
+.graph-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
+.graph-empty__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.graph-empty__hint {
+  max-width: 420px;
+  font-size: 12px;
+  line-height: 1.5;
+}
