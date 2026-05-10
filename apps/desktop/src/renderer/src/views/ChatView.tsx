@@ -5,6 +5,7 @@ import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
 import MarkdownMessage from '../components/MarkdownMessage'
 import ThinkingIndicator from '../components/ThinkingIndicator'
+import logoSrc from '../components/logo/Group 45.svg'
 import ChatHistorySidebar, {
   type ChatHistoryEntry,
   deriveTitle,
@@ -111,6 +112,9 @@ function ChatView({
   const currentSessionIdRef = useRef<string | null>(null)
   const messages = messagesByWorkspace[workspaceId] ?? []
   const toolTrace = toolTraceByWorkspace[workspaceId] ?? []
+  const hasMcpRunning = isRunning && toolTrace.some(
+    (e) => e.status === 'running' && e.toolName.startsWith('mcp__relevo-')
+  )
   const saveStatus = saveStatusByWorkspace[workspaceId] ?? null
   const runStatus = runStatusByWorkspace[workspaceId] ?? null
   const rosterById = Object.fromEntries(bootstrap.project_context.roster.map((user) => [user.id, user.display_name]))
@@ -450,11 +454,19 @@ function ChatView({
         {messages.map((message) => (
           <div key={message.id} className={`chat-msg chat-msg--${message.role}`}>
             <div className="chat-msg__header">
+              {message.role === 'assistant' && (
+                <img
+                  src={logoSrc}
+                  alt=""
+                  aria-hidden="true"
+                  className={`chat-msg__logo${hasMcpRunning ? ' chat-msg__logo--spin' : ''}`}
+                />
+              )}
               <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
             </div>
             <div className="chat-msg__text">
               {message.role === 'assistant' && message.text === 'thinking...' && isRunning
-                ? <ThinkingIndicator toolTrace={toolTrace} />
+                ? <ThinkingIndicator />
                 : message.role === 'assistant'
                   ? <MarkdownMessage text={message.text} />
                   : renderUserText(message.text)
