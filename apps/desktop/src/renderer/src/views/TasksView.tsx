@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Circle, Clock, Sparkles, X, Plus, Trash2 } from 'lucide-react'
 
+type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
+
 type RunnerBootstrapPayload = {
   user_summary: BootstrapResponse['user']
   project_context: {
