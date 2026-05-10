@@ -36,10 +36,28 @@ const NODE_RADIUS_BY_KIND: Record<GraphNode['kind'], number> = {
   event: 5
 }
 
-function buildSim(nodes: GraphNode[], edges: GraphEdge[]): { nodes: SimNode[]; edges: SimEdge[] } {
+type CachedNodeState = { x: number; y: number; vx: number; vy: number }
+
+function buildSim(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  cache?: Map<string, CachedNodeState>
+): { nodes: SimNode[]; edges: SimEdge[] } {
   const sim: SimNode[] = nodes.map((node, idx) => {
+    const cached = cache?.get(node.id)
+    if (cached) {
+      return {
+        ...node,
+        x: cached.x,
+        y: cached.y,
+        vx: cached.vx,
+        vy: cached.vy,
+        radius: NODE_RADIUS_BY_KIND[node.kind]
+      }
+    }
     const angle = (idx / Math.max(1, nodes.length)) * Math.PI * 2
-    const ring = node.kind === 'agent' ? 80 : node.kind === 'doc' ? 200 : 320
+    const ringScale = Math.max(1, Math.sqrt(nodes.length / 30))
+    const ring = (node.kind === 'agent' ? 80 : node.kind === 'doc' ? 200 : 320) * ringScale
     return {
       ...node,
       x: Math.cos(angle) * ring + (Math.random() - 0.5) * 30,
@@ -58,6 +76,31 @@ function buildSim(nodes: GraphNode[], edges: GraphEdge[]): { nodes: SimNode[]; e
     simEdges.push({ ...edge, sourceNode: a, targetNode: b })
   }
   return { nodes: sim, edges: simEdges }
+}
+
+// Run sim iterations synchronously to settle layout before first paint.
+function prewarm(nodes: SimNode[], edges: SimEdge[]): void {
+  const iters = Math.min(400, 80 + nodes.length * 3)
+  for (let i = 0; i < iters; i++) step(nodes, edges, 1)
+  for (const n of nodes) {
+    n.vx = 0
+    n.vy = 0
+  }
+}
+
+// Module-level state survives component unmount (tab switch).
+const persistedGraphState: {
+  graph: ProjectGraphResponse | null
+  includeLocal: boolean
+  positions: Map<string, CachedNodeState>
+  transform: { x: number; y: number; scale: number }
+  selectedId: string | null
+} = {
+  graph: null,
+  includeLocal: false,
+  positions: new Map(),
+  transform: { x: 0, y: 0, scale: 1 },
+  selectedId: null
 }
 
 function step(nodes: SimNode[], edges: SimEdge[], dt: number): void {
@@ -129,17 +172,22 @@ function GraphView(): React.JSX.Element {
   }>({
     nodes: [],
     edges: [],
-    transform: { x: 0, y: 0, scale: 1 },
+    transform: { ...persistedGraphState.transform },
     hoverId: null,
     dragNode: null,
     dragPan: null
   })
 
-  const [graph, setGraph] = useState<ProjectGraphResponse | null>(null)
+  const [graph, setGraph] = useState<ProjectGraphResponse | null>(persistedGraphState.graph)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [includeLocal, setIncludeLocal] = useState(false)
-  const [selected, setSelected] = useState<GraphNode | null>(null)
+  const [includeLocal, setIncludeLocal] = useState(persistedGraphState.includeLocal)
+  const [selected, setSelected] = useState<GraphNode | null>(() => {
+    const id = persistedGraphState.selectedId
+    if (!id || !persistedGraphState.graph) return null
+    return persistedGraphState.graph.nodes.find((n) => n.id === id) ?? null
+  })
+  const hasCachedGraph = useRef<boolean>(persistedGraphState.graph !== null)
 
   const fetchGraph = useCallback(async (): Promise<void> => {
     setIsLoading(true)
@@ -147,6 +195,15 @@ function GraphView(): React.JSX.Element {
     try {
       const res = await window.api.loadProjectGraph({ includeLocal })
       setGraph(res)
+      persistedGraphState.graph = res
+      persistedGraphState.includeLocal = includeLocal
+      // Keep positions cache across refresh: known nodes restore, new nodes get fresh placement.
+      const live = stateRef.current.nodes
+      if (live.length > 0) {
+        persistedGraphState.positions = new Map(
+          live.map((n) => [n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy }])
+        )
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -155,19 +212,57 @@ function GraphView(): React.JSX.Element {
   }, [includeLocal])
 
   useEffect(() => {
+    if (hasCachedGraph.current && persistedGraphState.includeLocal === includeLocal) {
+      hasCachedGraph.current = false
+      return
+    }
     void fetchGraph()
-  }, [fetchGraph])
+  }, [fetchGraph, includeLocal])
 
   useEffect(() => {
     if (!graph) return
-    const built = buildSim(graph.nodes, graph.edges)
+    const cache = persistedGraphState.positions.size > 0 ? persistedGraphState.positions : undefined
+    const built = buildSim(graph.nodes, graph.edges, cache)
+    const hasUncached = !cache || graph.nodes.some((n) => !cache.has(n.id))
+    const allUncached = !cache
+    if (allUncached) {
+      prewarm(built.nodes, built.edges)
+    } else if (hasUncached) {
+      // Pin cached nodes, settle just the new ones briefly so they don't pop in chaotically.
+      const newNodes = built.nodes.filter((n) => !cache!.has(n.id))
+      for (const n of built.nodes) if (!newNodes.includes(n)) n.fixed = true
+      const iters = Math.min(120, 40 + newNodes.length * 5)
+      for (let i = 0; i < iters; i++) step(built.nodes, built.edges, 1)
+      for (const n of built.nodes) {
+        n.fixed = false
+        n.vx = 0
+        n.vy = 0
+      }
+    }
     stateRef.current.nodes = built.nodes
     stateRef.current.edges = built.edges
-    stateRef.current.transform = { x: 0, y: 0, scale: 1 }
+    stateRef.current.transform = { ...persistedGraphState.transform }
     stateRef.current.hoverId = null
     stateRef.current.dragNode = null
     stateRef.current.dragPan = null
   }, [graph])
+
+  useEffect(() => {
+    persistedGraphState.selectedId = selected?.id ?? null
+  }, [selected])
+
+  // Snapshot positions + transform on unmount so tab switch preserves layout.
+  useEffect(() => {
+    return () => {
+      const state = stateRef.current
+      if (state.nodes.length > 0) {
+        persistedGraphState.positions = new Map(
+          state.nodes.map((n) => [n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy }])
+        )
+      }
+      persistedGraphState.transform = { ...state.transform }
+    }
+  }, [])
 
   const stats = useMemo(() => {
     if (!graph) return { agents: 0, docs: 0, events: 0, edges: 0 }

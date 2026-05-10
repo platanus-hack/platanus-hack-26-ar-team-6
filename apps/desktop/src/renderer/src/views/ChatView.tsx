@@ -461,39 +461,14 @@ function ChatView({
         ))}
         <div ref={bottomRef} />
       </div>
-      {toolTrace.length > 0 && (
-        <div className="chat-trace-list">
-          {toolTrace.map((entry) => (
-            <div className="chat-trace-item" key={entry.id}>
-              <div className="chat-trace-item__header">
-                <span className="chat-trace-item__tool">{entry.toolName}</span>
-                <span className={`chat-trace-item__status chat-trace-item__status--${entry.status}`}>{entry.status}</span>
-              </div>
-              {entry.targetDisplayName && <div className="chat-trace-item__line">target: {entry.targetDisplayName}</div>}
-              {!entry.targetDisplayName && entry.targetUserId && (
-                <div className="chat-trace-item__line">target: {entry.targetUserId}</div>
-              )}
-              {entry.question && <div className="chat-trace-item__line">question: {entry.question}</div>}
-              {typeof entry.elapsedTimeSeconds === 'number' && (
-                <div className="chat-trace-item__line">elapsed: {Math.round(entry.elapsedTimeSeconds)}s</div>
-              )}
-              {entry.answerPreview && <div className="chat-trace-item__line">answer: {entry.answerPreview}</div>}
-              {entry.errorMessage && <div className="chat-trace-item__line">error: {entry.errorMessage}</div>}
-            </div>
-          ))}
-        </div>
-      )}
-      {runStatus && (
+      {runStatus && runStatus.includes('folder') && (
         <div className="chat-run-status">
           <span>{runStatus}</span>
-          {runStatus.includes('folder') && (
-            <button className="chat-run-status__button" type="button" onClick={onReconnectFolder}>
-              reconnect
-            </button>
-          )}
+          <button className="chat-run-status__button" type="button" onClick={onReconnectFolder}>
+            reconnect
+          </button>
         </div>
       )}
-      {saveStatus && <div className="chat-save-status">{saveStatus}</div>}
       <div className="chat-input-row">
         {mentionSuggestions.length > 0 && (
           <ul className="mention-suggestions" ref={mentionListRef}>
