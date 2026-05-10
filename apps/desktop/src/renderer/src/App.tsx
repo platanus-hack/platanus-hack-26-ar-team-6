@@ -438,7 +438,6 @@ function App(): React.JSX.Element {
           workspaceName="projects"
           serverBaseUrl={desktopSettings.serverBaseUrl}
           accountEmail={desktopSettings.account?.email}
-          showProjectsButton
           isDark={isDark}
           onToggleTheme={() => setIsDark((value) => !value)}
           anthropicKeyConfigured={desktopSettings.hasAnthropicApiKey}

@@ -99,9 +99,12 @@ function ChatView({
   const [input, setInput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [mentionSuggestions, setMentionSuggestions] = useState<typeof bootstrap.project_context.roster>([])
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0)
   const [, setMentionQuery] = useState('')
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const mentionListRef = useRef<HTMLUListElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
   const hasAssistantTextRef = useRef(false)
   const currentSessionIdRef = useRef<string | null>(null)
@@ -258,6 +261,24 @@ function ChatView({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, runStatus, saveStatus, toolTrace])
 
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = '0px'
+    const nextHeight = Math.min(el.scrollHeight, 160)
+    el.style.height = `${nextHeight}px`
+  }, [input])
+
+  useEffect(() => {
+    if (mentionSuggestions.length === 0) return
+    const list = mentionListRef.current
+    if (!list) return
+    const activeItem = list.querySelector<HTMLButtonElement>(
+      `[data-mention-index="${activeMentionIndex}"]`
+    )
+    activeItem?.scrollIntoView({ block: 'nearest' })
+  }, [activeMentionIndex, mentionSuggestions])
+
   function handleSend(): void {
     if (isRunning) return
 
@@ -293,6 +314,7 @@ function ChatView({
     setIsRunning(true)
     setInput('')
     setMentionSuggestions([])
+    setActiveMentionIndex(0)
 
     void window.api
       .startAssistantRun({
@@ -368,8 +390,10 @@ function ChatView({
         u.display_name.split(' ')[0].toLowerCase().startsWith(query)
       )
       setMentionSuggestions(suggestions)
+      setActiveMentionIndex(0)
     } else {
       setMentionSuggestions([])
+      setActiveMentionIndex(0)
       setMentionQuery('')
     }
   }
@@ -378,12 +402,30 @@ function ChatView({
     const newInput = input.replace(/@\w*$/, `@${user.display_name} `)
     setInput(newInput)
     setMentionSuggestions([])
+    setActiveMentionIndex(0)
     setMentionQuery('')
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (mentionSuggestions.length > 0 && event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActiveMentionIndex((index) => (index + 1) % mentionSuggestions.length)
+      return
+    }
+    if (mentionSuggestions.length > 0 && event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActiveMentionIndex((index) => (index - 1 + mentionSuggestions.length) % mentionSuggestions.length)
+      return
+    }
     if (event.key === 'Escape' && mentionSuggestions.length > 0) {
       setMentionSuggestions([])
+      setActiveMentionIndex(0)
+      return
+    }
+    if ((event.key === 'Enter' || event.key === 'Tab') && mentionSuggestions.length > 0) {
+      event.preventDefault()
+      const user = mentionSuggestions[activeMentionIndex]
+      if (user) handleMentionSelect(user)
       return
     }
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -454,16 +496,18 @@ function ChatView({
       {saveStatus && <div className="chat-save-status">{saveStatus}</div>}
       <div className="chat-input-row">
         {mentionSuggestions.length > 0 && (
-          <ul className="mention-suggestions">
-            {mentionSuggestions.map((user) => (
+          <ul className="mention-suggestions" ref={mentionListRef}>
+            {mentionSuggestions.map((user, index) => (
               <li key={user.id}>
                 <button
                   type="button"
-                  className="mention-suggestion-item"
+                  data-mention-index={index}
+                  className={`mention-suggestion-item${mentionSuggestions[activeMentionIndex]?.id === user.id ? ' mention-suggestion-item--active' : ''}`}
                   onMouseDown={(e) => {
                     e.preventDefault()
                     handleMentionSelect(user)
                   }}
+                  onMouseEnter={() => setActiveMentionIndex(mentionSuggestions.findIndex((item) => item.id === user.id))}
                 >
                   <span className="mention-suggestion-name">{user.display_name}</span>
                   {user.domain_summary && (
@@ -475,13 +519,14 @@ function ChatView({
           </ul>
         )}
         <textarea
+          ref={inputRef}
           className="chat-input"
-          rows={2}
+          rows={1}
           placeholder={inputPlaceholder}
           value={input}
           onChange={(event) => handleInputChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isRunning || !hasProjectFolder}
+          disabled={!hasProjectFolder}
         />
         <div className="chat-actions">
           <button
