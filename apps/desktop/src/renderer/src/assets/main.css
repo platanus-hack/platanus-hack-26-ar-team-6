@@ -2468,3 +2468,335 @@ button {
   color: var(--text-secondary);
   line-height: 1.4;
 }
+
+/* Tasks — header row */
+.tasks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.tasks-header__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+
+/* Tasks — shared button */
+.tasks-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.tasks-btn:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.tasks-btn:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.tasks-btn--suggest {
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  border-color: var(--surface-inverse);
+}
+
+.tasks-btn--suggest:hover:not(:disabled) {
+  opacity: 0.88;
+  background: var(--surface-inverse);
+}
+
+/* Tasks — approved empty state */
+.tasks-approved-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.tasks-approved-empty p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 36ch;
+}
+
+/* Tasks — status button on card */
+.task-card__status--clickable {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.task-card__status--clickable:hover {
+  opacity: 0.7;
+}
+
+/* Tasks — delete button on card */
+.task-card__delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: none;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.task-card {
+  position: relative;
+}
+
+.task-card:hover .task-card__delete {
+  display: flex;
+}
+
+.task-card__delete:hover {
+  color: #b91c1c;
+}
+
+/* Tasks — spinner */
+.tasks-spinner {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-primary);
+  animation: tasks-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tasks-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Tasks — generating progress list */
+.tasks-generating__progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+/* Tasks — priority badge */
+.task-card__priority {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  margin-top: 6px;
+}
+
+.task-card__priority--high {
+  background: rgba(185, 28, 28, 0.08);
+  border-color: rgba(185, 28, 28, 0.2);
+  color: #b91c1c;
+}
+
+.task-card__priority--medium {
+  background: rgba(202, 138, 4, 0.08);
+  border-color: rgba(202, 138, 4, 0.2);
+  color: #ca8a04;
+}
+
+.task-card__priority--low {
+  background: rgba(100, 116, 139, 0.08);
+  border-color: rgba(100, 116, 139, 0.15);
+  color: #64748b;
+}
+
+/* Tasks — context sentence */
+.task-card__context {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* Suggestions panel */
+.tasks-suggestions-panel {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.tasks-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.tasks-suggestions-header__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: lowercase;
+  letter-spacing: 0.03em;
+}
+
+.tasks-suggestions-close {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.tasks-suggestions-close:hover {
+  color: var(--text-primary);
+}
+
+/* Suggestions — generating state inside panel */
+.tasks-suggestions-generating {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* Suggestions — error state inside panel */
+.tasks-suggestions-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.tasks-suggestions-error p {
+  flex: 1;
+  margin: 0;
+}
+
+/* Suggestions list */
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Individual suggestion card */
+.suggestion-card {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestion-card:last-child {
+  border-bottom: none;
+}
+
+.suggestion-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestion-card__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.suggestion-card__context {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.suggestion-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Suggestion action buttons */
+.suggestion-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 140ms ease;
+  border: 1px solid var(--border);
+}
+
+.suggestion-btn--dismiss {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.suggestion-btn--dismiss:hover {
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+}
+
+.suggestion-btn--approve {
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  border-color: var(--surface-inverse);
+}
+
+.suggestion-btn--approve:hover {
+  opacity: 0.88;
+}
