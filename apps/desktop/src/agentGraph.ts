@@ -105,7 +105,7 @@ const AgentNetworkAnnotation = Annotation.Root({
   }),
   checkpointIndex: Annotation<number>({
     reducer: (_previous, next) => next,
-    default: () => 0,
+    default: () => 1,
   }),
   conversationStartedAt: Annotation<number>({
     reducer: (_previous, next) => next,
