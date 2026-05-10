@@ -1519,9 +1519,10 @@ button {
 
 .settings-panel {
   width: min(480px, 100%);
-  border: 1px solid #d8d8d8;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--surface);
+  color: var(--text-primary);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
@@ -1531,7 +1532,7 @@ button {
   justify-content: space-between;
   gap: 16px;
   padding: 18px 20px 14px;
-  border-bottom: 1px solid #eeeeee;
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .settings-panel__header h2 {
@@ -1541,14 +1542,14 @@ button {
 
 .settings-panel__header p {
   margin: 4px 0 0;
-  color: #666666;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
 .settings-panel__close {
-  border: 1px solid #d8d8d8;
-  background: #f7f7f7;
-  color: #111111;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
   cursor: pointer;
   width: 28px;
   height: 28px;
@@ -1562,22 +1563,31 @@ button {
 }
 
 .settings-form--stacked {
-  border-top: 1px solid #eeeeee;
+  border-top: 1px solid var(--border-soft);
 }
 
 .settings-form__label {
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .settings-form__input {
-  border: 1px solid #d8d8d8;
+  border: 1px solid var(--border);
+  background: var(--input-surface);
+  color: var(--text-primary);
   padding: 9px 10px;
   font: inherit;
+  border-radius: 8px;
   outline: none;
 }
 
+.settings-form__input::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
 .settings-form__input:focus {
-  border-color: #999999;
+  border-color: var(--text-secondary);
 }
 
 .settings-form__actions {
@@ -1608,7 +1618,7 @@ button {
 }
 
 .settings-form__status {
-  color: #555555;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
