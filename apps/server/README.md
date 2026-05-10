@@ -65,8 +65,9 @@ uv run python scripts/backfill_memory_chunks.py --batch-size 25 --max-batches 20
 
 ## Auth and Endpoints
 
-Every endpoint except `/health` expects either a Relevo account session token or
-a legacy seeded `app_user.auth_token`.
+Every endpoint except `/health` expects a Relevo account session token.
+Legacy seeded `app_user.auth_token` values are disabled by default and should
+only be enabled for local demo smoke tests with `ALLOW_LEGACY_AUTH_TOKENS=1`.
 
 Account sessions come from Google login:
 
@@ -86,18 +87,10 @@ DELETE /projects/{project_id}
 POST /projects/{project_id}/members
 ```
 
-Legacy demo tokens still work:
-
-```sh
-Authorization: Bearer dev-token-user1
-```
-
-The seeded demo tokens are `dev-token-user1` and `dev-token-user2`.
-
 Bootstrap:
 
 ```sh
-curl -H 'Authorization: Bearer dev-token-user1' \
+curl -H 'Authorization: Bearer <session-token>' \
   http://localhost:8000/bootstrap
 ```
 
@@ -247,6 +240,7 @@ Google OAuth defaults:
 | `GOOGLE_OAUTH_STATE_TTL_SECONDS` | `600` |
 | `DESKTOP_LOGIN_EXCHANGE_TTL_SECONDS` | `120` |
 | `ACCOUNT_SESSION_TTL_SECONDS` | `2592000` |
+| `ALLOW_LEGACY_AUTH_TOKENS` | `false` |
 
 For Railway, create a Google OAuth Client ID with application type **Web
 application**. Add this authorized redirect URI exactly:
@@ -301,6 +295,8 @@ AUTO_SEED=1
 
 Keep `AUTO_MIGRATE=1` on for the deployed server. `AUTO_SEED=1` only inserts
 demo seeds when no users exist, unless `FORCE_SEED=1` is also set.
+Do not set `ALLOW_LEGACY_AUTH_TOKENS=1` on a public deployment; it is only for
+local seeded demo flows.
 
 Verify:
 

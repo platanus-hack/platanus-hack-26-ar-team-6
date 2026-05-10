@@ -149,6 +149,7 @@ class AuthProjectsTest(unittest.TestCase):
             "account_id": None,
         }
         with (
+            patch.dict("os.environ", {"ALLOW_LEGACY_AUTH_TOKENS": "1"}),
             patch.object(auth_api, "get_user_by_token", Mock(return_value=legacy_user)) as get_user,
             patch.object(auth_api, "get_account_by_session_token", Mock()) as get_account_by_session,
         ):
@@ -157,6 +158,19 @@ class AuthProjectsTest(unittest.TestCase):
         self.assertEqual(auth["kind"], "legacy")
         get_user.assert_called_once_with(unittest.mock.ANY, "dev-token-user1")
         get_account_by_session.assert_not_called()
+
+    def test_legacy_auth_token_is_rejected_by_default(self) -> None:
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(auth_api, "get_user_by_token", Mock()) as get_user,
+            patch.object(auth_api, "get_account_by_session_token", Mock(return_value=None)) as get_session,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                auth_api.require_auth(SimpleNamespace(), authorization="Bearer dev-token-user1")
+
+        self.assertEqual(raised.exception.status_code, 401)
+        get_user.assert_not_called()
+        get_session.assert_called_once_with(unittest.mock.ANY, "dev-token-user1")
 
     def test_session_auth_token_prefers_session_lookup(self) -> None:
         with (
