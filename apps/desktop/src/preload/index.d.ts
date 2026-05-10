@@ -226,6 +226,7 @@ interface DesktopApi {
   saveAnthropicApiKey: (apiKey: string) => Promise<DesktopSettingsResponse>
   clearAnthropicApiKey: () => Promise<DesktopSettingsResponse>
   startGoogleLogin: () => Promise<DesktopSettingsResponse>
+  demoLogin: (payload: { email: string; password: string }) => Promise<DesktopSettingsResponse>
   logout: () => Promise<DesktopSettingsResponse>
   refreshProjects: () => Promise<DesktopSettingsResponse>
   selectProject: (projectId: string) => Promise<DesktopSettingsResponse>

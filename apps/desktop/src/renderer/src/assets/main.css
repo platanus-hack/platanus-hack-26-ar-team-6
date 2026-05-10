@@ -573,6 +573,19 @@ button {
   width: 100%;
 }
 
+.auth-form--demo {
+  align-items: stretch;
+  padding: 0 24px;
+}
+
+.auth-form__input {
+  width: 100%;
+}
+
+.auth-form__button--demo {
+  align-self: stretch;
+}
+
 .auth-form__button--google.settings-form__button,
 .auth-form__button--google.settings-form__button--primary,
 .auth-form .auth-form__button--google,

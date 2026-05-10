@@ -92,6 +92,11 @@ type DesktopExchangeResponse = AuthStateResponse & {
   session_token: string
 }
 
+type DemoLoginPayload = {
+  email: string
+  password: string
+}
+
 type StartAssistantRunPayload = {
   prompt: string
   cwd?: string
@@ -417,6 +422,28 @@ app.whenReady().then(() => {
     loginUrl.searchParams.set('desktop_redirect_uri', DESKTOP_REDIRECT_URI)
     await shell.openExternal(loginUrl.toString())
     return getDesktopSettings(DEFAULT_API_BASE_URL)
+  })
+
+  ipcMain.handle('auth:demo-login', async (_, payload: DemoLoginPayload): Promise<DesktopSettingsResponse> => {
+    const settings = await getDesktopSettings(DEFAULT_API_BASE_URL)
+    const loginUrl = new URL('/auth/demo/login', settings.serverBaseUrl)
+    const exchange = await fetchJson<DesktopExchangeResponse>(loginUrl.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    const nextSettings = await saveRelevoSession(
+      {
+        sessionToken: exchange.session_token,
+        account: exchange.account,
+        projects: exchange.projects
+      },
+      DEFAULT_API_BASE_URL
+    )
+    notifyAuthEvent({ type: 'login:succeeded', settings: nextSettings })
+    return nextSettings
   })
 
   ipcMain.handle('auth:logout', async (): Promise<DesktopSettingsResponse> => {
