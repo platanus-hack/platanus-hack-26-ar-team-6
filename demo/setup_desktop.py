@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write ~/.config/relevo/settings.json for a demo user (no OAuth needed).
+"""Write Electron settings for a demo user (no OAuth needed).
 
 Usage:
     python demo/setup_desktop.py leonardo
@@ -43,25 +43,39 @@ except urllib.error.URLError as exc:
     print(f"  {exc}", file=sys.stderr)
     sys.exit(1)
 
-settings_path = pathlib.Path.home() / ".config" / "relevo" / "settings.json"
-try:
-    existing: dict = json.loads(settings_path.read_text())
-except Exception:
-    existing = {}
+settings_paths = [
+    # Packaged app path on Linux.
+    pathlib.Path.home() / ".config" / "relevo" / "settings.json",
+    # Dev Electron path when package.json name is "@relevo/desktop".
+    pathlib.Path.home() / ".config" / "@relevo" / "desktop" / "settings.json",
+]
 
-existing.update(
+settings_update = {
+    "relevoSessionToken": {"value": token, "encrypted": False},
+    "account": data["account"],
+    "projects": data["projects"],
+    "selectedProjectId": None,
+    "projectFolders": {},
+}
+
+written_paths: list[pathlib.Path] = []
+for settings_path in settings_paths:
+    try:
+        existing: dict = json.loads(settings_path.read_text())
+    except Exception:
+        existing = {}
+
+    existing.update(
     {
-        "relevoSessionToken": {"value": token, "encrypted": False},
-        "account": data["account"],
-        "projects": data["projects"],
-        "selectedProjectId": None,
-        "projectFolders": {},
+        **settings_update,
     }
-)
-settings_path.parent.mkdir(parents=True, exist_ok=True)
-settings_path.write_text(json.dumps(existing, indent=2) + "\n")
+    )
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(existing, indent=2) + "\n")
+    written_paths.append(settings_path)
 
 print(f"Desktop configured for: {user_key}")
 print(f"  Token : {token}")
-print(f"  Settings: {settings_path}")
+for settings_path in written_paths:
+    print(f"  Settings: {settings_path}")
 print("Launch the desktop app — it should be logged in as", data["account"]["display_name"])

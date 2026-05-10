@@ -7,7 +7,7 @@ The production server and database live on Railway. The desktop app points at th
 ### 1. Ensure `apps/desktop/.env` points at Railway
 
 ```
-VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production.up.railway.app
+VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production-5a85.up.railway.app
 ```
 
 ### 2. Build and launch the desktop app
@@ -66,7 +66,7 @@ In `apps/desktop/.env`:
 
 ```
 # Comment out Railway:
-# VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production.up.railway.app
+# VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production-5a85.up.railway.app
 
 # Use local server:
 VITE_API_BASE_URL=http://localhost:8000
@@ -75,8 +75,12 @@ VITE_API_BASE_URL=http://localhost:8000
 Rebuild the desktop app:
 
 ```bash
-cd apps/desktop && npm run dev
+cd apps/desktop && npm run dev -- -- --no-sandbox
 ```
+
+`--no-sandbox` is only for local Linux dev runs. Without it, Electron may abort
+if `node_modules/electron/dist/chrome-sandbox` is not owned by root with mode
+`4755`.
 
 ### Before each rehearsal
 
@@ -85,6 +89,7 @@ cd apps/desktop && npm run dev
 ```bash
 cd apps/server
 DATABASE_URL=postgresql://relevo:relevo@localhost:5432/relevo \
+PORT=8000 \
   uv run python -m relevo
 ```
 
@@ -116,9 +121,16 @@ python demo/setup_desktop.py leonardo
 
 Available users: `leonardo`, `donatello`, `michelangelo`, `raphael`
 
-Writes `~/.config/relevo/settings.json` with the pre-seeded session token. No Google OAuth needed.
+Writes both known Linux Electron settings paths with the pre-seeded session token:
+`~/.config/relevo/settings.json` for packaged builds and
+`~/.config/@relevo/desktop/settings.json` for `npm run dev`. No Google OAuth needed.
 
 #### 7. Launch the desktop app and demo
+
+```bash
+cd apps/desktop
+npm run dev -- -- --no-sandbox
+```
 
 ### Resetting between rehearsals
 
@@ -129,7 +141,7 @@ Repeat steps 5 and 6 only. Takes ~10 seconds.
 1. Restore `apps/desktop/.env`:
 
 ```
-VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production.up.railway.app
+VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-copy-production-5a85.up.railway.app
 ```
 
 2. Rebuild the desktop app:

@@ -12,3 +12,26 @@ VITE_ENABLE_HEALTHCHECK=true \
 
 
 ./dist/linux-unpacked/electron-app --ozone-platform=x11 --disable-gpu --no-sandbox
+
+
+START
+cd apps/server
+PORT=8000 DATABASE_URL=postgresql://relevo:relevo@localhost:5432/relevo uv run python -m relevo
+
+RESET
+cd apps/server
+DATABASE_URL=postgresql://relevo:relevo@localhost:5432/relevo uv run python -m relevo.seeds.demo_loader
+
+SWITCH USER
+cd /home/narf/Documents/sarf/platanus-hack-26-ar-team-6
+python demo/setup_desktop.py leonardo (donatello, michelangelo, raphael)
+
+START DESKTOP
+cd apps/desktop
+npm run dev -- -- --no-sandbox
+
+
+
+Whats the one thing i should worry about most for the demo?
+
+As the leader of the team, what can I do to help @donatello most? Please make your answer 2 sentences
