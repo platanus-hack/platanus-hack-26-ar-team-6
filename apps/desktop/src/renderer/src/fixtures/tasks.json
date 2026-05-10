@@ -2,16 +2,19 @@
   {
     "id": "task-001",
     "title": "desktop scaffold",
-    "status": "done"
+    "status": "done",
+    "authors": ["Maria R.", "Javier F."]
   },
   {
     "id": "task-002",
     "title": "three-pane shell",
-    "status": "in progress"
+    "status": "in progress",
+    "authors": ["Maria R."]
   },
   {
     "id": "task-003",
     "title": "health ping",
-    "status": "open"
+    "status": "open",
+    "authors": ["Tomás L.", "Maria R."]
   }
 ]

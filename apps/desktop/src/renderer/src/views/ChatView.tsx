@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { Send } from 'lucide-react'
 import { parseMentions } from '../../../mentionParser.js'
 import { hasConnectedProjectFolder } from '../projectFolders'
 import useChatStore from '../stores/chatStore'
 import MarkdownMessage from '../components/MarkdownMessage'
+import ChatHistorySidebar, {
+  type ChatHistoryEntry,
+  deriveTitle,
+  readHistory,
+  writeHistory
+} from '../components/ChatHistorySidebar'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
 
@@ -93,6 +100,7 @@ function ChatView({
   const [isRunning, setIsRunning] = useState(false)
   const [mentionSuggestions, setMentionSuggestions] = useState<typeof bootstrap.project_context.roster>([])
   const [, setMentionQuery] = useState('')
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
   const hasAssistantTextRef = useRef(false)
@@ -108,7 +116,20 @@ function ChatView({
     : isAssistantConfigured
       ? 'type a message...'
       : 'configure Anthropic API key in settings'
-  const sendButtonLabel = isRunning ? 'running...' : !hasProjectFolder ? 'folder' : isAssistantConfigured ? 'send' : 'settings'
+  const sendButtonContent: React.ReactNode = isRunning
+    ? 'running...'
+    : !hasProjectFolder
+      ? 'folder'
+      : isAssistantConfigured
+        ? <Send size={18} />
+        : 'settings'
+  const sendButtonAriaLabel = isRunning
+    ? 'running'
+    : !hasProjectFolder
+      ? 'connect folder'
+      : isAssistantConfigured
+        ? 'send message'
+        : 'open settings'
 
   useEffect(() => {
     currentSessionIdRef.current = null
@@ -296,13 +317,45 @@ function ChatView({
       })
   }
 
+  function archiveCurrentChat(): void {
+    const current = useChatStore.getState().messagesByWorkspace[workspaceId] ?? []
+    if (current.length === 0) return
+    const entry: ChatHistoryEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: deriveTitle(current),
+      savedAt: new Date().toISOString(),
+      sessionId: currentSessionIdRef.current,
+      messages: current.map((m) => ({ id: m.id, role: m.role, text: m.text }))
+    }
+    const existing = readHistory(workspaceId)
+    writeHistory(workspaceId, [entry, ...existing])
+  }
+
   function handleNewChat(): void {
     if (isRunning) return
+    archiveCurrentChat()
     clearMessages(workspaceId)
     currentSessionIdRef.current = null
     setSaveStatus(workspaceId, null)
     setRunStatus(workspaceId, null)
     void window.api.clearConversation(workspaceId)
+    setHistoryRefreshKey((k) => k + 1)
+  }
+
+  function handleLoadHistoryEntry(entry: ChatHistoryEntry): void {
+    if (isRunning) return
+    archiveCurrentChat()
+    const remaining = readHistory(workspaceId).filter((e) => e.id !== entry.id)
+    writeHistory(workspaceId, remaining)
+    loadMessages(workspaceId, entry.messages)
+    currentSessionIdRef.current = entry.sessionId
+    setSaveStatus(workspaceId, null)
+    setRunStatus(workspaceId, null)
+    void window.api.saveConversation(workspaceId, {
+      sessionId: entry.sessionId,
+      messages: entry.messages
+    })
+    setHistoryRefreshKey((k) => k + 1)
   }
 
   function handleInputChange(value: string): void {
@@ -340,7 +393,15 @@ function ChatView({
   }
 
   return (
-    <section className="chat-view">
+    <section className="chat-view chat-view--with-sidebar">
+      <ChatHistorySidebar
+        workspaceId={workspaceId}
+        refreshKey={historyRefreshKey}
+        onNewChat={handleNewChat}
+        onLoadEntry={handleLoadHistoryEntry}
+        disabled={isRunning}
+      />
+      <div className="chat-main">
       <div className="chat-messages">
         {messages.length === 0 && <p className="chat-empty">type a message to start the chat.</p>}
         {messages.map((message) => (
@@ -424,19 +485,17 @@ function ChatView({
         />
         <div className="chat-actions">
           <button
-            className="settings-form__button settings-form__button--primary chat-send"
+            className="chat-send"
             type="button"
             onClick={isAssistantConfigured && hasProjectFolder ? handleSend : !hasProjectFolder ? onReconnectFolder : onConfigureAssistant}
             disabled={isRunning}
+            aria-label={sendButtonAriaLabel}
+            title={sendButtonAriaLabel}
           >
-            {sendButtonLabel}
+            {sendButtonContent}
           </button>
-          {messages.length > 0 && (
-            <button className="settings-form__button chat-new" type="button" onClick={handleNewChat} disabled={isRunning} title="Start a new chat">
-              new chat
-            </button>
-          )}
         </div>
+      </div>
       </div>
     </section>
   )

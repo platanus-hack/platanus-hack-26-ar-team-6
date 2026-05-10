@@ -1,4 +1,4 @@
-type CitationTier = 'personal' | 'pool' | 'timeline'
+type CitationTier = 'personal' | 'timeline'
 
 type CitationChipProps = {
   label: string

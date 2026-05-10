@@ -1,13 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import Sidebar, { type SidebarAgent } from './components/Sidebar'
 import SettingsPanel from './components/SettingsPanel'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
 import { getProjectFolderDisplayName } from './projectFolders'
 import ChatView from './views/ChatView'
-import PoolView from './views/PoolView'
 import ResponsibilitiesView from './views/ResponsibilitiesView'
 import TasksView from './views/TasksView'
 import TimelineView from './views/TimelineView'
@@ -235,22 +234,15 @@ function ProjectSelection({
                 </button>
                 <div className="project-list__actions">
                   <span className="project-list__meta">{project.role}</span>
-                  <button
-                    className="project-list__folder-button"
-                    type="button"
-                    onClick={() => void connectProjectFolder(project.project_id)}
-                    disabled={isConnectingFolder}
-                  >
-                    {isConnectingFolder ? 'choosing...' : projectFolder ? 'change folder' : 'connect folder'}
-                  </button>
                   {project.role === 'leader' && (
                     <button
                       className="project-list__delete"
                       type="button"
                       onClick={() => void handleDelete(project)}
                       disabled={deletingProjectId === project.project_id}
+                      aria-label="Delete project"
                     >
-                      {deletingProjectId === project.project_id ? 'deleting...' : 'delete'}
+                      <Trash2 size={14} />
                     </button>
                   )}
                   {project.role !== 'leader' && (
@@ -259,8 +251,9 @@ function ProjectSelection({
                       type="button"
                       onClick={() => void handleLeave(project)}
                       disabled={leavingProjectId === project.project_id}
+                      aria-label="Leave project"
                     >
-                      {leavingProjectId === project.project_id ? 'leaving...' : 'leave'}
+                      <Trash2 size={14} />
                     </button>
                   )}
                 </div>
@@ -312,76 +305,10 @@ function ProjectSelection({
   )
 }
 
-function MemberManagement({
-  project,
-  onMemberAdded
-}: {
-  project: DesktopProject
-  onMemberAdded: () => Promise<void>
-}): React.JSX.Element | null {
-  const [email, setEmail] = useState('')
-  const [domainSummary, setDomainSummary] = useState('')
-  const [status, setStatus] = useState<string | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-
-  if (project.role !== 'leader') {
-    return null
-  }
-
-  async function handleAddMember(event: React.FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    if (!email.trim() || !domainSummary.trim()) {
-      setStatus('Enter an email and role summary')
-      return
-    }
-
-    setIsSaving(true)
-    setStatus(null)
-    try {
-      await window.api.addProjectMember({
-        projectId: project.project_id,
-        email,
-        domainSummary
-      })
-      setEmail('')
-      setDomainSummary('')
-      setStatus('Member added')
-      await onMemberAdded()
-    } catch (error) {
-      setStatus(`Add member failed: ${toErrorMessage(error)}`)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <form className="member-management" onSubmit={handleAddMember}>
-      <span className="member-management__title">Add member</span>
-      <input
-        className="member-management__input"
-        type="email"
-        value={email}
-        onChange={(event) => setEmail(event.target.value)}
-        placeholder="email"
-      />
-      <input
-        className="member-management__input"
-        value={domainSummary}
-        onChange={(event) => setDomainSummary(event.target.value)}
-        placeholder="role summary"
-      />
-      <button className="settings-form__button member-management__button" type="submit" disabled={isSaving}>
-        {isSaving ? 'adding...' : 'add'}
-      </button>
-      {status && <span className="member-management__status">{status}</span>}
-    </form>
-  )
-}
-
 function App(): React.JSX.Element {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabKey>('chat')
-  const [isDark, setIsDark] = useState(false)
+  const [isDark, setIsDark] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isProjectSelectorOpen, setIsProjectSelectorOpen] = useState(true)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
@@ -547,12 +474,6 @@ function App(): React.JSX.Element {
       ? 'live'
       : 'loading'
   const bootstrapError = bootstrapQuery.error instanceof Error ? `bootstrap failed: ${bootstrapQuery.error.message}` : null
-  const roster: SidebarAgent[] =
-    bootstrapQuery.data?.roster.map((user) => ({
-      id: user.id,
-      display_name: user.display_name,
-      domain_summary: user.domain_summary
-    })) ?? []
   const hasAnthropicApiKey = Boolean(desktopSettings.hasAnthropicApiKey)
   const activeUserId = bootstrapQuery.data?.user.id ?? selectedProject.user_id
   const selectedProjectFolderPath = desktopSettings.selectedProjectFolderPath
@@ -584,12 +505,15 @@ function App(): React.JSX.Element {
         onReconnectFolder={() => void handleChooseProjectFolder(selectedProjectId)}
       />
     )
-  } else if (activeTab === 'pool') {
-    activeView = <PoolView />
   } else if (activeTab === 'timeline') {
     activeView = <TimelineView projectFolderPath={selectedProjectFolderPath} />
   } else if (activeTab === 'responsibilities') {
-    activeView = <ResponsibilitiesView />
+    activeView = (
+      <ResponsibilitiesView
+        project={selectedProject}
+        onMemberAdded={() => bootstrapQuery.refetch().then(() => undefined)}
+      />
+    )
   } else if (activeTab === 'tasks') {
     activeView = <TasksView />
   }
@@ -615,14 +539,9 @@ function App(): React.JSX.Element {
       />
 
       <div className="app-body">
-        <Sidebar agents={roster} currentUserId={activeUserId} />
-
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
           {folderMessage && <div className="content-status">{folderMessage}</div>}
-          {selectedProject && (
-            <MemberManagement project={selectedProject} onMemberAdded={() => bootstrapQuery.refetch().then(() => undefined)} />
-          )}
           <Tabs activeTab={activeTab} onTabChange={setActiveTab} />
           {activeView}
         </main>
