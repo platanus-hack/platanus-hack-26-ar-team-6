@@ -43,6 +43,8 @@ type StatusConfig = {
   next: 'open' | 'in progress' | 'done'
 }
 
+const HIDDEN_PHASE: SuggestionsPhase = { kind: 'hidden' }
+
 const STATUS_CONFIG: Record<string, StatusConfig> = {
   open: { icon: Circle, label: 'Open', className: 'task-card--open', next: 'in progress' },
   'in progress': { icon: Clock, label: 'In progress', className: 'task-card--progress', next: 'done' },
@@ -336,7 +338,7 @@ function TasksView({
     return mergeApproved(fromServer, local)
   })
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | 'all'>('all')
-  const suggestions = useSuggestionsStore((s) => s.phaseByProject[projectId] ?? { kind: 'hidden' } as SuggestionsPhase)
+  const suggestions = useSuggestionsStore((s) => s.phaseByProject[projectId] ?? HIDDEN_PHASE)
   const setPhase = useSuggestionsStore((s) => s.setPhase)
   const addProgressMessage = useSuggestionsStore((s) => s.addProgressMessage)
 
@@ -585,7 +587,7 @@ function TasksView({
             <button
               type="button"
               className="tasks-suggestions-close"
-              onClick={() => setSuggestions({ kind: 'hidden' })}
+              onClick={() => setPhase(projectId, HIDDEN_PHASE)}
               aria-label="Close suggestions"
             >
               <X size={14} />
