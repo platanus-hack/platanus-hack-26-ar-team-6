@@ -205,6 +205,9 @@ function GraphView(): React.JSX.Element {
     if (!ctx) return
 
     function frame(): void {
+      const bodyStyles = getComputedStyle(document.body)
+      const graphLabelColor = bodyStyles.getPropertyValue('--text-primary').trim() || '#111111'
+      const graphSelectedStroke = bodyStyles.getPropertyValue('--surface').trim() || '#ffffff'
       const state = stateRef.current
       if (state.dragNode || !state.motion.settled) {
         stepSettlingLayout(state.nodes, state.edges, state.motion, 1)
@@ -236,11 +239,11 @@ function GraphView(): React.JSX.Element {
         ctx.fill()
         if (isSelected) {
           ctx.lineWidth = 2
-          ctx.strokeStyle = '#fff'
+          ctx.strokeStyle = graphSelectedStroke
           ctx.stroke()
         }
         if (node.kind === 'agent' || isHover || isSelected) {
-          ctx.fillStyle = 'rgba(230, 240, 255, 0.92)'
+          ctx.fillStyle = graphLabelColor
           ctx.font = '11px ui-sans-serif, system-ui'
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'

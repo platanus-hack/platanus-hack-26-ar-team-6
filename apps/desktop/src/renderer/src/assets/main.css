@@ -2990,8 +2990,9 @@ button {
 .suggestion-card__header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .suggestion-card__title {
@@ -3001,6 +3002,8 @@ button {
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.4;
+  min-width: 0;
+  flex: 1;
 }
 
 .suggestion-card__context {

@@ -43,7 +43,7 @@ const NODE_RADIUS_BY_KIND: Record<GraphLayoutNodeKind, number> = {
   event: 5
 }
 
-export const LAYOUT_ACTIVE_FRAMES = 36
+export const LAYOUT_ACTIVE_FRAMES = 48
 const LAYOUT_DRAG_FRAMES = 24
 const LAYOUT_PREWARM_MAX_ITERS = 220
 const LAYOUT_PREWARM_MIN_ITERS = 48
@@ -124,7 +124,7 @@ export function stepSettlingLayout(
   const maxSpeed = stepLayout(nodes, edges, dt)
   motion.framesRemaining = Math.max(0, motion.framesRemaining - 1)
 
-  if (motion.framesRemaining === 0 || maxSpeed <= LAYOUT_SETTLED_MAX_SPEED) {
+  if (motion.framesRemaining === 0 && maxSpeed <= LAYOUT_SETTLED_MAX_SPEED) {
     stopLayout(nodes)
     motion.settled = true
     motion.framesRemaining = 0
