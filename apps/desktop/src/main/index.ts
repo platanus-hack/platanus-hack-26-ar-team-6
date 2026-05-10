@@ -39,7 +39,10 @@ import {
   type ProjectGraphResponse
 } from '../projectGraph.js'
 import { commitMemoryUpdate } from '../memoryTools.js'
-import { resolveRailwaywiseProjectId } from '../demoRailwaywise.js'
+import {
+  isMissingRailwaywiseDemoEndpointError,
+  resolveRailwaywiseProjectId
+} from '../demoRailwaywise.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
@@ -322,13 +325,42 @@ async function refreshProjectsFromServer(): Promise<DesktopSettingsResponse> {
 async function ensureRailwaywiseDemo(): Promise<DesktopSettingsResponse> {
   const { serverBaseUrl, sessionToken } = await getSessionContext(false)
   const demoUrl = new URL('/demo/railwaywise', serverBaseUrl)
-  const demoResponse = await fetchJson<unknown>(demoUrl.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${sessionToken}`,
-      'Content-Type': 'application/json'
+  let demoResponse: unknown
+  try {
+    demoResponse = await fetchJson<unknown>(demoUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        'Content-Type': 'application/json'
+      }
+    })
+  } catch (error) {
+    if (!isMissingRailwaywiseDemoEndpointError(error)) {
+      throw error
     }
-  })
+    const existingSettings = await refreshProjectsFromServer()
+    const existingProject = existingSettings.projects.find((project) =>
+      project.project_name.toLowerCase().includes('railwaywise')
+    )
+    if (existingProject) {
+      return saveSelectedProjectId(existingProject.project_id, DEFAULT_API_BASE_URL)
+    }
+
+    const createUrl = new URL('/projects', serverBaseUrl)
+    demoResponse = await fetchJson<unknown>(createUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: 'Railwaywise',
+        description: 'AI-assisted railway operations demo workspace.',
+        domain_summary:
+          'Railwaywise demo lead coordinating dispatch, maintenance, signals, passenger communications, and integrations.'
+      })
+    })
+  }
   const refreshedSettings = await refreshProjectsFromServer()
   const projectId = resolveRailwaywiseProjectId(demoResponse, refreshedSettings.projects)
   return saveSelectedProjectId(projectId, DEFAULT_API_BASE_URL)
