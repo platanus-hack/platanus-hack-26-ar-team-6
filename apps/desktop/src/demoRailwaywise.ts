@@ -44,7 +44,7 @@ type ConversationStore = {
   saveConversation: (workspaceId: string, data: PersistedConversation) => Promise<void>
 }
 
-export type RailwaywiseHydrationResult = {
+export type RailwaywiseDemoHydrationResult = {
   tasksWritten: boolean
   historyWritten: boolean
   activeConversationWritten: boolean
@@ -61,7 +61,7 @@ type TaskTemplate = {
 
 const TASKS_STORAGE_PREFIX = 'relevo:tasks:v3:'
 const CHAT_HISTORY_STORAGE_PREFIX = 'omni:chat-history:'
-const RAILWAYWISE_BASE_TIME = '2026-05-10T13:00:00.000Z'
+const DEMO_BASE_TIME = '2026-05-10T13:00:00.000Z'
 
 const TASK_TEMPLATES: TaskTemplate[] = [
   {
@@ -133,7 +133,7 @@ const TASK_TEMPLATES: TaskTemplate[] = [
     title: 'Load-test live map fanout',
     priority: 'high',
     status: 'open',
-    context: 'The route map should stay responsive while supervisors and station teams watch the same disruption.',
+    context: 'The demo route map should stay responsive with every stakeholder watching.',
     ownerHints: ['infra', 'platform', 'backend']
   },
   {
@@ -154,10 +154,10 @@ const TASK_TEMPLATES: TaskTemplate[] = [
   },
   {
     id: 'rw-task-12',
-    title: 'Document incident data reset',
+    title: 'Document simulation seed reset',
     priority: 'low',
     status: 'open',
-    context: 'Operations needs a quick reset path if imported incident data gets messy.',
+    context: 'The demo team needs a quick reset path if rehearsal data gets messy.',
     ownerHints: ['docs', 'devops', 'infra']
   },
   {
@@ -186,11 +186,11 @@ const TASK_TEMPLATES: TaskTemplate[] = [
   },
   {
     id: 'rw-task-16',
-    title: 'Prepare recovery reset script',
+    title: 'Prepare demo recovery script',
     priority: 'low',
     status: 'open',
-    context: 'The team needs one reliable script to restore the Railwaywise operations state.',
-    ownerHints: ['infra', 'devops', 'operations']
+    context: 'The team needs one reliable script to restore the Railwaywise walkthrough state.',
+    ownerHints: ['infra', 'devops', 'demo']
   },
   {
     id: 'rw-task-17',
@@ -216,7 +216,7 @@ function normalizedText(value: string | null | undefined): string {
 
 function findOwner(roster: RosterMember[], hints: string[], index: number): RosterMember {
   if (roster.length === 0) {
-    return { id: 'railwaywise-owner', display_name: 'Railwaywise team', domain_summary: 'Rail operations team' }
+    return { id: 'railwaywise-demo-owner', display_name: 'Railwaywise team', domain_summary: 'Demo team' }
   }
 
   const hinted = roster.find((member) => {
@@ -236,7 +236,7 @@ function buildApprovedTasks(roster: RosterMember[]): ApprovedTask[] {
       priority: template.priority,
       status: template.status,
       context: template.context,
-      approvedAt: new Date(Date.parse(RAILWAYWISE_BASE_TIME) + index * 60_000).toISOString(),
+      approvedAt: new Date(Date.parse(DEMO_BASE_TIME) + index * 60_000).toISOString(),
       ownerId: owner.id,
       ownerDisplayName: owner.display_name
     }
@@ -251,7 +251,7 @@ function buildActiveConversation(roster: RosterMember[]): PersistedConversation 
   const primary = roster[0]
   const secondary = roster[1]
   return {
-    sessionId: 'railwaywise-active',
+    sessionId: 'railwaywise-demo-active',
     messages: [
       {
         id: 'rw-active-01',
@@ -261,7 +261,7 @@ function buildActiveConversation(roster: RosterMember[]): PersistedConversation 
       {
         id: 'rw-active-02',
         role: 'assistant',
-        text: 'Start with the delay classifier threshold change, the incident feed retry gap, and the dispatcher escalation path. Those three items connect the most operational risk across data, backend, and operations.'
+        text: 'Start with the delay classifier threshold change, the incident feed retry gap, and the dispatcher escalation path. Those three items connect the most demo risk across data, backend, and operations.'
       },
       {
         id: 'rw-active-03',
@@ -286,7 +286,7 @@ function buildArchivedChats(roster: RosterMember[]): ChatHistoryEntry[] {
       id: 'rw-archive-01',
       title: 'Incident feed retry plan',
       savedAt: '2026-05-10T12:30:00.000Z',
-      sessionId: 'railwaywise-archive-01',
+      sessionId: 'railwaywise-demo-archive-01',
       messages: [
         {
           id: 'rw-archive-01-user',
@@ -304,7 +304,7 @@ function buildArchivedChats(roster: RosterMember[]): ChatHistoryEntry[] {
       id: 'rw-archive-02',
       title: 'Passenger copy review',
       savedAt: '2026-05-10T11:45:00.000Z',
-      sessionId: 'railwaywise-archive-02',
+      sessionId: 'railwaywise-demo-archive-02',
       messages: [
         {
           id: 'rw-archive-02-user',
@@ -320,14 +320,14 @@ function buildArchivedChats(roster: RosterMember[]): ChatHistoryEntry[] {
     },
     {
       id: 'rw-archive-03',
-      title: 'Live map review notes',
+      title: 'Live map rehearsal notes',
       savedAt: '2026-05-10T10:55:00.000Z',
-      sessionId: 'railwaywise-archive-03',
+      sessionId: 'railwaywise-demo-archive-03',
       messages: [
         {
           id: 'rw-archive-03-user',
           role: 'user',
-          text: `What did ${mention(tertiary)} flag in the map review?`
+          text: `What did ${mention(tertiary)} flag in the map rehearsal?`
         },
         {
           id: 'rw-archive-03-assistant',
@@ -339,11 +339,11 @@ function buildArchivedChats(roster: RosterMember[]): ChatHistoryEntry[] {
   ]
 }
 
-export function isRailwaywiseProject(projectName: string | null | undefined): boolean {
+export function isRailwaywiseDemoProject(projectName: string | null | undefined): boolean {
   return normalizedText(projectName).includes('railwaywise')
 }
 
-export function isMissingRailwaywiseEndpointError(error: unknown): boolean {
+export function isMissingRailwaywiseDemoEndpointError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes('404') && message.toLowerCase().includes('not found')
 }
@@ -364,15 +364,15 @@ export function resolveRailwaywiseProjectId(
     return fromResponse
   }
 
-  const byName = projects.find((project) => isRailwaywiseProject(project.project_name))
+  const byName = projects.find((project) => isRailwaywiseDemoProject(project.project_name))
   if (byName) {
     return byName.project_id
   }
 
-  throw new Error('Railwaywise project was not returned by the server.')
+  throw new Error('Railwaywise demo project was not returned by the server.')
 }
 
-export async function hydrateRailwaywiseLocalData({
+export async function hydrateRailwaywiseDemoLocalData({
   projectId,
   roster,
   storage,
@@ -382,7 +382,7 @@ export async function hydrateRailwaywiseLocalData({
   roster: RosterMember[]
   storage: StorageLike
   conversationStore: ConversationStore
-}): Promise<RailwaywiseHydrationResult> {
+}): Promise<RailwaywiseDemoHydrationResult> {
   const tasksKey = tasksStorageKey(projectId)
   const historyKey = chatHistoryStorageKey(projectId)
   let tasksWritten = false

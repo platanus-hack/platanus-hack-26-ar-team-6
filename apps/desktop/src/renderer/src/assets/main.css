@@ -630,7 +630,7 @@ button {
   gap: 8px;
 }
 
-.project-action-row {
+.project-demo-action {
   display: flex;
   justify-content: flex-end;
   padding: 14px 24px;

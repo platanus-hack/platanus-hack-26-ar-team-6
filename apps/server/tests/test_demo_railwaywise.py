@@ -45,7 +45,7 @@ def membership() -> dict:
     }
 
 
-class RailwaywiseRouteTest(unittest.TestCase):
+class RailwaywiseDemoRouteTest(unittest.TestCase):
     def setUp(self) -> None:
         self.app = create_app(AppConfig(sha="test"))
         self.app.dependency_overrides[demo_api.get_db] = lambda: SimpleNamespace()
@@ -72,9 +72,9 @@ class RailwaywiseRouteTest(unittest.TestCase):
 
         with (
             patch.object(demo_api, "_ensure_railwaywise_membership", Mock(return_value=membership())) as ensure,
-            patch.object(demo_api, "_ensure_railwaywise_teammates", Mock(return_value=teammates)) as ensure_team,
-            patch.object(demo_api, "_cleanup_railwaywise_rows", Mock()) as cleanup,
-            patch.object(demo_api, "_seed_railwaywise_rows", Mock(return_value={})) as seed,
+            patch.object(demo_api, "_ensure_demo_teammates", Mock(return_value=teammates)) as ensure_team,
+            patch.object(demo_api, "_cleanup_demo_rows", Mock()) as cleanup,
+            patch.object(demo_api, "_seed_demo_rows", Mock(return_value={})) as seed,
         ):
             response = self.client.post("/demo/railwaywise")
 
@@ -100,9 +100,9 @@ class RailwaywiseRouteTest(unittest.TestCase):
 
         with (
             patch.object(demo_api, "_ensure_railwaywise_membership", return_value=membership()),
-            patch.object(demo_api, "_ensure_railwaywise_teammates", return_value=[]),
-            patch.object(demo_api, "_cleanup_railwaywise_rows", side_effect=cleanup),
-            patch.object(demo_api, "_seed_railwaywise_rows", side_effect=seed),
+            patch.object(demo_api, "_ensure_demo_teammates", return_value=[]),
+            patch.object(demo_api, "_cleanup_demo_rows", side_effect=cleanup),
+            patch.object(demo_api, "_seed_demo_rows", side_effect=seed),
         ):
             response = self.client.post("/demo/railwaywise")
 
@@ -120,7 +120,7 @@ class RailwaywiseRouteTest(unittest.TestCase):
         ]
         conn = RecordingConnection()
 
-        counts = demo_api._seed_railwaywise_rows(conn, membership(), teammates)
+        counts = demo_api._seed_demo_rows(conn, membership(), teammates)
 
         self.assertEqual(counts["project_context_entry"], 12)
         self.assertEqual(counts["context_entry"], 18)
@@ -132,15 +132,15 @@ class RailwaywiseRouteTest(unittest.TestCase):
         self.assertEqual(len(conn.inserts["global"]), 18)
         self.assertEqual(len(conn.inserts["pulse"]), 30)
 
-    def test_cleanup_removes_only_seeded_rows_for_project(self) -> None:
+    def test_cleanup_removes_only_demo_tagged_rows_for_project(self) -> None:
         conn = RecordingConnection()
 
-        demo_api._cleanup_railwaywise_rows(conn, PROJECT_ID)
+        demo_api._cleanup_demo_rows(conn, PROJECT_ID)
 
         self.assertEqual(len(conn.deletes), 5)
         delete_params = [tuple(map(str, params)) for params in conn.deletes]
         self.assertTrue(all(str(PROJECT_ID) in params for params in delete_params))
-        self.assertTrue(all(demo_api.SEED_KEY in params for params in delete_params))
+        self.assertTrue(all(demo_api.DEMO_KEY in params for params in delete_params))
         self.assertEqual(conn.commits, 1)
 
 
