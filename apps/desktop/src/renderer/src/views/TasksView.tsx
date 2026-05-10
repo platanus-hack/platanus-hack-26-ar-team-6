@@ -172,30 +172,34 @@ function ApprovedTaskCard({
   const Icon = config.icon
   return (
     <div className={`task-card ${config.className}`}>
-      <button
-        type="button"
-        className="task-card__status task-card__status--clickable"
-        onClick={() => onCycleStatus(task.id)}
-        title={`Mark as ${config.next}`}
-      >
-        <Icon size={14} />
-        <span>{config.label}</span>
-      </button>
+      <div className="task-card__top">
+        <button
+          type="button"
+          className="task-card__status task-card__status--clickable"
+          onClick={() => onCycleStatus(task.id)}
+          title={`Mark as ${config.next}`}
+        >
+          <Icon size={14} />
+          <span>{config.label}</span>
+        </button>
+        <div className="task-card__top-actions">
+          <PriorityBadge priority={task.priority} />
+          <button
+            type="button"
+            className="task-card__delete"
+            onClick={() => onDelete(task.id)}
+            title="Remove task"
+            aria-label="Remove task"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      </div>
       <h3 className="task-card__title">{task.title}</h3>
       {showOwner && (
         <div className="task-card__authors">{task.ownerDisplayName}</div>
       )}
-      <PriorityBadge priority={task.priority} />
       {task.context && <p className="task-card__context">{task.context}</p>}
-      <button
-        type="button"
-        className="task-card__delete"
-        onClick={() => onDelete(task.id)}
-        title="Remove task"
-        aria-label="Remove task"
-      >
-        <Trash2 size={12} />
-      </button>
     </div>
   )
 }

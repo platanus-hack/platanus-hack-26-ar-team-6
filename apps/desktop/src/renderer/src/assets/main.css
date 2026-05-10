@@ -2457,34 +2457,53 @@ button {
 
 .tasks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
 }
 
 .task-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
   background: var(--surface);
-  transition: box-shadow 160ms ease, border-color 160ms ease;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
 .task-card:hover {
-  border-color: color-mix(in oklab, var(--text-primary) 20%, transparent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.task-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+
+.task-card__top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .task-card__status {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  font: inherit;
   font-size: 11px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .task-card--done .task-card__status {
@@ -2501,14 +2520,16 @@ button {
 
 .task-card__title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
   line-height: 1.4;
 }
 
 .task-card__authors {
-  font-size: 12px;
+  font: inherit;
+  font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -2519,7 +2540,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 
@@ -2535,13 +2556,14 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 11px;
+  padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
   font-size: 12px;
+  font-weight: 400;
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
   white-space: nowrap;
@@ -2575,15 +2597,15 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 13px;
+  padding: 7px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-subtle);
+  background: var(--surface);
   color: var(--text-primary);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
-  transition: background 160ms ease;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
 .tasks-btn:hover:not(:disabled) {
@@ -2612,10 +2634,11 @@ button {
   align-items: center;
   justify-content: center;
   min-height: 140px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
+  border: 1px dashed var(--border-soft);
+  border-radius: 8px;
   padding: 24px;
   margin-bottom: 16px;
+  background: var(--surface);
 }
 
 .tasks-approved-empty p {
@@ -2642,10 +2665,9 @@ button {
 
 /* Tasks — delete button on card */
 .task-card__delete {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   padding: 2px;
@@ -2653,14 +2675,6 @@ button {
   color: var(--text-secondary);
   border-radius: 4px;
   line-height: 1;
-}
-
-.task-card {
-  position: relative;
-}
-
-.task-card:hover .task-card__delete {
-  display: flex;
 }
 
 .task-card__delete:hover {
@@ -2699,14 +2713,14 @@ button {
 .task-card__priority {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font: inherit;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 7px;
+  padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid transparent;
-  margin-top: 6px;
+  margin-top: 0;
+  flex-shrink: 0;
 }
 
 .task-card__priority--high {
@@ -2729,18 +2743,20 @@ button {
 
 /* Tasks — context sentence */
 .task-card__context {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
+  font: inherit;
   font-size: 11px;
   color: var(--text-secondary);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 /* Suggestions panel */
 .tasks-suggestions-panel {
-  margin-top: 24px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  margin-top: 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
   overflow: hidden;
+  background: var(--surface);
 }
 
 .tasks-suggestions-header {
@@ -2749,18 +2765,17 @@ button {
   justify-content: space-between;
   padding: 10px 14px;
   background: var(--surface-subtle);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .tasks-suggestions-header__label {
   display: flex;
   align-items: center;
   gap: 6px;
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: lowercase;
-  letter-spacing: 0.03em;
 }
 
 .tasks-suggestions-close {
@@ -2813,11 +2828,17 @@ button {
 
 /* Individual suggestion card */
 .suggestion-card {
+  position: relative;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-soft);
   display: flex;
   flex-direction: column;
   gap: 6px;
+  background: var(--surface);
+}
+
+.suggestion-card:hover {
+  background: var(--surface-muted);
 }
 
 .suggestion-card:last-child {
@@ -2827,11 +2848,13 @@ button {
 .suggestion-card__header {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
 .suggestion-card__title {
   margin: 0;
+  font: inherit;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
@@ -2840,6 +2863,7 @@ button {
 
 .suggestion-card__context {
   margin: 0;
+  font: inherit;
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.45;
