@@ -38,7 +38,7 @@ import {
 } from '../projectGraph.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
-const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-copy-production.up.railway.app'
+const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
 const DEFAULT_API_BASE_URL = viteEnv['VITE_API_BASE_URL'] || process.env['VITE_API_BASE_URL'] || FALLBACK_API_BASE_URL
 const DESKTOP_REDIRECT_URI = 'relevo://auth/callback'
 
