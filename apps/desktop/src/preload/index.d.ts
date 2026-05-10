@@ -51,6 +51,7 @@ type StartAssistantRunPayload = {
   mentionedAgentIds?: string[]
   model?: string
   maxTurns?: number
+  suggestionsContextQueries?: string[]
 }
 
 type PersistedConversationMessage = {
