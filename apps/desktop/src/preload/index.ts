@@ -46,6 +46,13 @@ const api = {
   getActivityNotes: (projectFolderPath: string) => ipcRenderer.invoke('activity-graph:get-notes', projectFolderPath),
   loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
     ipcRenderer.invoke('team-pulse:load', opts),
+  loadTeamPulseRawEvents: (opts?: {
+    agentId?: string
+    since?: string
+    until?: string
+    bucketSize?: number
+    bucketCount?: number
+  }) => ipcRenderer.invoke('team-pulse:raw-events', opts),
   refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
     ipcRenderer.invoke('team-pulse:refresh', opts),
   loadResponsibilities: () => ipcRenderer.invoke('responsibilities:load'),

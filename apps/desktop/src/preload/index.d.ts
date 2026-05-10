@@ -245,6 +245,13 @@ interface DesktopApi {
   setClaudeCodeHooksEnabled: (enabled: boolean) => Promise<DesktopSettingsResponse>
   getActivityNotes: (projectFolderPath: string) => Promise<ActivityNote[]>
   loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseResponse>
+  loadTeamPulseRawEvents: (opts?: {
+    agentId?: string
+    since?: string
+    until?: string
+    bucketSize?: number
+    bucketCount?: number
+  }) => Promise<TeamPulseRawEvent[]>
   refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseRefreshResult>
   loadResponsibilities: () => Promise<ResponsibilitiesResponse>
   syncTasksToMemory: (payload: {
@@ -301,6 +308,15 @@ type TeamPulseResponse = {
   bucket_size_seconds: number
   bucket_starts: string[]
   members: TeamPulseMember[]
+}
+
+type TeamPulseRawEvent = {
+  id: string
+  agent_id: string
+  bucket_start: string
+  content: string
+  metadata: Record<string, unknown>
+  created_at: string
 }
 
 type TeamPulseRefreshResult = {
