@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  hydrateRailwaywiseDemoLocalData,
-  isMissingRailwaywiseDemoEndpointError,
+  hydrateRailwaywiseLocalData,
+  isMissingRailwaywiseEndpointError,
   resolveRailwaywiseProjectId
 } from './demoRailwaywise'
 
@@ -30,13 +30,13 @@ function createStorage(seed: Record<string, string | null> = {}): {
   }
 }
 
-describe('Railwaywise demo local hydration', () => {
-  it('writes demo tasks with real roster IDs and display names', async () => {
+describe('Railwaywise local hydration', () => {
+  it('writes Railwaywise tasks with real roster IDs and display names', async () => {
     const { values, storage } = createStorage()
     const loadConversation = vi.fn(async () => ({ sessionId: null, messages: [] }))
     const saveConversation = vi.fn(async () => undefined)
 
-    const result = await hydrateRailwaywiseDemoLocalData({
+    const result = await hydrateRailwaywiseLocalData({
       projectId: 'project-rw',
       roster: [
         {
@@ -85,7 +85,7 @@ describe('Railwaywise demo local hydration', () => {
     const history = JSON.parse(values.get('omni:chat-history:project-rw') ?? '[]') as unknown[]
     expect(history).toHaveLength(3)
     expect(saveConversation).toHaveBeenCalledWith('project-rw', {
-      sessionId: 'railwaywise-demo-active',
+      sessionId: 'railwaywise-active',
       messages: expect.arrayContaining([
         expect.objectContaining({
           role: 'user',
@@ -107,7 +107,7 @@ describe('Railwaywise demo local hydration', () => {
     const loadConversation = vi.fn(async () => existingConversation)
     const saveConversation = vi.fn(async () => undefined)
 
-    const result = await hydrateRailwaywiseDemoLocalData({
+    const result = await hydrateRailwaywiseLocalData({
       projectId: 'project-rw',
       roster: [{ id: 'agent-1', display_name: 'Real Person', domain_summary: 'Ops' }],
       storage,
@@ -134,7 +134,7 @@ describe('resolveRailwaywiseProjectId', () => {
         { project_id: 'project-rw' },
         [
           { project_id: 'project-other', project_name: 'Other' },
-          { project_id: 'project-rw', project_name: 'Railwaywise demo' }
+          { project_id: 'project-rw', project_name: 'Railwaywise operations' }
         ]
       )
     ).toBe('project-rw')
@@ -153,17 +153,17 @@ describe('resolveRailwaywiseProjectId', () => {
   })
 })
 
-describe('isMissingRailwaywiseDemoEndpointError', () => {
-  it('detects old servers that do not expose the Railwaywise demo endpoint', () => {
+describe('isMissingRailwaywiseEndpointError', () => {
+  it('detects old servers that do not expose the Railwaywise endpoint', () => {
     expect(
-      isMissingRailwaywiseDemoEndpointError(
+      isMissingRailwaywiseEndpointError(
         new Error('404 Not Found: {"detail":"Not Found"}')
       )
     ).toBe(true)
   })
 
   it('does not hide non-404 failures', () => {
-    expect(isMissingRailwaywiseDemoEndpointError(new Error('401 Unauthorized'))).toBe(false)
-    expect(isMissingRailwaywiseDemoEndpointError(new Error('500 Internal Server Error'))).toBe(false)
+    expect(isMissingRailwaywiseEndpointError(new Error('401 Unauthorized'))).toBe(false)
+    expect(isMissingRailwaywiseEndpointError(new Error('500 Internal Server Error'))).toBe(false)
   })
 })

@@ -6,7 +6,7 @@ import loginLogo from './components/logo/Group 45.svg'
 import SettingsPanel from './components/SettingsPanel'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
-import { hydrateRailwaywiseDemoLocalData, isRailwaywiseDemoProject } from '../../demoRailwaywise.js'
+import { hydrateRailwaywiseLocalData, isRailwaywiseProject } from '../../demoRailwaywise.js'
 import { getProjectFolderDisplayName } from './projectFolders'
 import ChatView from './views/ChatView'
 import GraphView from './views/GraphView'
@@ -99,7 +99,7 @@ function ProjectSelection({
   const [domainSummary, setDomainSummary] = useState('')
   const [status, setStatus] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [isEnsuringDemo, setIsEnsuringDemo] = useState(false)
+  const [isEnsuringRailwaywise, setIsEnsuringRailwaywise] = useState(false)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [leavingProjectId, setLeavingProjectId] = useState<string | null>(null)
   const [, setConnectingProjectId] = useState<string | null>(null)
@@ -209,31 +209,31 @@ function ProjectSelection({
     }
   }
 
-  async function handleEnsureRailwaywiseDemo(): Promise<void> {
-    setIsEnsuringDemo(true)
+  async function handleEnsureRailwaywise(): Promise<void> {
+    setIsEnsuringRailwaywise(true)
     setStatus(null)
     try {
-      const nextSettings = await window.api.ensureRailwaywiseDemo()
+      const nextSettings = await window.api.ensureRailwaywise()
       onSettingsChange(nextSettings)
       onProjectEntered()
     } catch (error) {
-      setStatus(`Railwaywise demo failed: ${toErrorMessage(error)}`)
+      setStatus(`Railwaywise failed: ${toErrorMessage(error)}`)
     } finally {
-      setIsEnsuringDemo(false)
+      setIsEnsuringRailwaywise(false)
     }
   }
 
   return (
     <main className="project-page">
       <section className="project-panel">
-        <div className="project-demo-action">
+        <div className="project-action-row">
           <button
             className="settings-form__button settings-form__button--primary"
             type="button"
-            onClick={() => void handleEnsureRailwaywiseDemo()}
-            disabled={isEnsuringDemo}
+            onClick={() => void handleEnsureRailwaywise()}
+            disabled={isEnsuringRailwaywise}
           >
-            {isEnsuringDemo ? 'preparing Railwaywise...' : 'Railwaywise demo'}
+            {isEnsuringRailwaywise ? 'preparing Railwaywise...' : 'Railwaywise'}
           </button>
         </div>
 
@@ -349,8 +349,8 @@ function App(): React.JSX.Element {
   const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [isProjectCreateOpen, setIsProjectCreateOpen] = useState(false)
   const [folderMessage, setFolderMessage] = useState<string | null>(null)
-  const [hydratedDemoProjectIds, setHydratedDemoProjectIds] = useState<Set<string>>(() => new Set())
-  const [demoHydrationError, setDemoHydrationError] = useState<string | null>(null)
+  const [hydratedRailwaywiseProjectIds, setHydratedRailwaywiseProjectIds] = useState<Set<string>>(() => new Set())
+  const [railwaywiseHydrationError, setRailwaywiseHydrationError] = useState<string | null>(null)
 
   const settingsQuery = useQuery({
     queryKey: ['desktop-settings'],
@@ -429,16 +429,16 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const bootstrap = bootstrapQuery.data
-    if (!selectedProjectId || !bootstrap || !isRailwaywiseDemoProject(bootstrap.project.name)) {
+    if (!selectedProjectId || !bootstrap || !isRailwaywiseProject(bootstrap.project.name)) {
       return
     }
-    if (hydratedDemoProjectIds.has(selectedProjectId)) {
+    if (hydratedRailwaywiseProjectIds.has(selectedProjectId)) {
       return
     }
 
     let cancelled = false
-    setDemoHydrationError(null)
-    void hydrateRailwaywiseDemoLocalData({
+    setRailwaywiseHydrationError(null)
+    void hydrateRailwaywiseLocalData({
       projectId: selectedProjectId,
       roster: bootstrap.roster,
       storage: window.localStorage,
@@ -449,17 +449,17 @@ function App(): React.JSX.Element {
     })
       .then(() => {
         if (cancelled) return
-        setHydratedDemoProjectIds((current) => new Set([...current, selectedProjectId]))
+        setHydratedRailwaywiseProjectIds((current) => new Set([...current, selectedProjectId]))
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        setDemoHydrationError(`Railwaywise demo hydration failed: ${toErrorMessage(error)}`)
+        setRailwaywiseHydrationError(`Railwaywise setup failed: ${toErrorMessage(error)}`)
       })
 
     return () => {
       cancelled = true
     }
-  }, [bootstrapQuery.data, hydratedDemoProjectIds, selectedProjectId])
+  }, [bootstrapQuery.data, hydratedRailwaywiseProjectIds, selectedProjectId])
 
   async function handleChooseProjectFolder(projectId: string): Promise<void> {
     setFolderMessage(null)
@@ -544,13 +544,13 @@ function App(): React.JSX.Element {
   const hasAnthropicApiKey = Boolean(desktopSettings.hasAnthropicApiKey)
   const activeUserId = bootstrapQuery.data?.user.id ?? selectedProject.user_id
   const selectedProjectFolderPath = desktopSettings.selectedProjectFolderPath
-  const isRailwaywiseDemo = isRailwaywiseDemoProject(bootstrapQuery.data?.project.name ?? selectedProject.project_name)
-  const isRailwaywiseDemoHydrating = Boolean(
-    isRailwaywiseDemo &&
+  const isRailwaywise = isRailwaywiseProject(bootstrapQuery.data?.project.name ?? selectedProject.project_name)
+  const isRailwaywiseHydrating = Boolean(
+    isRailwaywise &&
     selectedProjectId &&
     bootstrapQuery.data &&
-    !hydratedDemoProjectIds.has(selectedProjectId) &&
-    !demoHydrationError
+    !hydratedRailwaywiseProjectIds.has(selectedProjectId) &&
+    !railwaywiseHydrationError
   )
 
   const runnerBootstrap: RunnerBootstrapPayload | null = bootstrapQuery.data
@@ -566,8 +566,8 @@ function App(): React.JSX.Element {
     : null
 
   let activeView: React.JSX.Element = <div className="content-panel">loading project...</div>
-  if (isRailwaywiseDemoHydrating) {
-    activeView = <div className="content-panel">preparing Railwaywise demo...</div>
+  if (isRailwaywiseHydrating) {
+    activeView = <div className="content-panel">preparing Railwaywise...</div>
   } else if (bootstrapQuery.isError) {
     activeView = <div className="content-panel">Project bootstrap failed.</div>
   } else if (activeTab === 'chat' && runnerBootstrap) {
@@ -630,7 +630,7 @@ function App(): React.JSX.Element {
         <main className="main-pane">
           {bootstrapError && <div className="content-status">{bootstrapError}</div>}
           {folderMessage && <div className="content-status">{folderMessage}</div>}
-          {demoHydrationError && <div className="content-status">{demoHydrationError}</div>}
+          {railwaywiseHydrationError && <div className="content-status">{railwaywiseHydrationError}</div>}
           <Tabs activeTab={activeTab} onTabChange={setActiveTab} />
           {activeView}
         </main>
