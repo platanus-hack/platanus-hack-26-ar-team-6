@@ -586,6 +586,25 @@ def get_project_context_entries(
     return [dict(r) for r in rows]
 
 
+def get_task_board_documents(
+    conn: psycopg.Connection, project_id: UUID
+) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, 'task-board' AS kind, content, metadata, updated_at AS created_at
+            FROM agent_memory_document
+            WHERE project_id = %s
+              AND importance = 'global'
+              AND document_key = 'tasks'
+            ORDER BY updated_at DESC
+            """,
+            (project_id,),
+        )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_bootstrap(conn: psycopg.Connection, user_id: UUID) -> dict[str, Any]:
     """Bundle everything Narf's /bootstrap endpoint returns.
 
@@ -608,12 +627,13 @@ def get_bootstrap(conn: psycopg.Connection, user_id: UUID) -> dict[str, Any]:
         raise ValueError(f"project not found for user {user_id}")
     roster = get_user_directory(conn, user["project_id"])
     recent = get_recent_context_entries(conn, user_id, limit=10)
+    task_docs = get_task_board_documents(conn, user["project_id"])
     return {
         "user": user,
         "project": project,
         "roster": roster,
         "recent_entries": recent,
-        "project_context": get_project_context_entries(conn, user["project_id"], limit=20),
+        "project_context": get_project_context_entries(conn, user["project_id"], limit=20) + task_docs,
     }
 
 
