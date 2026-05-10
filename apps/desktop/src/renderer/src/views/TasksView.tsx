@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Circle, Clock, Sparkles, X, Plus, Trash2 } from 'lucide-react'
 
+type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
+
 type RunnerBootstrapPayload = {
   user_summary: BootstrapResponse['user']
   project_context: {
@@ -25,6 +27,8 @@ type ApprovedTask = {
   status: 'open' | 'in progress' | 'done'
   context: string
   approvedAt: string
+  ownerId: string
+  ownerDisplayName: string
 }
 
 type SuggestionsPhase =
@@ -55,13 +59,14 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   done: { icon: CheckCircle2, label: 'Done', className: 'task-card--done', next: 'open' },
 }
 
-function storageKey(projectId: string, userId: string): string {
-  return `relevo:tasks:v2:${projectId}:${userId}`
+// v3: project-scoped (not user-scoped) so all member tasks live together
+function storageKey(projectId: string): string {
+  return `relevo:tasks:v3:${projectId}`
 }
 
-function loadApproved(projectId: string, userId: string): ApprovedTask[] {
+function loadApproved(projectId: string): ApprovedTask[] {
   try {
-    const stored = localStorage.getItem(storageKey(projectId, userId))
+    const stored = localStorage.getItem(storageKey(projectId))
     if (!stored) return []
     const parsed = JSON.parse(stored) as { approved?: ApprovedTask[] }
     return Array.isArray(parsed.approved) ? parsed.approved : []
@@ -70,8 +75,8 @@ function loadApproved(projectId: string, userId: string): ApprovedTask[] {
   }
 }
 
-function saveApprovedToStorage(projectId: string, userId: string, tasks: ApprovedTask[]): void {
-  localStorage.setItem(storageKey(projectId, userId), JSON.stringify({ approved: tasks }))
+function saveApprovedToStorage(projectId: string, tasks: ApprovedTask[]): void {
+  localStorage.setItem(storageKey(projectId), JSON.stringify({ approved: tasks }))
 }
 
 function parseSuggestionsJson(raw: string): TaskSuggestion[] {
@@ -89,16 +94,20 @@ function parseSuggestionsJson(raw: string): TaskSuggestion[] {
   }))
 }
 
-function buildPrompt(userDisplayName: string, projectName: string, domainSummary: string): string {
-  return `You are helping ${userDisplayName} figure out what to work on next in the project "${projectName}".
+function buildPrompt(
+  targetDisplayName: string,
+  projectName: string,
+  domainSummary: string
+): string {
+  return `You are helping ${targetDisplayName} figure out what to work on next in the project "${projectName}".
 
 Their role and expertise: ${domainSummary || 'not specified'}
 
 Use the ask_retriever tool exactly twice:
 1. query: "team responsibilities, current assignments, and recent activity"
-2. query: "${userDisplayName} work in progress, blockers, and open items"
+2. query: "${targetDisplayName} work in progress, blockers, and open items"
 
-Based on the retrieved context, suggest 3–6 tasks SPECIFICALLY for ${userDisplayName} that match their domain and address what is unfinished, blocked, or most needed from their area.
+Based on the retrieved context, suggest 3–6 tasks SPECIFICALLY for ${targetDisplayName} that match their domain and address what is unfinished, blocked, or most needed from their area.
 
 Return ONLY a valid JSON array — no prose, no markdown outside the array. Each object:
 {
@@ -119,10 +128,12 @@ function PriorityBadge({ priority }: { priority: TaskSuggestion['priority'] }): 
 
 function ApprovedTaskCard({
   task,
+  showOwner,
   onCycleStatus,
   onDelete,
 }: {
   task: ApprovedTask
+  showOwner: boolean
   onCycleStatus: (id: string) => void
   onDelete: (id: string) => void
 }): React.JSX.Element {
@@ -140,6 +151,9 @@ function ApprovedTaskCard({
         <span>{config.label}</span>
       </button>
       <h3 className="task-card__title">{task.title}</h3>
+      {showOwner && (
+        <div className="task-card__authors">{task.ownerDisplayName}</div>
+      )}
       <PriorityBadge priority={task.priority} />
       {task.context && <p className="task-card__context">{task.context}</p>}
       <button
@@ -203,54 +217,85 @@ function TasksView({
   projectName,
   projectFolderPath,
 }: TasksViewProps): React.JSX.Element {
+  const roster = bootstrap.project_context.roster
+
   const [approved, setApproved] = useState<ApprovedTask[]>(() =>
-    loadApproved(projectId, userId)
+    loadApproved(projectId)
   )
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | 'all'>('all')
   const [suggestions, setSuggestions] = useState<SuggestionsPhase>({ kind: 'hidden' })
 
   useEffect(() => {
-    setApproved(loadApproved(projectId, userId))
+    setApproved(loadApproved(projectId))
+    setSelectedOwnerId('all')
     setSuggestions({ kind: 'hidden' })
-  }, [projectId, userId])
+  }, [projectId])
 
   const unsubscribeRef = useRef<(() => void) | null>(null)
   useEffect(() => () => { unsubscribeRef.current?.() }, [])
 
-  const cycleStatus = useCallback((taskId: string) => {
-    setApproved((prev) => {
-      const next = prev.map((t) =>
-        t.id === taskId ? { ...t, status: STATUS_CONFIG[t.status]!.next } : t
-      )
-      saveApprovedToStorage(projectId, userId, next)
-      return next
-    })
-  }, [projectId, userId])
+  const visibleTasks =
+    selectedOwnerId === 'all'
+      ? approved
+      : approved.filter((t) => t.ownerId === selectedOwnerId)
 
-  const deleteTask = useCallback((taskId: string) => {
-    setApproved((prev) => {
-      const next = prev.filter((t) => t.id !== taskId)
-      saveApprovedToStorage(projectId, userId, next)
-      return next
-    })
-  }, [projectId, userId])
+  const selectedMember =
+    selectedOwnerId === 'all'
+      ? null
+      : roster.find((m) => m.id === selectedOwnerId) ?? null
 
-  const approveSuggestion = useCallback((suggestion: TaskSuggestion) => {
-    const newTask: ApprovedTask = {
-      ...suggestion,
-      status: 'open',
-      approvedAt: new Date().toISOString(),
-    }
-    setApproved((prev) => {
-      const next = [...prev, newTask]
-      saveApprovedToStorage(projectId, userId, next)
-      return next
-    })
-    setSuggestions((prev) => {
-      if (prev.kind !== 'visible') return prev
-      const remaining = prev.suggestions.filter((s) => s.id !== suggestion.id)
-      return remaining.length === 0 ? { kind: 'hidden' } : { ...prev, suggestions: remaining }
-    })
-  }, [projectId, userId])
+  const cycleStatus = useCallback(
+    (taskId: string) => {
+      setApproved((prev) => {
+        const next = prev.map((t) =>
+          t.id === taskId ? { ...t, status: STATUS_CONFIG[t.status]!.next } : t
+        )
+        saveApprovedToStorage(projectId, next)
+        return next
+      })
+    },
+    [projectId]
+  )
+
+  const deleteTask = useCallback(
+    (taskId: string) => {
+      setApproved((prev) => {
+        const next = prev.filter((t) => t.id !== taskId)
+        saveApprovedToStorage(projectId, next)
+        return next
+      })
+    },
+    [projectId]
+  )
+
+  const approveSuggestion = useCallback(
+    (suggestion: TaskSuggestion) => {
+      const ownerId = selectedOwnerId === 'all' ? userId : selectedOwnerId
+      const ownerDisplayName =
+        selectedOwnerId === 'all'
+          ? userDisplayName
+          : (roster.find((m) => m.id === selectedOwnerId)?.display_name ?? userDisplayName)
+
+      const newTask: ApprovedTask = {
+        ...suggestion,
+        status: 'open',
+        approvedAt: new Date().toISOString(),
+        ownerId,
+        ownerDisplayName,
+      }
+      setApproved((prev) => {
+        const next = [...prev, newTask]
+        saveApprovedToStorage(projectId, next)
+        return next
+      })
+      setSuggestions((prev) => {
+        if (prev.kind !== 'visible') return prev
+        const remaining = prev.suggestions.filter((s) => s.id !== suggestion.id)
+        return remaining.length === 0 ? { kind: 'hidden' } : { ...prev, suggestions: remaining }
+      })
+    },
+    [projectId, selectedOwnerId, userId, userDisplayName, roster]
+  )
 
   const dismissSuggestion = useCallback((id: string) => {
     setSuggestions((prev) => {
@@ -263,6 +308,10 @@ function TasksView({
   const getSuggestions = useCallback(async () => {
     unsubscribeRef.current?.()
     setSuggestions({ kind: 'generating', progressMessages: [] })
+
+    const targetDisplayName = selectedMember?.display_name ?? userDisplayName
+    const targetDomain =
+      selectedMember?.domain_summary ?? bootstrap.user_summary.domain_summary ?? ''
 
     const unsubscribe = window.api.onAssistantEvent((event) => {
       if (event.type === 'tool_call') {
@@ -296,9 +345,8 @@ function TasksView({
     unsubscribeRef.current = unsubscribe
 
     try {
-      const domainSummary = bootstrap.user_summary.domain_summary ?? ''
       await window.api.startAssistantRun({
-        prompt: buildPrompt(userDisplayName, projectName, domainSummary),
+        prompt: buildPrompt(targetDisplayName, projectName, targetDomain),
         cwd: projectFolderPath ?? undefined,
         bootstrap,
         userId,
@@ -309,15 +357,42 @@ function TasksView({
       unsubscribe()
       setSuggestions({ kind: 'error', message: String(err) })
     }
-  }, [bootstrap, userId, userDisplayName, projectName, projectFolderPath])
+  }, [bootstrap, userId, userDisplayName, projectName, projectFolderPath, selectedMember])
 
   const isGenerating = suggestions.kind === 'generating'
+  const showOwnerOnCards = selectedOwnerId === 'all'
+
+  const suggestLabel = isGenerating
+    ? 'analyzing...'
+    : selectedMember
+      ? `Suggest for ${selectedMember.display_name}`
+      : 'Get suggestions'
 
   return (
     <section className="content-panel tasks-view">
-      {/* Header */}
+      {/* Slicer + action row */}
       <div className="tasks-header">
-        <h2 className="tasks-header__title">your tasks</h2>
+        <div className="tasks-slicer">
+          <button
+            type="button"
+            className={`tasks-slicer__pill ${selectedOwnerId === 'all' ? 'tasks-slicer__pill--active' : ''}`}
+            onClick={() => setSelectedOwnerId('all')}
+          >
+            All
+          </button>
+          {roster.map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              className={`tasks-slicer__pill ${selectedOwnerId === member.id ? 'tasks-slicer__pill--active' : ''}`}
+              onClick={() => setSelectedOwnerId(member.id)}
+            >
+              {member.display_name}
+              {member.id === userId && <span className="tasks-slicer__you">you</span>}
+            </button>
+          ))}
+        </div>
+
         <button
           type="button"
           className="tasks-btn tasks-btn--suggest"
@@ -325,21 +400,26 @@ function TasksView({
           disabled={isGenerating}
         >
           <Sparkles size={13} />
-          {isGenerating ? 'analyzing...' : 'Get suggestions'}
+          {suggestLabel}
         </button>
       </div>
 
-      {/* Approved tasks grid */}
-      {approved.length === 0 ? (
+      {/* Task grid */}
+      {visibleTasks.length === 0 ? (
         <div className="tasks-approved-empty">
-          <p>no tasks yet — get suggestions and add what you want to work on</p>
+          <p>
+            {selectedOwnerId === 'all'
+              ? 'no tasks yet — get suggestions and add what you want to work on'
+              : `no tasks for ${selectedMember?.display_name ?? 'this person'} yet`}
+          </p>
         </div>
       ) : (
         <div className="tasks-grid">
-          {approved.map((task) => (
+          {visibleTasks.map((task) => (
             <ApprovedTaskCard
               key={task.id}
               task={task}
+              showOwner={showOwnerOnCards}
               onCycleStatus={cycleStatus}
               onDelete={deleteTask}
             />
@@ -355,7 +435,7 @@ function TasksView({
               <Sparkles size={13} />
               {suggestions.kind === 'generating' && 'finding suggestions...'}
               {suggestions.kind === 'visible' &&
-                `${suggestions.suggestions.length} suggestion${suggestions.suggestions.length !== 1 ? 's' : ''}`}
+                `${suggestions.suggestions.length} suggestion${suggestions.suggestions.length !== 1 ? 's' : ''}${selectedMember ? ` for ${selectedMember.display_name}` : ''}`}
               {suggestions.kind === 'error' && 'suggestions failed'}
             </span>
             <button

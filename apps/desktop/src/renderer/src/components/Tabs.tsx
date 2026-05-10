@@ -1,8 +1,8 @@
-import { Activity, MessageSquare, SquareCheck, Users } from 'lucide-react'
+import { Activity, MessageSquare, Network, SquareCheck, Users } from 'lucide-react'
 import type { LucideProps } from 'lucide-react'
 import type { ComponentType } from 'react'
 
-type TabKey = 'chat' | 'timeline' | 'responsibilities' | 'tasks'
+type TabKey = 'chat' | 'timeline' | 'responsibilities' | 'tasks' | 'graph'
 
 type TabsProps = {
   activeTab: TabKey
@@ -15,7 +15,8 @@ const TAB_DEFS: Array<{ key: TabKey; label: string; Icon: ComponentType<LucidePr
   { key: 'chat', label: 'chat', Icon: MessageSquare },
   { key: 'timeline', label: 'timeline', Icon: Activity },
   { key: 'responsibilities', label: 'team', Icon: Users },
-  { key: 'tasks', label: 'tasks', Icon: SquareCheck }
+  { key: 'tasks', label: 'tasks', Icon: SquareCheck },
+  { key: 'graph', label: 'graph', Icon: Network }
 ]
 
 function Tabs({ activeTab, onTabChange }: TabsProps): React.JSX.Element {

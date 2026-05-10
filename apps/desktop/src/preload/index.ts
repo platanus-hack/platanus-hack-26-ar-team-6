@@ -49,6 +49,8 @@ const api = {
   refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
     ipcRenderer.invoke('team-pulse:refresh', opts),
   loadResponsibilities: () => ipcRenderer.invoke('responsibilities:load'),
+  loadProjectGraph: (opts?: { includeLocal?: boolean; maxDocs?: number; maxEvents?: number; maxExchanges?: number }) =>
+    ipcRenderer.invoke('graph:load', opts),
   onAuthEvent: (callback: (event: unknown) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown): void => callback(data)
     ipcRenderer.on('auth:event', listener)

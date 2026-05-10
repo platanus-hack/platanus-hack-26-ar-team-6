@@ -8,6 +8,7 @@ import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
 import { getProjectFolderDisplayName } from './projectFolders'
 import ChatView from './views/ChatView'
+import GraphView from './views/GraphView'
 import ResponsibilitiesView from './views/ResponsibilitiesView'
 import TasksView from './views/TasksView'
 import TimelineView from './views/TimelineView'
@@ -537,6 +538,8 @@ function App(): React.JSX.Element {
         projectFolderPath={selectedProjectFolderPath}
       />
     )
+  } else if (activeTab === 'graph') {
+    activeView = <GraphView />
   }
 
   return (

@@ -247,6 +247,36 @@ interface DesktopApi {
   loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseResponse>
   refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseRefreshResult>
   loadResponsibilities: () => Promise<ResponsibilitiesResponse>
+  loadProjectGraph: (opts?: {
+    includeLocal?: boolean
+    maxDocs?: number
+    maxEvents?: number
+    maxExchanges?: number
+  }) => Promise<ProjectGraphResponse>
+}
+
+type ProjectGraphNodeKind = 'agent' | 'doc' | 'event'
+type ProjectGraphEdgeKind = 'authored' | 'asked' | 'provenance'
+
+type ProjectGraphNode = {
+  id: string
+  kind: ProjectGraphNodeKind
+  label: string
+  meta: Record<string, unknown>
+}
+
+type ProjectGraphEdge = {
+  source: string
+  target: string
+  kind: ProjectGraphEdgeKind
+  weight: number
+  meta: Record<string, unknown>
+}
+
+type ProjectGraphResponse = {
+  project_id: string
+  nodes: ProjectGraphNode[]
+  edges: ProjectGraphEdge[]
 }
 
 type TeamPulseCell = {
