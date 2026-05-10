@@ -6,10 +6,7 @@ import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 const requireFromRunner = createRequire(import.meta.url);
 
-function resolveClaudeBinary(): string | undefined {
-  if (process.env.RELEVO_CLAUDE_PATH) {
-    return process.env.RELEVO_CLAUDE_PATH;
-  }
+export function resolveClaudeBinary(): string | undefined {
   if (process.platform !== "linux") {
     return undefined;
   }
