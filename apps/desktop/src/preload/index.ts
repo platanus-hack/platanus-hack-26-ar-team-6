@@ -49,6 +49,12 @@ const api = {
   refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
     ipcRenderer.invoke('team-pulse:refresh', opts),
   loadResponsibilities: () => ipcRenderer.invoke('responsibilities:load'),
+  syncTasksToMemory: (payload: {
+    userId: string
+    projectId: string
+    eventContent: string
+    canonicalContent: string
+  }) => ipcRenderer.invoke('tasks:sync', payload),
   loadProjectGraph: (opts?: { includeLocal?: boolean; maxDocs?: number; maxEvents?: number; maxExchanges?: number }) =>
     ipcRenderer.invoke('graph:load', opts),
   onAuthEvent: (callback: (event: unknown) => void): (() => void) => {
