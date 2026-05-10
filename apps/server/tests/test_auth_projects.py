@@ -133,6 +133,48 @@ class AuthProjectsTest(unittest.TestCase):
         self.assertEqual(payload["account"]["email"], "user@example.com")
         self.assertEqual(payload["projects"][0]["project_id"], str(PROJECT_ID))
 
+    def test_demo_login_returns_fixed_demo_session_when_enabled(self) -> None:
+        with (
+            patch.dict(
+                auth_api.os.environ,
+                {
+                    "DEMO_PASSWORD_LOGIN": "1",
+                    "DEMO_ADMIN_EMAIL": "sbarronbucolo@udesa.edu.ar",
+                    "DEMO_ADMIN_PASSWORD": "123",
+                    "DEMO_ADMIN_SESSION_TOKEN": "123",
+                },
+            ),
+            patch.object(auth_api, "get_account_by_email", Mock(return_value=account())) as get_account,
+            patch.object(auth_api, "_ensure_demo_session", Mock()) as ensure_session,
+            patch.object(
+                auth_api,
+                "get_project_memberships_for_account",
+                Mock(return_value=[membership(role="leader")]),
+            ),
+        ):
+            response = self.client.post(
+                "/auth/demo/login",
+                json={"email": "sbarronbucolo@udesa.edu.ar", "password": "123"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["session_token"], "123")
+        self.assertEqual(payload["projects"][0]["role"], "leader")
+        get_account.assert_called_once_with(unittest.mock.ANY, "sbarronbucolo@udesa.edu.ar")
+        ensure_session.assert_called_once()
+        self.assertEqual(ensure_session.call_args.args[1], ACCOUNT_ID)
+        self.assertEqual(ensure_session.call_args.args[2], "123")
+
+    def test_demo_login_is_disabled_by_default(self) -> None:
+        with patch.dict(auth_api.os.environ, {}, clear=True):
+            response = self.client.post(
+                "/auth/demo/login",
+                json={"email": "sbarronbucolo@udesa.edu.ar", "password": "123"},
+            )
+
+        self.assertEqual(response.status_code, 404)
+
     def test_session_token_hash_does_not_store_raw_token(self) -> None:
         raw = "rlv_secret"
         self.assertNotEqual(token_hash(raw), raw)

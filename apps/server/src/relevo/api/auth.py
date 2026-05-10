@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import json
 import secrets
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Iterator
 from uuid import UUID
 
@@ -33,10 +35,23 @@ from relevo.db import (
     remove_project_membership_for_account,
     revoke_account_session,
     SESSION_TOKEN_PREFIX,
+    token_hash,
     upsert_account_from_google,
 )
 
 router = APIRouter()
+
+TRUE_VALUES = {"1", "true", "yes", "y", "on"}
+DEFAULT_DEMO_ADMIN_EMAIL = "sbarronbucolo@udesa.edu.ar"
+DEFAULT_DEMO_ADMIN_PASSWORD = "123"
+DEFAULT_DEMO_ADMIN_SESSION_TOKEN = "123"
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in TRUE_VALUES
 
 
 class AccountOut(BaseModel):
@@ -68,6 +83,11 @@ class DesktopExchangeRequest(BaseModel):
 
 class DesktopExchangeResponse(AuthStateResponse):
     session_token: str
+
+
+class DemoLoginRequest(BaseModel):
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=1)
 
 
 class CreateProjectRequest(BaseModel):
@@ -118,6 +138,30 @@ def _auth_state(conn: psycopg.Connection, account: dict[str, Any]) -> AuthStateR
             for project in get_project_memberships_for_account(conn, account["id"])
         ],
     )
+
+
+def _ensure_demo_session(
+    conn: psycopg.Connection,
+    account_id: UUID,
+    token: str,
+    *,
+    ttl_seconds: int,
+) -> None:
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO account_session (account_id, token_hash, expires_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (token_hash)
+            DO UPDATE SET
+              account_id = EXCLUDED.account_id,
+              expires_at = EXCLUDED.expires_at,
+              revoked_at = NULL
+            """,
+            (account_id, token_hash(token), expires_at),
+        )
+        conn.commit()
 
 
 def require_auth(
@@ -365,6 +409,43 @@ def exchange_desktop_login(
     session_token = create_account_session(
         conn,
         account["id"],
+        ttl_seconds=config.session_ttl_seconds,
+    )
+    auth_state = _auth_state(conn, account)
+    return DesktopExchangeResponse(
+        session_token=session_token,
+        account=auth_state.account,
+        projects=auth_state.projects,
+    )
+
+
+@router.post("/auth/demo/login", response_model=DesktopExchangeResponse)
+def demo_login(
+    body: DemoLoginRequest,
+    request: Request,
+    conn: Annotated[psycopg.Connection, Depends(get_db)],
+) -> DesktopExchangeResponse:
+    if not env_flag("DEMO_PASSWORD_LOGIN"):
+        raise HTTPException(status_code=404, detail="Demo password login is not enabled")
+
+    expected_email = os.environ.get("DEMO_ADMIN_EMAIL", DEFAULT_DEMO_ADMIN_EMAIL).strip().lower()
+    expected_password = os.environ.get("DEMO_ADMIN_PASSWORD", DEFAULT_DEMO_ADMIN_PASSWORD)
+    if body.email.strip().lower() != expected_email or body.password != expected_password:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid demo credentials")
+
+    account = get_account_by_email(conn, expected_email)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Demo admin account not found")
+
+    config = _oauth_config(request)
+    session_token = os.environ.get(
+        "DEMO_ADMIN_SESSION_TOKEN",
+        DEFAULT_DEMO_ADMIN_SESSION_TOKEN,
+    )
+    _ensure_demo_session(
+        conn,
+        account["id"],
+        session_token,
         ttl_seconds=config.session_ttl_seconds,
     )
     auth_state = _auth_state(conn, account)

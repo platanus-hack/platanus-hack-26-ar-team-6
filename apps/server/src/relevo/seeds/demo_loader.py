@@ -61,6 +61,31 @@ def account_id(key: str) -> UUID:
 
 USERS: list[dict[str, Any]] = [
     {
+        "key": "admin",
+        "display_name": "S. Barron Bucolo",
+        "email": "sbarronbucolo@udesa.edu.ar",
+        "auth_token": "demo-token-sbarronbucolo",
+        "session_token": "123",
+        "role": "leader",
+        "domain_summary": (
+            "Demo administrator for the TMNT project. Can manage the project, inspect all seeded "
+            "work, and operate the demo as the project owner."
+        ),
+        "voice": {
+            "tone": "concise, operator-focused, demo-first",
+            "first_person": True,
+            "signature_phrases": ["show me the demo state", "keep the reset path clean"],
+        },
+        "domain": {
+            "primary": "demo administration",
+            "tags": ["admin", "demo", "project-owner", "railway"],
+            "expertise_summary": (
+                "Owns the seeded demo environment, project access, reset behavior, and final demo "
+                "readiness for the TMNT automated sewer cleanup workspace."
+            ),
+        },
+    },
+    {
         "key": "leonardo",
         "display_name": "Leonardo",
         "email": "leonardo@tmnt.example",
@@ -181,9 +206,10 @@ PROJECT_CONTEXT: list[dict[str, Any]] = [
     },
     {
         "content": (
-            "Role map: Leonardo manages scope and project status; Donatello owns robot software and "
-            "hardware integration; Michelangelo owns launch narrative and city outreach; Raphael owns "
-            "staffing, accountability, and performance escalation."
+            "Role map: S. Barron Bucolo is the demo administrator; Leonardo manages scope and project "
+            "status; Donatello owns robot software and hardware integration; Michelangelo owns launch "
+            "narrative and city outreach; Raphael owns staffing, accountability, and performance "
+            "escalation."
         ),
         "metadata": {"source": "demo-seed", "tags": ["responsibilities", "routing", "team"]},
     },
@@ -457,6 +483,11 @@ PROMPT_LOGS: list[dict[str, Any]] = [
 
 
 RESPONSIBILITIES: dict[str, str] = {
+    "admin": (
+        "S. Barron Bucolo is the seeded demo administrator and project leader for the TMNT workspace. "
+        "This account can manage the project, verify seeded data, and operate the demo using the fixed "
+        "demo credential while the turtle team provides the product storyline."
+    ),
     "leonardo": (
         "Leonardo owns TMNT's demo plan and project control. He keeps the roadmap focused on one "
         "credible automated sewer cleanup flow: route planning, clog detection, cleaning action, and "
@@ -481,6 +512,11 @@ RESPONSIBILITIES: dict[str, str] = {
 
 
 CHAT_SUMMARIES: dict[str, str] = {
+    "admin": (
+        "Recent working context: the demo administrator account exists to access the TMNT project, "
+        "verify Railway reset behavior, and inspect the seeded team activity without changing the "
+        "four-character product narrative."
+    ),
     "leonardo": (
         "Recent working context: Leonardo narrowed the launch demo to the buyer-critical path, moved "
         "sensor calibration ahead of optional features, and cut the animated fleet map until after "
