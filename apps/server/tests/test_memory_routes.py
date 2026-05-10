@@ -265,6 +265,7 @@ class MemoryRouteTest(unittest.TestCase):
         self.assertEqual(commit.call_args.kwargs["project_id"], PROJECT_ID)
         operation = commit.call_args.kwargs["operations"][0]
         self.assertEqual(operation["author_agent_id"], ASKER_ID)
+        self.assertEqual(operation["importance"], "global")
         self.assertEqual(operation["chat_session_id"], "claude-code:claude-session-1")
         self.assertEqual(operation["checkpoint_index"], 2)
         self.assertEqual(operation["document_key"], "claude-code:claude-session-1")
