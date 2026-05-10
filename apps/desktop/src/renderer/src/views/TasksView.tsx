@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Circle, Clock, Sparkles, X, Plus, Trash2 } from 'lucide-react'
+import useSuggestionsStore, { activeSubscriptions } from '../stores/suggestionsStore'
+import type { TaskSuggestion, SuggestionsPhase } from '../stores/suggestionsStore'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
 type BootstrapContextEntry = BootstrapResponse['project_context'][number]
@@ -14,13 +16,6 @@ type RunnerBootstrapPayload = {
   }
 }
 
-type TaskSuggestion = {
-  id: string
-  title: string
-  priority: 'high' | 'medium' | 'low'
-  context: string
-}
-
 type ApprovedTask = {
   id: string
   title: string
@@ -31,12 +26,6 @@ type ApprovedTask = {
   ownerId: string
   ownerDisplayName: string
 }
-
-type SuggestionsPhase =
-  | { kind: 'hidden' }
-  | { kind: 'generating'; progressMessages: string[] }
-  | { kind: 'visible'; suggestions: TaskSuggestion[] }
-  | { kind: 'error'; message: string }
 
 type TasksViewProps = {
   bootstrap: RunnerBootstrapPayload
@@ -347,7 +336,9 @@ function TasksView({
     return mergeApproved(fromServer, local)
   })
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | 'all'>('all')
-  const [suggestions, setSuggestions] = useState<SuggestionsPhase>({ kind: 'hidden' })
+  const suggestions = useSuggestionsStore((s) => s.phaseByProject[projectId] ?? { kind: 'hidden' } as SuggestionsPhase)
+  const setPhase = useSuggestionsStore((s) => s.setPhase)
+  const addProgressMessage = useSuggestionsStore((s) => s.addProgressMessage)
 
   // Reload and re-merge when the active project changes
   useEffect(() => {
@@ -355,12 +346,8 @@ function TasksView({
     const fromServer = loadFromBootstrapEntries(bootstrap.project_context.project_context)
     setApproved(mergeApproved(fromServer, local))
     setSelectedOwnerId('all')
-    setSuggestions({ kind: 'hidden' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
-
-  const unsubscribeRef = useRef<(() => void) | null>(null)
-  useEffect(() => () => { unsubscribeRef.current?.() }, [])
 
   const visibleTasks =
     selectedOwnerId === 'all'
@@ -433,26 +420,25 @@ function TasksView({
       saveApprovedToStorage(projectId, next)
       syncToMemory(next)
       setApproved(next)
-      setSuggestions((prev) => {
-        if (prev.kind !== 'visible') return prev
-        const remaining = prev.suggestions.filter((s) => s.id !== suggestion.id)
-        return remaining.length === 0 ? { kind: 'hidden' } : { ...prev, suggestions: remaining }
-      })
+      if (suggestions.kind === 'visible') {
+        const remaining = suggestions.suggestions.filter((s) => s.id !== suggestion.id)
+        setPhase(projectId, remaining.length === 0 ? { kind: 'hidden' } : { ...suggestions, suggestions: remaining })
+      }
     },
-    [approved, projectId, selectedOwnerId, userId, userDisplayName, roster, syncToMemory]
+    [approved, projectId, selectedOwnerId, userId, userDisplayName, roster, syncToMemory, suggestions, setPhase]
   )
 
   const dismissSuggestion = useCallback((id: string) => {
-    setSuggestions((prev) => {
-      if (prev.kind !== 'visible') return prev
-      const remaining = prev.suggestions.filter((s) => s.id !== id)
-      return remaining.length === 0 ? { kind: 'hidden' } : { ...prev, suggestions: remaining }
-    })
-  }, [])
+    if (suggestions.kind === 'visible') {
+      const remaining = suggestions.suggestions.filter((s) => s.id !== id)
+      setPhase(projectId, remaining.length === 0 ? { kind: 'hidden' } : { ...suggestions, suggestions: remaining })
+    }
+  }, [suggestions, projectId, setPhase])
 
   const getSuggestions = useCallback(async () => {
-    unsubscribeRef.current?.()
-    setSuggestions({ kind: 'generating', progressMessages: [] })
+    activeSubscriptions.get(projectId)?.()
+    activeSubscriptions.delete(projectId)
+    setPhase(projectId, { kind: 'generating', progressMessages: [] })
 
     const targetDisplayName = selectedMember?.display_name ?? userDisplayName
     const targetDomain =
@@ -462,32 +448,28 @@ function TasksView({
       if (event.type === 'tool_call') {
         const query = (event.input as Record<string, unknown> | undefined)?.query
         const label = typeof query === 'string' ? query : event.toolName
-        setSuggestions((prev) =>
-          prev.kind === 'generating'
-            ? { ...prev, progressMessages: [...prev.progressMessages, `querying: ${label}`] }
-            : prev
-        )
+        addProgressMessage(projectId, `querying: ${label}`)
         return
       }
       if (event.type === 'result') {
-        unsubscribeRef.current = null
+        activeSubscriptions.delete(projectId)
         unsubscribe()
         try {
           const parsed = parseSuggestionsJson(event.result)
-          setSuggestions({ kind: 'visible', suggestions: parsed })
+          setPhase(projectId, { kind: 'visible', suggestions: parsed })
         } catch (err) {
-          setSuggestions({ kind: 'error', message: String(err) })
+          setPhase(projectId, { kind: 'error', message: String(err) })
         }
         return
       }
       if (event.type === 'error') {
-        unsubscribeRef.current = null
+        activeSubscriptions.delete(projectId)
         unsubscribe()
-        setSuggestions({ kind: 'error', message: event.message })
+        setPhase(projectId, { kind: 'error', message: event.message })
       }
     })
 
-    unsubscribeRef.current = unsubscribe
+    activeSubscriptions.set(projectId, unsubscribe)
 
     try {
       await window.api.startAssistantRun({
@@ -502,11 +484,11 @@ function TasksView({
         ],
       })
     } catch (err) {
-      unsubscribeRef.current = null
+      activeSubscriptions.delete(projectId)
       unsubscribe()
-      setSuggestions({ kind: 'error', message: String(err) })
+      setPhase(projectId, { kind: 'error', message: String(err) })
     }
-  }, [bootstrap, userId, userDisplayName, projectName, projectFolderPath, selectedMember])
+  }, [bootstrap, userId, userDisplayName, projectName, projectFolderPath, selectedMember, projectId, setPhase, addProgressMessage])
 
   const isGenerating = suggestions.kind === 'generating'
   const showOwnerOnCards = selectedOwnerId === 'all'
