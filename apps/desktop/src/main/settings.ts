@@ -328,7 +328,8 @@ export async function saveProjectFolder(
 ): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
   const projects = settings.projects ?? []
-  if (!projects.some((project) => project.project_id === projectId)) {
+  const project = projects.find((item) => item.project_id === projectId)
+  if (!project) {
     throw new Error('Project folder can only be set for a current account project.')
   }
 
@@ -341,6 +342,7 @@ export async function saveProjectFolder(
   if (settings.claudeCodeHooksEnabled ?? true) {
     await installClaudeCodeHook({
       projectId,
+      userId: project.user_id,
       projectFolderPath: resolvedFolderPath,
       serverUrl: normalizeServerBaseUrl(defaultServerBaseUrl),
       authToken: sessionToken
@@ -376,6 +378,7 @@ export async function setClaudeCodeHooksEnabled(
 ): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
   const projects = settings.projects ?? []
+  const projectsById = new Map(projects.map((project) => [project.project_id, project]))
   const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
 
   if (enabled) {
@@ -384,14 +387,19 @@ export async function setClaudeCodeHooksEnabled(
       throw new Error('Sign in with Google before enabling Claude Code hooks.')
     }
     await Promise.all(
-      Object.entries(projectFolders).map(([projectId, projectFolderPath]) =>
-        installClaudeCodeHook({
+      Object.entries(projectFolders).map(([projectId, projectFolderPath]) => {
+        const project = projectsById.get(projectId)
+        if (!project) {
+          throw new Error('Project folder can only be set for a current account project.')
+        }
+        return installClaudeCodeHook({
           projectId,
+          userId: project.user_id,
           projectFolderPath,
           serverUrl: normalizeServerBaseUrl(defaultServerBaseUrl),
           authToken: sessionToken
         })
-      )
+      })
     )
   } else {
     await Promise.all(Object.values(projectFolders).map((projectFolderPath) => removeClaudeCodeHook(projectFolderPath)))

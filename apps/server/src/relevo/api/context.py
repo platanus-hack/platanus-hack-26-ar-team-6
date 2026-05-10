@@ -25,6 +25,9 @@ logger = logging.getLogger("relevo.api.context")
 
 
 MAX_ACTIVITY_TEXT_CHARS = 120_000
+MAX_CHAT_SUMMARY_CHARS = 8_000
+CHAT_SUMMARY_DOCUMENT_KEY = "chat-summary"
+CLAUDE_CODE_CHAT_SESSION_PREFIX = "claude-code:"
 
 
 def _preview(text: str, max_length: int = 160) -> str:
@@ -57,6 +60,17 @@ def _truncate_text(text: str, max_length: int = MAX_ACTIVITY_TEXT_CHARS) -> str:
     return f"{text[: max_length - 34].rstrip()}\n...[truncated by Relevo ingest]"
 
 
+def _activity_transcript(body: "ClaudeCodeActivityRequest") -> str:
+    messages: list[str] = []
+    prompt = body.prompt.strip()
+    final_answer = body.final_answer.strip()
+    if prompt:
+        messages.append(f"USER: {prompt}")
+    if final_answer:
+        messages.append(f"ASSISTANT: {final_answer}")
+    return "\n\n".join(messages) or "No user or assistant message captured."
+
+
 def _format_changed_files(changed_files: list[str]) -> str:
     if not changed_files:
         return "No changed files reported."
@@ -65,33 +79,36 @@ def _format_changed_files(changed_files: list[str]) -> str:
 
 def _activity_event_content(body: "ClaudeCodeActivityRequest") -> str:
     sections = [
-        "Claude Code activity",
-        f"Session: {body.session_id}",
+        f"Checkpoint {body.checkpoint_index}:",
+        _activity_transcript(body),
     ]
-    if body.cwd:
-        sections.append(f"Working directory: {body.cwd}")
-
-    sections.extend(
-        [
-            f"Prompt:\n{body.prompt.strip() or 'No prompt captured.'}",
-            f"Final answer:\n{body.final_answer.strip() or 'No final answer captured.'}",
-            f"Changed files:\n{_format_changed_files(body.changed_files)}",
-        ]
-    )
-    if body.diff.strip():
-        sections.append(f"Diff:\n```diff\n{body.diff.strip()}\n```")
+    code_sections = [f"Changed files:\n{_format_changed_files(body.changed_files)}"]
+    diff = body.diff.strip()
+    if diff:
+        code_sections.append(f"Diff:\n```diff\n{diff}\n```")
+    if body.changed_files or diff:
+        code_content = "\n\n".join(code_sections)
+        sections.append(f"Code changes:\n{code_content}")
 
     return _truncate_text("\n\n".join(sections))
 
 
 def _activity_canonical_content(body: "ClaudeCodeActivityRequest") -> str:
     sections = [
-        "Latest Claude Code activity summary",
-        f"Prompt: {_preview(body.prompt, 600) or 'No prompt captured.'}",
-        f"Final answer: {_preview(body.final_answer, 900) or 'No final answer captured.'}",
-        f"Changed files:\n{_format_changed_files(body.changed_files)}",
+        "Recent working context:",
+        _activity_transcript(body),
     ]
-    return _truncate_text("\n\n".join(sections), max_length=8_000)
+    if body.changed_files or body.diff.strip():
+        sections.append(
+            "\n".join(
+                [
+                    "Code changes:",
+                    f"Changed files:\n{_format_changed_files(body.changed_files)}",
+                    f"Diff chars captured: {len(body.diff)}",
+                ]
+            )
+        )
+    return _truncate_text("\n\n".join(sections), max_length=MAX_CHAT_SUMMARY_CHARS)
 
 
 def _activity_metadata(body: "ClaudeCodeActivityRequest") -> dict[str, Any]:
@@ -110,6 +127,23 @@ def _activity_metadata(body: "ClaudeCodeActivityRequest") -> dict[str, Any]:
         }
     )
     return metadata
+
+
+def _activity_memory_operation(
+    body: "ClaudeCodeActivityRequest",
+    author_agent_id: UUID,
+) -> dict[str, Any]:
+    chat_session_id = f"{CLAUDE_CODE_CHAT_SESSION_PREFIX}{body.session_id}"
+    return {
+        "author_agent_id": author_agent_id,
+        "importance": "local",
+        "document_key": CHAT_SUMMARY_DOCUMENT_KEY,
+        "event_content": _activity_event_content(body),
+        "canonical_content": _activity_canonical_content(body),
+        "metadata": _activity_metadata(body),
+        "chat_session_id": chat_session_id,
+        "checkpoint_index": body.checkpoint_index,
+    }
 
 
 class ContextEntryOut(BaseModel):
@@ -603,18 +637,7 @@ def claude_code_activity(
         len(body.diff),
         _metadata_keys(body.metadata),
     )
-    operations = [
-        {
-            "author_agent_id": current_user["id"],
-            "importance": "local",
-            "document_key": f"claude-code:{body.session_id}",
-            "event_content": _activity_event_content(body),
-            "canonical_content": _activity_canonical_content(body),
-            "metadata": _activity_metadata(body),
-            "chat_session_id": f"claude-code:{body.session_id}",
-            "checkpoint_index": body.checkpoint_index,
-        }
-    ]
+    operations = [_activity_memory_operation(body, current_user["id"])]
     try:
         result = commit_memory_update(
             conn,

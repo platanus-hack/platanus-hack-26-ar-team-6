@@ -20,6 +20,7 @@ type ClaudeSettings = {
 
 type InstallClaudeCodeHookOptions = {
   projectId: string
+  userId: string
   projectFolderPath: string
   serverUrl: string
   authToken: string
@@ -54,6 +55,10 @@ from typing import Any
 
 
 DEFAULT_MAX_DIFF_CHARS = 60_000
+MAX_MEMORY_TEXT_CHARS = 120_000
+MAX_CANONICAL_TEXT_CHARS = 8_000
+CHAT_SUMMARY_DOCUMENT_KEY = "chat-summary"
+DIFF_FENCE = chr(96) * 3
 STATE_DIR = ".relevo/claude-code"
 DIFF_EXCLUDES = [
     ":(exclude).env",
@@ -206,6 +211,110 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return f"{text[: limit - 33].rstrip()}\n...[truncated by Relevo hook]", True
 
 
+def compact_text(text: str, limit: int) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: limit - 33].rstrip()}...[truncated by Relevo hook]"
+
+
+def changed_files_text(changed_files: list[str]) -> str:
+    if not changed_files:
+        return "No changed files reported."
+    return "\n".join(f"- {file_path}" for file_path in changed_files)
+
+
+def conversation_transcript(prompt: str, answer: str) -> str:
+    messages: list[str] = []
+    if prompt.strip():
+        messages.append(f"USER: {prompt.strip()}")
+    if answer.strip():
+        messages.append(f"ASSISTANT: {answer.strip()}")
+    return "\n\n".join(messages) or "No user or assistant message captured."
+
+
+def build_memory_event_content(payload: dict[str, Any]) -> str:
+    checkpoint_index = int(payload.get("checkpoint_index") or 1)
+    prompt = str(payload.get("prompt") or "")
+    answer = str(payload.get("final_answer") or "")
+    diff = str(payload.get("diff") or "").strip()
+    changed_files = list(payload.get("changed_files") or [])
+    sections = [
+        f"Checkpoint {checkpoint_index}:",
+        conversation_transcript(prompt, answer),
+    ]
+    if changed_files or diff:
+        code_sections = [f"Changed files:\n{changed_files_text(changed_files)}"]
+        if diff:
+            code_sections.append(f"Diff:\n{DIFF_FENCE}diff\n{diff}\n{DIFF_FENCE}")
+        code_content = "\n\n".join(code_sections)
+        sections.append(f"Code changes:\n{code_content}")
+    return truncate("\n\n".join(sections), MAX_MEMORY_TEXT_CHARS)[0]
+
+
+def build_memory_canonical_content(payload: dict[str, Any]) -> str:
+    prompt = str(payload.get("prompt") or "")
+    answer = str(payload.get("final_answer") or "")
+    diff = str(payload.get("diff") or "")
+    changed_files = list(payload.get("changed_files") or [])
+    sections = [
+        "Recent working context:",
+        conversation_transcript(prompt, answer),
+    ]
+    if changed_files or diff.strip():
+        sections.append(
+            "\n".join(
+                [
+                    "Code changes:",
+                    f"Changed files:\n{changed_files_text(changed_files)}",
+                    f"Diff chars captured: {len(diff)}",
+                ]
+            )
+        )
+    return compact_text("\n\n".join(sections), MAX_CANONICAL_TEXT_CHARS)
+
+
+def build_memory_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(payload.get("metadata") or {})
+    prompt = str(payload.get("prompt") or "")
+    answer = str(payload.get("final_answer") or "")
+    diff = str(payload.get("diff") or "")
+    changed_files = list(payload.get("changed_files") or [])
+    metadata.update(
+        {
+            "source": "claude_code_hook",
+            "session_id": str(payload.get("session_id") or ""),
+            "cwd": str(payload.get("cwd") or ""),
+            "transcript_path": payload.get("transcript_path"),
+            "hook_event_name": payload.get("hook_event_name"),
+            "changed_files": changed_files,
+            "prompt_chars": len(prompt),
+            "final_answer_chars": len(answer),
+            "diff_chars": len(diff),
+        }
+    )
+    return metadata
+
+
+def build_memory_update_payload(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    session_id = str(payload.get("session_id") or "unknown-session")
+    checkpoint_index = int(payload.get("checkpoint_index") or 1)
+    return {
+        "chat_session_id": f"claude-code:{session_id}",
+        "checkpoint_index": checkpoint_index,
+        "operations": [
+            {
+                "author_agent_id": user_id,
+                "importance": "local",
+                "document_key": CHAT_SUMMARY_DOCUMENT_KEY,
+                "event_content": build_memory_event_content(payload),
+                "canonical_content": build_memory_canonical_content(payload),
+                "metadata": build_memory_metadata(payload),
+            }
+        ],
+    }
+
+
 def new_file_diff(cwd: str, rel_path: str) -> str:
     if is_sensitive_path(rel_path):
         return ""
@@ -353,12 +462,18 @@ def post_activity(config: dict[str, Any], payload: dict[str, Any]) -> None:
     server_url = config_value(config, "serverUrl", "RELEVO_SERVER_URL", "VITE_API_BASE_URL").rstrip("/")
     auth_token = config_value(config, "authToken", "RELEVO_AUTH_TOKEN", "RELEVO_SESSION_TOKEN")
     project_id = config_value(config, "projectId", "RELEVO_PROJECT_ID")
+    user_id = config_value(config, "userId", "RELEVO_USER_ID")
     if not server_url or not auth_token or not project_id:
         debug("missing serverUrl, authToken, or projectId; skipping post")
         return
 
-    body = json.dumps(payload).encode("utf-8")
-    url = f"{server_url}/claude-code/activity"
+    if user_id:
+        body = json.dumps(build_memory_update_payload(user_id, payload)).encode("utf-8")
+        url = f"{server_url}/memory-updates"
+    else:
+        debug("missing userId; falling back to compatibility activity endpoint")
+        body = json.dumps(payload).encode("utf-8")
+        url = f"{server_url}/claude-code/activity"
     headers = {
         "authorization": f"Bearer {auth_token}",
         "content-type": "application/json",
@@ -605,7 +720,8 @@ export async function installClaudeCodeHook(options: InstallClaudeCodeHookOption
   await writePrivateConfig(configPath, {
     serverUrl: options.serverUrl,
     authToken: options.authToken,
-    projectId: options.projectId
+    projectId: options.projectId,
+    userId: options.userId
   })
 
   await mkdir(dirname(scriptPath), { recursive: true })
