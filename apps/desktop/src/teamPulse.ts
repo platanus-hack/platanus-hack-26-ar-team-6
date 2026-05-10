@@ -2,19 +2,22 @@
  * Team Pulse + Responsibilities client.
  *
  * The desktop owns the Anthropic key, so this module:
- *   1. fetches the cached pulse grid from the server,
- *   2. fetches raw events for buckets that need a summary,
+ *   1. fetches the cached pulse grid from the server to get the visible window,
+ *   2. fetches raw events for that window,
  *   3. summarises them with Anthropic (or a cheap fallback when the key is
  *      missing or the bucket is small),
  *   4. regenerates the responsibility document (≤2000 words) for the calling
  *      user from the last `RESPONSIBILITY_WINDOW_DAYS` of events,
  *   5. POSTs everything back so other clients can read fresh data.
+ *
+ * This should only run from an explicit refresh action. Loading the views reads
+ * cached server state and does not regenerate timeline or responsibility docs.
  */
 import Anthropic from "@anthropic-ai/sdk";
 
 const RESPONSIBILITY_WINDOW_DAYS = 30;
 const RESPONSIBILITY_MAX_WORDS = 2000;
-const PULSE_SUMMARY_MAX_CHARS = 80;
+const PULSE_SUMMARY_MAX_CHARS = 280;
 // Cheap fast model. `claude-3-5-haiku-20241022` reached end-of-life and now
 // returns 404 from /v1/messages. Use `claude-haiku-4-5` (the current Haiku
 // alias) until we plumb a model name through settings.
@@ -63,7 +66,6 @@ export type ResponsibilitiesResponse = { members: ResponsibilityMember[] };
 export type TeamPulseRefreshResult = {
   pulse_doc_ids: string[];
   responsibility_doc_ids: string[];
-  skipped_responsibility_agent_ids: string[];
 };
 
 export type TeamPulseClientOptions = {
@@ -76,12 +78,6 @@ export type TeamPulseClientOptions = {
   bucketSize?: number;
   /** count; default 24 */
   bucketCount?: number;
-  /**
-   * When true, instruct the server to bypass the responsibility-doc
-   * debounce. Defaults to true so an explicit user-initiated refresh
-   * always rewrites the doc.
-   */
-  forceResponsibility?: boolean;
 };
 
 function normalizeBaseUrl(url: string): string {
@@ -115,6 +111,21 @@ function truncateSummary(text: string, max = PULSE_SUMMARY_MAX_CHARS): string {
   const lastSpace = cut.lastIndexOf(" ");
   const safe = lastSpace >= max * 0.55 ? cut.slice(0, lastSpace) : cut;
   return `${safe.replace(/[\s.,;:-]+$/, "")}...`;
+}
+
+function promptEventText(event: TeamPulseRawEvent, max = 180): string {
+  const userMatch = event.content.match(/USER:\s*([\s\S]*?)(?:\n\nASSISTANT:|\n\nCode changes:|$)/);
+  const prompt = userMatch?.[1]?.trim();
+  return truncateSummary(prompt || event.content, max);
+}
+
+function isPromptEvent(event: TeamPulseRawEvent): boolean {
+  const source = event.metadata?.source;
+  return (
+    source === "claude_code_hook" ||
+    source === "langgraph-updater" ||
+    /^Checkpoint\s+\d+:/i.test(event.content.trim())
+  );
 }
 
 function countWords(text: string): number {
@@ -161,12 +172,14 @@ function extractText(message: Anthropic.Message): string {
 async function summarizeBucket(
   events: TeamPulseRawEvent[],
   apiKey: string | null | undefined,
+  previousSummary: string | null,
 ): Promise<string> {
   if (events.length === 0) {
     throw new Error("summarizeBucket called with no events");
   }
-  const latest = events[events.length - 1]!;
-  const fallback = truncateSummary(latest.content);
+  const fallback = truncateSummary(
+    [previousSummary, ...events.map((event) => promptEventText(event))].filter(Boolean).join(" · "),
+  );
   if (events.length <= 2 || !apiKey) {
     return fallback;
   }
@@ -177,13 +190,19 @@ async function summarizeBucket(
       .join("\n");
     const response = await client.messages.create({
       model: SUMMARY_MODEL,
-      max_tokens: 80,
-      system:
-        "You compress a list of work events into ONE short past-tense sentence (max 80 characters) describing what the user worked on. Output only the sentence, no quotes, no preamble.",
+      max_tokens: 140,
+      system: `You maintain an hourly work checkpoint. Combine the previous checkpoint, if present, with every prompt event in this hour. Output ONE concrete past-tense description of the job done, max ${PULSE_SUMMARY_MAX_CHARS} characters. Output only the description, no quotes, no preamble.`,
       messages: [
         {
           role: "user",
-          content: `Events in this hour:\n${transcript}\n\nOne-sentence summary:`,
+          content: [
+            previousSummary ? `Previous checkpoint for this hour:\n${previousSummary}` : "",
+            `Prompt events in this hour:\n${transcript}`,
+            "",
+            "New hourly checkpoint:",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
         },
       ],
     });
@@ -198,7 +217,6 @@ async function summarizeBucket(
 
 async function generateResponsibilityDoc(
   events: TeamPulseRawEvent[],
-  _previousContent: string | null,
   displayName: string,
   apiKey: string | null | undefined,
 ): Promise<{ content: string; wordCount: number } | null> {
@@ -216,9 +234,7 @@ async function generateResponsibilityDoc(
   if (!apiKey) {
     // Cheap fallback: synthesise a bullet list straight from events.
     const recent = events.slice(-12);
-    const bullets = recent
-      .map((event) => `- ${truncateSummary(event.content, 160)}`)
-      .join("\n");
+    const bullets = recent.map((event) => `- ${truncateSummary(event.content, 160)}`).join("\n");
     const content = [
       `## General responsibility`,
       `(no model available; synthesised from recent events)`,
@@ -235,15 +251,12 @@ async function generateResponsibilityDoc(
     // "stale anchor" failure mode where the model keeps describing the
     // engineer's old area of ownership instead of what they did today.
     const ordered = [...events].sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
     const transcript = ordered
       .map(
         (event, idx) =>
-          `[${idx + 1}] ${new Date(event.created_at).toISOString()} :: ${event.content
-            .replace(/\s+/g, " ")
-            .trim()}`,
+          `[${idx + 1}] ${new Date(event.created_at).toISOString()} :: ${event.content.replace(/\s+/g, " ").trim()}`,
       )
       .join("\n");
     const newestIso = ordered[0]?.created_at ?? "(unknown)";
@@ -296,9 +309,7 @@ async function generateResponsibilityDoc(
 // Server interactions
 // ---------------------------------------------------------------------------
 
-export async function loadTeamPulse(
-  opts: TeamPulseClientOptions,
-): Promise<TeamPulseResponse> {
+export async function loadTeamPulse(opts: TeamPulseClientOptions): Promise<TeamPulseResponse> {
   const params = new URLSearchParams();
   if (opts.bucketSize) params.set("size", String(opts.bucketSize));
   if (opts.bucketCount) params.set("buckets", String(opts.bucketCount));
@@ -309,10 +320,7 @@ export async function loadTeamPulse(
 }
 
 export async function loadResponsibilities(
-  opts: Pick<
-    TeamPulseClientOptions,
-    "serverBaseUrl" | "sessionToken" | "projectId"
-  >,
+  opts: Pick<TeamPulseClientOptions, "serverBaseUrl" | "sessionToken" | "projectId">,
 ): Promise<ResponsibilitiesResponse> {
   const url = `${normalizeBaseUrl(opts.serverBaseUrl)}/projects/${opts.projectId}/responsibilities`;
   return fetchJson<ResponsibilitiesResponse>(url, {
@@ -338,57 +346,80 @@ export async function refreshTeamPulse(
   const bucketSize = opts.bucketSize ?? 3600;
   const bucketCount = opts.bucketCount ?? 24;
 
-  // 1. Find which of the caller's own buckets are missing or for the
-  // current open hour (always recompute).
+  // 1. Manual refresh scans from each member's last completed checkpoint to
+  // the current open bucket. If the latest checkpoint is already in the open
+  // bucket, we rebuild that bucket using the previous checkpoint plus all
+  // prompt events from the bucket.
   const grid = await loadTeamPulse(opts);
-  const self = grid.members.find((m) => m.agent_id === opts.selfAgentId);
   const nowMs = Date.now();
-  const openBucketStart = Math.floor(nowMs / 1000 / bucketSize) * bucketSize * 1000;
+  const currentBucketIndex = Math.max(0, grid.bucket_starts.length - 1);
 
-  type BucketTask = { bucketStart: string };
+  type BucketTask = {
+    agentId: string;
+    bucketStart: string;
+    previousSummary: string | null;
+  };
   const bucketTasks: BucketTask[] = [];
-  if (self) {
-    grid.bucket_starts.forEach((startIso, index) => {
-      const cell = self.cells[index];
-      const startMs = new Date(startIso).getTime();
-      const isOpen = startMs >= openBucketStart;
-      if (!cell) return;
-      if (cell.summary == null || isOpen) {
-        bucketTasks.push({ bucketStart: isoBucketStart(startIso) });
-      }
+  for (const member of grid.members) {
+    let lastScannedIndex: number | null = null;
+    member.cells.forEach((cell, index) => {
+      if (cell?.summary) lastScannedIndex = index;
     });
-  } else {
-    // Roster doesn't know about us yet. Refresh all buckets in window.
-    grid.bucket_starts.forEach((startIso) => {
-      bucketTasks.push({ bucketStart: isoBucketStart(startIso) });
-    });
+    const startIndex =
+      lastScannedIndex == null
+        ? 0
+        : lastScannedIndex >= currentBucketIndex
+          ? currentBucketIndex
+          : lastScannedIndex + 1;
+    for (let index = startIndex; index <= currentBucketIndex; index += 1) {
+      const startIso = grid.bucket_starts[index];
+      if (!startIso) continue;
+      bucketTasks.push({
+        agentId: member.agent_id,
+        bucketStart: isoBucketStart(startIso),
+        previousSummary: member.cells[index]?.summary ?? null,
+      });
+    }
   }
 
-  // 2. Fetch raw events for the whole window in one call (cheap).
-  const windowStartMs = grid.bucket_starts[0]
-    ? new Date(grid.bucket_starts[0]).getTime()
-    : nowMs - bucketSize * bucketCount * 1000;
+  // 2. Fetch raw prompt events for the timeline scan. Responsibility generation
+  // gets its own self-only history window when the timeline scan doesn't cover it.
+  const timelineWindowStartMs = bucketTasks[0]
+    ? Math.min(...bucketTasks.map((task) => new Date(task.bucketStart).getTime()))
+    : grid.bucket_starts[0]
+      ? new Date(grid.bucket_starts[0]).getTime()
+      : nowMs - bucketSize * bucketCount * 1000;
   const responsibilityWindowStart = new Date(
     nowMs - RESPONSIBILITY_WINDOW_DAYS * 24 * 3600 * 1000,
-  ).toISOString();
-  const responsibilityWindowEvents = await loadRawEvents(opts, {
-    agent_id: opts.selfAgentId,
-    since: responsibilityWindowStart,
-  });
-
-  // Sub-list scoped to the visible pulse window.
-  const pulseWindowEvents = responsibilityWindowEvents.filter(
-    (event) => new Date(event.created_at).getTime() >= windowStartMs,
   );
+  const rawEvents = (
+    await loadRawEvents(opts, {
+      since: new Date(timelineWindowStartMs).toISOString(),
+    })
+  ).filter(isPromptEvent);
+  const responsibilityWindowEvents =
+    timelineWindowStartMs <= responsibilityWindowStart.getTime()
+      ? rawEvents.filter((event) => {
+          return (
+            event.agent_id === opts.selfAgentId &&
+            new Date(event.created_at).getTime() >= responsibilityWindowStart.getTime()
+          );
+        })
+      : (
+          await loadRawEvents(opts, {
+            agent_id: opts.selfAgentId,
+            since: responsibilityWindowStart.toISOString(),
+          })
+        ).filter(isPromptEvent);
 
-  const eventsByBucket = new Map<string, TeamPulseRawEvent[]>();
-  for (const event of pulseWindowEvents) {
-    const key = isoBucketStart(event.bucket_start);
-    const existing = eventsByBucket.get(key);
+  const eventsByAgentBucket = new Map<string, TeamPulseRawEvent[]>();
+  for (const event of rawEvents) {
+    const key = `${event.agent_id}:${isoBucketStart(event.bucket_start)}`;
+    const existing = eventsByAgentBucket.get(key);
     if (existing) {
       existing.push(event);
     } else {
-      eventsByBucket.set(key, [event]);
+      eventsByAgentBucket.set(key, [event]);
     }
   }
 
@@ -401,11 +432,15 @@ export async function refreshTeamPulse(
     event_ids: string[];
   }> = [];
   for (const task of bucketTasks) {
-    const events = eventsByBucket.get(task.bucketStart) ?? [];
+    const events = eventsByAgentBucket.get(`${task.agentId}:${task.bucketStart}`) ?? [];
     if (events.length === 0) continue;
-    const summary = await summarizeBucket(events, opts.anthropicApiKey ?? null);
+    const summary = await summarizeBucket(
+      events,
+      opts.anthropicApiKey ?? null,
+      task.previousSummary,
+    );
     summaries.push({
-      agent_id: opts.selfAgentId,
+      agent_id: task.agentId,
       bucket_start: task.bucketStart,
       summary,
       event_count: events.length,
@@ -414,16 +449,10 @@ export async function refreshTeamPulse(
   }
 
   // 4. Build responsibility document.
-  const previous = await loadResponsibilities({
-    serverBaseUrl: opts.serverBaseUrl,
-    sessionToken: opts.sessionToken,
-    projectId: opts.projectId,
-  });
-  const selfPrevious = previous.members.find((m) => m.agent_id === opts.selfAgentId);
-  const displayName = selfPrevious?.display_name ?? "the engineer";
+  const self = grid.members.find((m) => m.agent_id === opts.selfAgentId);
+  const displayName = self?.display_name ?? "the engineer";
   const responsibilityDoc = await generateResponsibilityDoc(
     responsibilityWindowEvents,
-    selfPrevious?.content ?? null,
     displayName,
     opts.anthropicApiKey ?? null,
   );
@@ -441,14 +470,12 @@ export async function refreshTeamPulse(
           },
         ]
       : [],
-    force_responsibility: opts.forceResponsibility ?? true,
   };
 
   if (refreshBody.summaries.length === 0 && refreshBody.responsibilities.length === 0) {
     return {
       pulse_doc_ids: [],
       responsibility_doc_ids: [],
-      skipped_responsibility_agent_ids: [],
     };
   }
 

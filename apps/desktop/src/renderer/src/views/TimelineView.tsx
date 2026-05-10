@@ -202,13 +202,6 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
 
   useEffect(() => {
     void loadPulse();
-    void window.api
-      .refreshTeamPulse({
-        bucketSize: TIMELINE_BUCKET_SIZE,
-        bucketCount: TIMELINE_BUCKET_COUNT,
-      })
-      .then(loadPulse)
-      .catch(() => undefined);
   }, [loadPulse]);
 
   const dayPulse = useMemo(() => (pulse ? aggregatePulseByDay(pulse) : null), [pulse]);
@@ -234,7 +227,7 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
   if (loading && !pulse) {
     return (
       <section className="content-panel pulse">
-        <PulseToolbar onRefresh={() => void loadPulse()} refreshing={false} />
+        <PulseToolbar onRefresh={() => void refreshPulse()} refreshing={loading || refreshing} />
         <div className="pulse__loading">
           {Array.from({ length: 4 }).map((_, i) => (
             <div className="pulse__skeleton-row" key={i}>
@@ -250,13 +243,13 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
   if (error && !pulse) {
     return (
       <section className="content-panel pulse">
-        <PulseToolbar onRefresh={() => void loadPulse()} refreshing={false} />
+        <PulseToolbar onRefresh={() => void refreshPulse()} refreshing={refreshing} />
         <div className="pulse__error">
           <p className="pulse__error-msg">{error}</p>
           <button
             type="button"
             className="pulse__btn pulse__btn--primary"
-            onClick={() => void loadPulse()}
+            onClick={() => void refreshPulse()}
           >
             try again
           </button>

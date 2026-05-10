@@ -6,7 +6,7 @@ import {
   refreshTeamPulse,
   type TeamPulseRawEvent,
   type TeamPulseResponse,
-  type ResponsibilitiesResponse
+  type ResponsibilitiesResponse,
 } from '../teamPulse'
 
 type FetchCall = {
@@ -24,13 +24,13 @@ function setupFetchSequence(responses: Array<{ status?: number; body: unknown }>
   let index = 0
   ;(global as { fetch: typeof fetch }).fetch = (async (
     input: RequestInfo | URL,
-    init?: RequestInit
+    init?: RequestInit,
   ): Promise<Response> => {
     const url = typeof input === 'string' ? input : input.toString()
     calls.push({
       url,
       method: init?.method,
-      body: init?.body ? JSON.parse(String(init.body)) : undefined
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
     })
     const next = responses[index++]
     if (!next) {
@@ -38,14 +38,14 @@ function setupFetchSequence(responses: Array<{ status?: number; body: unknown }>
     }
     return new Response(JSON.stringify(next.body), {
       status: next.status ?? 200,
-      headers: { 'content-type': 'application/json' }
+      headers: { 'content-type': 'application/json' },
     })
   }) as unknown as typeof fetch
   return {
     calls,
     restore: () => {
       ;(global as { fetch: typeof fetch }).fetch = original
-    }
+    },
   }
 }
 
@@ -54,7 +54,7 @@ describe('teamPulse loadTeamPulse', () => {
     const grid: TeamPulseResponse = {
       bucket_size_seconds: 3600,
       bucket_starts: ['2026-05-09T13:00:00Z'],
-      members: []
+      members: [],
     }
     const { calls, restore } = setupFetchSequence([{ body: grid }])
     try {
@@ -64,12 +64,12 @@ describe('teamPulse loadTeamPulse', () => {
         projectId: 'proj-1',
         selfAgentId: 'agent-1',
         bucketSize: 3600,
-        bucketCount: 4
+        bucketCount: 4,
       })
       expect(result).toEqual(grid)
       expect(calls).toHaveLength(1)
       expect(calls[0]?.url).toBe(
-        'https://api.example.com/projects/proj-1/team-pulse?size=3600&buckets=4'
+        'https://api.example.com/projects/proj-1/team-pulse?size=3600&buckets=4',
       )
     } finally {
       restore()
@@ -86,33 +86,30 @@ describe('teamPulse refreshTeamPulse', () => {
         {
           agent_id: 'agent-1',
           display_name: 'Asker',
-          cells: [{ summary: null, event_count: 0 }]
-        }
-      ]
+          cells: [{ summary: null, event_count: 0 }],
+        },
+      ],
     }
     const events: TeamPulseRawEvent[] = [
       {
         id: 'event-1',
         agent_id: 'agent-1',
         bucket_start: '2026-05-09T13:00:00Z',
-        content: 'wired oauth callback to fastapi handler',
-        metadata: {},
-        created_at: '2026-05-09T13:17:00Z'
-      }
+        content: 'Checkpoint 1:\n\nUSER: wired oauth callback to fastapi handler',
+        metadata: { source: 'claude_code_hook' },
+        created_at: '2026-05-09T13:17:00Z',
+      },
     ]
-    const responsibilities: ResponsibilitiesResponse = { members: [] }
-
     const { calls, restore } = setupFetchSequence([
       { body: grid },
       { body: { events } },
-      { body: responsibilities },
+      { body: { events } },
       {
         body: {
           pulse_doc_ids: ['pulse-1'],
           responsibility_doc_ids: ['resp-1'],
-          skipped_responsibility_agent_ids: []
-        }
-      }
+        },
+      },
     ])
 
     try {
@@ -123,7 +120,7 @@ describe('teamPulse refreshTeamPulse', () => {
         selfAgentId: 'agent-1',
         anthropicApiKey: null,
         bucketSize: 3600,
-        bucketCount: 1
+        bucketCount: 1,
       })
       expect(result.pulse_doc_ids).toEqual(['pulse-1'])
 
@@ -138,7 +135,11 @@ describe('teamPulse refreshTeamPulse', () => {
           summary: string
           event_count: number
         }>
-        responsibilities: Array<{ agent_id: string; content: string; word_count: number }>
+        responsibilities: Array<{
+          agent_id: string
+          content: string
+          word_count: number
+        }>
       }
       expect(refreshBody.size).toBe(3600)
       expect(refreshBody.summaries).toHaveLength(1)
@@ -149,6 +150,106 @@ describe('teamPulse refreshTeamPulse', () => {
       expect(refreshBody.responsibilities[0]?.word_count).toBeGreaterThan(0)
     } finally {
       restore()
+    }
+  })
+
+  it('scans each member from their last checkpoint and rebuilds the open bucket', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-09T15:30:00Z'))
+
+    const grid: TeamPulseResponse = {
+      bucket_size_seconds: 3600,
+      bucket_starts: ['2026-05-09T13:00:00Z', '2026-05-09T14:00:00Z', '2026-05-09T15:00:00Z'],
+      members: [
+        {
+          agent_id: 'agent-1',
+          display_name: 'Asker',
+          cells: [
+            { summary: 'handled auth', event_count: 1 },
+            { summary: 'wired callbacks', event_count: 1 },
+            { summary: null, event_count: 0 },
+          ],
+        },
+        {
+          agent_id: 'agent-2',
+          display_name: 'Teammate',
+          cells: [
+            { summary: null, event_count: 0 },
+            { summary: 'reviewed deployment', event_count: 1 },
+            { summary: 'existing bucket checkpoint', event_count: 1 },
+          ],
+        },
+      ],
+    }
+    const events: TeamPulseRawEvent[] = [
+      {
+        id: 'ignored-old-event',
+        agent_id: 'agent-1',
+        bucket_start: '2026-05-09T14:00:00Z',
+        content: 'Checkpoint 2:\n\nUSER: old prompt that is already scanned',
+        metadata: { source: 'claude_code_hook' },
+        created_at: '2026-05-09T14:10:00Z',
+      },
+      {
+        id: 'event-1',
+        agent_id: 'agent-1',
+        bucket_start: '2026-05-09T15:00:00Z',
+        content: 'Checkpoint 3:\n\nUSER: implemented hourly checkpoints',
+        metadata: { source: 'claude_code_hook' },
+        created_at: '2026-05-09T15:08:00Z',
+      },
+      {
+        id: 'event-2',
+        agent_id: 'agent-2',
+        bucket_start: '2026-05-09T15:00:00Z',
+        content: 'Checkpoint 4:\n\nUSER: debugged refresh routing',
+        metadata: { source: 'claude_code_hook' },
+        created_at: '2026-05-09T15:12:00Z',
+      },
+    ]
+    const { calls, restore } = setupFetchSequence([
+      { body: grid },
+      { body: { events } },
+      { body: { events: [events[1]] } },
+      {
+        body: {
+          pulse_doc_ids: ['pulse-1', 'pulse-2'],
+          responsibility_doc_ids: ['resp-1'],
+        },
+      },
+    ])
+
+    try {
+      await refreshTeamPulse({
+        serverBaseUrl: 'https://api.example.com',
+        sessionToken: 'tok',
+        projectId: 'proj-1',
+        selfAgentId: 'agent-1',
+        anthropicApiKey: null,
+        bucketSize: 3600,
+        bucketCount: 3,
+      })
+
+      const refreshBody = calls[3]?.body as {
+        summaries: Array<{
+          agent_id: string
+          bucket_start: string
+          summary: string
+          event_ids: string[]
+        }>
+      }
+      expect(refreshBody.summaries).toHaveLength(2)
+      expect(refreshBody.summaries.map((summary) => summary.agent_id)).toEqual([
+        'agent-1',
+        'agent-2',
+      ])
+      expect(refreshBody.summaries[0]?.bucket_start).toBe('2026-05-09T15:00:00Z')
+      expect(refreshBody.summaries[0]?.event_ids).toEqual(['event-1'])
+      expect(refreshBody.summaries[1]?.summary).toContain('existing bucket checkpoint')
+      expect(refreshBody.summaries[1]?.event_ids).toEqual(['event-2'])
+    } finally {
+      restore()
+      vi.useRealTimers()
     }
   })
 
@@ -163,19 +264,17 @@ describe('teamPulse refreshTeamPulse', () => {
         {
           agent_id: 'agent-1',
           display_name: 'Asker',
-          cells: [{ summary: 'already cached', event_count: 1 }]
-        }
-      ]
+          cells: [{ summary: 'already cached', event_count: 1 }],
+        },
+      ],
     }
-    const responsibilities: ResponsibilitiesResponse = { members: [] }
-
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-05-09T13:30:00Z'))
 
     const { calls, restore } = setupFetchSequence([
       { body: grid },
       { body: { events: [] } },
-      { body: responsibilities }
+      { body: { events: [] } },
     ])
     try {
       const result = await refreshTeamPulse({
@@ -185,9 +284,9 @@ describe('teamPulse refreshTeamPulse', () => {
         selfAgentId: 'agent-1',
         anthropicApiKey: null,
         bucketSize: 3600,
-        bucketCount: 1
+        bucketCount: 1,
       })
-      // exactly 3 calls: GET grid, GET raw-events, GET responsibilities. No POST.
+      // exactly 3 calls: GET grid, GET timeline raw-events, GET responsibility raw-events. No POST.
       expect(calls).toHaveLength(3)
       expect(result.pulse_doc_ids).toEqual([])
       expect(result.responsibility_doc_ids).toEqual([])
@@ -207,16 +306,16 @@ describe('teamPulse loadResponsibilities', () => {
           display_name: 'Asker',
           content: 'doc body',
           updated_at: '2026-05-09T13:00:00Z',
-          word_count: 3
-        }
-      ]
+          word_count: 3,
+        },
+      ],
     }
     const { calls, restore } = setupFetchSequence([{ body: responsibilities }])
     try {
       const result = await loadResponsibilities({
         serverBaseUrl: 'https://api.example.com',
         sessionToken: 'tok',
-        projectId: 'proj-1'
+        projectId: 'proj-1',
       })
       expect(result).toEqual(responsibilities)
       expect(calls[0]?.url).toBe('https://api.example.com/projects/proj-1/responsibilities')

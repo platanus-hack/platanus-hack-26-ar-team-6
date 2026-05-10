@@ -300,7 +300,6 @@ type TeamPulseResponse = {
 type TeamPulseRefreshResult = {
   pulse_doc_ids: string[]
   responsibility_doc_ids: string[]
-  skipped_responsibility_agent_ids: string[]
 }
 
 type ResponsibilityMember = {
