@@ -6,7 +6,7 @@ VITE_API_BASE_URL="https://platanus-hack-26-ar-team-6-production-75c7.up.railway
 VITE_ENABLE_HEALTHCHECK=true \
 npm run build:linux
 
-VITE_API_BASE_URL="https://platanus-hack-26-ar-team-6-production-690c.up.railway.app" \
+VITE_API_BASE_URL="https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app" \
 VITE_ENABLE_HEALTHCHECK=true \
 ./dist/linux-unpacked/electron-app --ozone-platform=x11 --disable-gpu --no-sandbox
 
