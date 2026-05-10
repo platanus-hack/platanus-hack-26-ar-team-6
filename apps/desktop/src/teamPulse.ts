@@ -383,7 +383,7 @@ export async function refreshTeamPulse(
     previousSummary: string | null;
   };
   const bucketTasks: BucketTask[] = [];
-  for (const member of grid.members) {
+  for (const member of grid.members.filter((m) => m.agent_id === opts.selfAgentId)) {
     let lastScannedIndex: number | null = null;
     member.cells.forEach((cell, index) => {
       if (cell?.summary) lastScannedIndex = index;
