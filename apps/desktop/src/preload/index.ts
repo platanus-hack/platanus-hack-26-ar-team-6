@@ -10,7 +10,6 @@ const api = {
   startGoogleLogin: () => ipcRenderer.invoke('auth:login:start'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   refreshProjects: () => ipcRenderer.invoke('auth:projects:refresh'),
-  ensureRailwaywiseDemo: () => ipcRenderer.invoke('demo:railwaywise:ensure'),
   selectProject: (projectId: string) => ipcRenderer.invoke('project:select', projectId),
   chooseProjectFolder: (projectId: string) => ipcRenderer.invoke('project:folder:choose', projectId),
   clearProjectFolder: (projectId: string) => ipcRenderer.invoke('project:folder:clear', projectId),
