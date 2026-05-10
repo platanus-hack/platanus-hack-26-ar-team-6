@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  loadTeamPulseRawEvents,
   loadResponsibilities,
   loadTeamPulse,
   refreshTeamPulse,
@@ -70,6 +71,47 @@ describe('teamPulse loadTeamPulse', () => {
       expect(calls).toHaveLength(1)
       expect(calls[0]?.url).toBe(
         'https://api.example.com/projects/proj-1/team-pulse?size=3600&buckets=4',
+      )
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe('teamPulse loadTeamPulseRawEvents', () => {
+  it('builds the raw events URL with agent and window filters', async () => {
+    const events: TeamPulseRawEvent[] = [
+      {
+        id: 'event-1',
+        agent_id: 'agent-1',
+        bucket_start: '2026-05-09T13:00:00Z',
+        content: 'Checkpoint 1:\n\nUSER: wired oauth callback',
+        metadata: { source: 'claude_code_hook' },
+        created_at: '2026-05-09T13:17:00Z',
+      },
+    ]
+    const { calls, restore } = setupFetchSequence([{ body: { events } }])
+    try {
+      const result = await loadTeamPulseRawEvents(
+        {
+          serverBaseUrl: 'https://api.example.com/',
+          sessionToken: 'tok',
+          projectId: 'proj-1',
+          selfAgentId: 'agent-1',
+          bucketSize: 3600,
+          bucketCount: 4,
+        },
+        {
+          agentId: 'agent-1',
+          since: '2026-05-09T00:00:00.000Z',
+          until: '2026-05-10T00:00:00.000Z',
+        },
+      )
+
+      expect(result).toEqual(events)
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.url).toBe(
+        'https://api.example.com/projects/proj-1/team-pulse/raw-events?size=3600&buckets=4&agent_id=agent-1&since=2026-05-09T00%3A00%3A00.000Z&until=2026-05-10T00%3A00%3A00.000Z',
       )
     } finally {
       restore()

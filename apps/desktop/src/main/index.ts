@@ -27,8 +27,10 @@ import { saveActivityNote, readActivityNotes, type ActivityToolEntry, type Activ
 import {
   loadResponsibilities as loadResponsibilitiesClient,
   loadTeamPulse as loadTeamPulseClient,
+  loadTeamPulseRawEvents as loadTeamPulseRawEventsClient,
   refreshTeamPulse as refreshTeamPulseClient,
   type ResponsibilitiesResponse,
+  type TeamPulseRawEvent,
   type TeamPulseRefreshResult,
   type TeamPulseResponse
 } from '../teamPulse.js'
@@ -585,6 +587,43 @@ app.whenReady().then(() => {
         bucketSize: opts?.bucketSize,
         bucketCount: opts?.bucketCount
       })
+    }
+  )
+
+  ipcMain.handle(
+    'team-pulse:raw-events',
+    async (
+      _,
+      opts?: {
+        agentId?: string
+        since?: string
+        until?: string
+        bucketSize?: number
+        bucketCount?: number
+      }
+    ): Promise<TeamPulseRawEvent[]> => {
+      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+      const bootstrap = await fetchJson<BootstrapResponse>(
+        new URL(`/bootstrap?project_id=${selectedProjectId}`, serverBaseUrl).toString(),
+        { headers: { Authorization: `Bearer ${sessionToken}` } }
+      )
+      return loadTeamPulseRawEventsClient(
+        {
+          serverBaseUrl,
+          sessionToken,
+          projectId: selectedProjectId,
+          selfAgentId: bootstrap.user.id,
+          bucketSize: opts?.bucketSize,
+          bucketCount: opts?.bucketCount
+        },
+        {
+          agentId: opts?.agentId,
+          since: opts?.since,
+          until: opts?.until,
+          bucketSize: opts?.bucketSize,
+          bucketCount: opts?.bucketCount
+        }
+      )
     }
   )
 

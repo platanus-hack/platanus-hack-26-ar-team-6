@@ -2121,6 +2121,15 @@ button {
   letter-spacing: 0.02em;
 }
 
+.pulse__detail-status {
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.pulse__detail-status--error {
+  color: var(--text-primary);
+}
+
 .pulse__detail-close {
   margin-left: auto;
   background: transparent;
@@ -2142,6 +2151,60 @@ button {
   color: var(--text-primary);
 }
 
+.pulse__detail-navigator {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: stretch;
+  gap: 10px;
+  max-width: 86ch;
+}
+
+.pulse__detail-arrow {
+  width: 34px;
+  min-height: 72px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+
+.pulse__detail-arrow:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--text-secondary);
+}
+
+.pulse__detail-arrow:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.pulse__detail-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pulse__detail-checkpoint-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.03em;
+  font-feature-settings: "tnum" 1;
+}
+
+.pulse__detail-checkpoint-meta span:first-child {
+  color: var(--text-primary);
+}
+
 .pulse__detail-summary {
   margin: 0;
   font-size: 14px;
@@ -2150,6 +2213,11 @@ button {
   max-width: 70ch;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.pulse__detail-summary--checkpoint {
+  max-width: none;
+  white-space: pre-wrap;
 }
 
 .pulse__detail-updated {

@@ -53,6 +53,14 @@ export type TeamPulseRawEvent = {
 
 type RawEventsResponse = { events: TeamPulseRawEvent[] };
 
+export type TeamPulseRawEventsQuery = {
+  agentId?: string;
+  since?: string;
+  until?: string;
+  bucketSize?: number;
+  bucketCount?: number;
+};
+
 export type ResponsibilityMember = {
   agent_id: string;
   display_name: string;
@@ -338,6 +346,21 @@ async function loadRawEvents(
     headers: { Authorization: `Bearer ${opts.sessionToken}` },
   });
   return response.events;
+}
+
+export async function loadTeamPulseRawEvents(
+  opts: TeamPulseClientOptions,
+  query: TeamPulseRawEventsQuery = {},
+): Promise<TeamPulseRawEvent[]> {
+  const params: Record<string, string> = {};
+  const bucketSize = query.bucketSize ?? opts.bucketSize;
+  const bucketCount = query.bucketCount ?? opts.bucketCount;
+  if (bucketSize) params.size = String(bucketSize);
+  if (bucketCount) params.buckets = String(bucketCount);
+  if (query.agentId) params.agent_id = query.agentId;
+  if (query.since) params.since = query.since;
+  if (query.until) params.until = query.until;
+  return loadRawEvents(opts, params);
 }
 
 export async function refreshTeamPulse(
