@@ -294,9 +294,9 @@ function SuggestionCard({
   return (
     <div className="suggestion-card">
       <div className="suggestion-card__header">
+        <p className="suggestion-card__title">{suggestion.title}</p>
         <PriorityBadge priority={suggestion.priority} />
       </div>
-      <p className="suggestion-card__title">{suggestion.title}</p>
       {suggestion.context && (
         <p className="suggestion-card__context">{suggestion.context}</p>
       )}
