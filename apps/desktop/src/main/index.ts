@@ -32,6 +32,10 @@ import {
   type TeamPulseRefreshResult,
   type TeamPulseResponse
 } from '../teamPulse.js'
+import {
+  loadProjectGraph as loadProjectGraphClient,
+  type ProjectGraphResponse
+} from '../projectGraph.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-copy-production.up.railway.app'
@@ -609,6 +613,25 @@ app.whenReady().then(() => {
     const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
     return loadResponsibilitiesClient({ serverBaseUrl, sessionToken, projectId: selectedProjectId })
   })
+
+  ipcMain.handle(
+    'graph:load',
+    async (
+      _,
+      opts?: { includeLocal?: boolean; maxDocs?: number; maxEvents?: number; maxExchanges?: number }
+    ): Promise<ProjectGraphResponse> => {
+      const { serverBaseUrl, sessionToken, selectedProjectId } = await getSessionContext()
+      return loadProjectGraphClient({
+        serverBaseUrl,
+        sessionToken,
+        projectId: selectedProjectId,
+        includeLocal: opts?.includeLocal,
+        maxDocs: opts?.maxDocs,
+        maxEvents: opts?.maxEvents,
+        maxExchanges: opts?.maxExchanges
+      })
+    }
+  )
 
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
     const senderId = event.sender.id
