@@ -227,6 +227,7 @@ interface DesktopApi {
   startGoogleLogin: () => Promise<DesktopSettingsResponse>
   logout: () => Promise<DesktopSettingsResponse>
   refreshProjects: () => Promise<DesktopSettingsResponse>
+  ensureRailwaywiseDemo: () => Promise<DesktopSettingsResponse>
   selectProject: (projectId: string) => Promise<DesktopSettingsResponse>
   chooseProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>
   clearProjectFolder: (projectId: string) => Promise<DesktopSettingsResponse>

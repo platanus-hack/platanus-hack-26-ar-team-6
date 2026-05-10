@@ -39,6 +39,7 @@ import {
   type ProjectGraphResponse
 } from '../projectGraph.js'
 import { commitMemoryUpdate } from '../memoryTools.js'
+import { resolveRailwaywiseProjectId } from '../demoRailwaywise.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
@@ -318,6 +319,21 @@ async function refreshProjectsFromServer(): Promise<DesktopSettingsResponse> {
   return saveRelevoAuthState(state, DEFAULT_API_BASE_URL)
 }
 
+async function ensureRailwaywiseDemo(): Promise<DesktopSettingsResponse> {
+  const { serverBaseUrl, sessionToken } = await getSessionContext(false)
+  const demoUrl = new URL('/demo/railwaywise', serverBaseUrl)
+  const demoResponse = await fetchJson<unknown>(demoUrl.toString(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+      'Content-Type': 'application/json'
+    }
+  })
+  const refreshedSettings = await refreshProjectsFromServer()
+  const projectId = resolveRailwaywiseProjectId(demoResponse, refreshedSettings.projects)
+  return saveSelectedProjectId(projectId, DEFAULT_API_BASE_URL)
+}
+
 function createWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     focusMainWindow()
@@ -439,6 +455,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle('auth:projects:refresh', async (): Promise<DesktopSettingsResponse> => {
     const settings = await refreshProjectsFromServer()
+    notifyAuthEvent({ type: 'projects:updated', settings })
+    return settings
+  })
+
+  ipcMain.handle('demo:railwaywise:ensure', async (): Promise<DesktopSettingsResponse> => {
+    const settings = await ensureRailwaywiseDemo()
     notifyAuthEvent({ type: 'projects:updated', settings })
     return settings
   })

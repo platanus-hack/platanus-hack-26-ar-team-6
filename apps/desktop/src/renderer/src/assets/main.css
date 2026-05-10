@@ -630,6 +630,13 @@ button {
   gap: 8px;
 }
 
+.project-demo-action {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-soft);
+}
+
 .project-list {
   display: flex;
   flex-direction: column;
