@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 type ResponsibilitiesResponse = Awaited<ReturnType<typeof window.api.loadResponsibilities>>
 type ResponsibilityMember = ResponsibilitiesResponse['members'][number]
+type DesktopProject = Awaited<ReturnType<typeof window.api.getSettings>>['projects'][number]
 
 const USER_COLORS = ['#2f80ed', '#c94840', '#2e8b57', '#c07c21', '#7d4bc2', '#008f8c']
 
@@ -84,12 +85,26 @@ function renderMarkdown(content: string): React.JSX.Element[] {
   return out
 }
 
-function ResponsibilitiesView(): React.JSX.Element {
+function ResponsibilitiesView({
+  project,
+  onMemberAdded
+}: {
+  project: DesktopProject
+  onMemberAdded: () => Promise<void>
+}): React.JSX.Element {
   const [data, setData] = useState<ResponsibilitiesResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [domainSummary, setDomainSummary] = useState('')
+  const [memberStatus, setMemberStatus] = useState<string | null>(null)
+  const [isAddingMember, setIsAddingMember] = useState(false)
+
+  function toErrorMessage(value: unknown): string {
+    return value instanceof Error ? value.message : String(value)
+  }
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -126,6 +141,34 @@ function ResponsibilitiesView(): React.JSX.Element {
     void load()
   }, [load])
 
+  async function handleAddMember(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    if (project.role !== 'leader') return
+    if (!email.trim() || !domainSummary.trim()) {
+      setMemberStatus('Enter an email and role summary')
+      return
+    }
+
+    setIsAddingMember(true)
+    setMemberStatus(null)
+    try {
+      await window.api.addProjectMember({
+        projectId: project.project_id,
+        email,
+        domainSummary
+      })
+      setEmail('')
+      setDomainSummary('')
+      setMemberStatus('Member added')
+      await onMemberAdded()
+      await load()
+    } catch (err) {
+      setMemberStatus(`Add member failed: ${toErrorMessage(err)}`)
+    } finally {
+      setIsAddingMember(false)
+    }
+  }
+
   const activeMember: ResponsibilityMember | null = useMemo(() => {
     if (!data || !activeAgentId) return null
     return data.members.find((m) => m.agent_id === activeAgentId) ?? null
@@ -150,14 +193,6 @@ function ResponsibilitiesView(): React.JSX.Element {
     )
   }
 
-  if (!data || data.members.length === 0) {
-    return (
-      <section className="content-panel">
-        <p className="chat-empty">no project members yet</p>
-      </section>
-    )
-  }
-
   return (
     <section className="content-panel responsibilities">
       <header className="responsibilities__header">
@@ -177,60 +212,93 @@ function ResponsibilitiesView(): React.JSX.Element {
         </button>
       </header>
 
+      {project.role === 'leader' && (
+        <form className="responsibilities__member-form" onSubmit={handleAddMember}>
+          <span className="responsibilities__member-title">Add member</span>
+          <input
+            className="responsibilities__member-input"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="email"
+          />
+          <input
+            className="responsibilities__member-input"
+            value={domainSummary}
+            onChange={(event) => setDomainSummary(event.target.value)}
+            placeholder="role summary"
+          />
+          <button
+            className="settings-form__button responsibilities__member-button"
+            type="submit"
+            disabled={isAddingMember}
+          >
+            {isAddingMember ? 'adding...' : 'add'}
+          </button>
+          {memberStatus && <span className="responsibilities__member-status">{memberStatus}</span>}
+        </form>
+      )}
+
       {error && <div className="content-status">{error}</div>}
 
-      <div className="responsibilities__layout">
-        <nav className="responsibilities__sidebar">
-          {data.members.map((member) => {
-            const isActive = member.agent_id === activeAgentId
-            const color = userColor(member.display_name || member.agent_id)
-            return (
-              <button
-                type="button"
-                key={member.agent_id}
-                className={`responsibilities__sidebar-item${isActive ? ' responsibilities__sidebar-item--active' : ''}`}
-                onClick={() => setActiveAgentId(member.agent_id)}
-              >
-                <span className="responsibilities__sidebar-dot" style={{ background: color }} />
-                <span className="responsibilities__sidebar-name">{member.display_name}</span>
-                {member.content ? (
-                  <span className="responsibilities__sidebar-words">
-                    {member.word_count ? `${member.word_count}w` : 'doc'}
-                  </span>
-                ) : (
-                  <span className="responsibilities__sidebar-empty">empty</span>
-                )}
-              </button>
-            )
-          })}
-        </nav>
+      {!data || data.members.length === 0 ? (
+        <div className="responsibilities__panel">
+          <p className="chat-empty">no project members yet</p>
+        </div>
+      ) : (
+        <div className="responsibilities__layout">
+          <nav className="responsibilities__sidebar">
+            {data.members.map((member) => {
+              const isActive = member.agent_id === activeAgentId
+              const color = userColor(member.display_name || member.agent_id)
+              return (
+                <button
+                  type="button"
+                  key={member.agent_id}
+                  className={`responsibilities__sidebar-item${isActive ? ' responsibilities__sidebar-item--active' : ''}`}
+                  onClick={() => setActiveAgentId(member.agent_id)}
+                >
+                  <span className="responsibilities__sidebar-dot" style={{ background: color }} />
+                  <span className="responsibilities__sidebar-name">{member.display_name}</span>
+                  {member.content ? (
+                    <span className="responsibilities__sidebar-words">
+                      {member.word_count ? `${member.word_count}w` : 'doc'}
+                    </span>
+                  ) : (
+                    <span className="responsibilities__sidebar-empty">empty</span>
+                  )}
+                </button>
+              )
+            })}
+          </nav>
 
-        <article className="responsibilities__panel">
-          {activeMember ? (
-            activeMember.content ? (
-              <>
-                <header className="responsibilities__panel-header">
-                  <h3>{activeMember.display_name}</h3>
-                  <p className="responsibilities__panel-meta">
-                    {formatUpdated(activeMember.updated_at)}
-                    {activeMember.word_count != null && ` · ${activeMember.word_count} words`}
-                  </p>
-                </header>
-                <div className="responsibilities__panel-body">
-                  {renderMarkdown(activeMember.content)}
-                </div>
-              </>
+          <article className="responsibilities__panel">
+            {activeMember ? (
+              activeMember.content ? (
+                <>
+                  <header className="responsibilities__panel-header">
+                    <h3>{activeMember.display_name}</h3>
+                    <p className="responsibilities__panel-meta">
+                      {formatUpdated(activeMember.updated_at)}
+                      {activeMember.word_count != null && ` · ${activeMember.word_count} words`}
+                    </p>
+                  </header>
+                  <div className="responsibilities__panel-body">
+                    {renderMarkdown(activeMember.content)}
+                  </div>
+                </>
+              ) : (
+                <p className="chat-empty">
+                  {activeMember.display_name} has no responsibility doc yet. they need to open the
+                  app and refresh to generate one.
+                </p>
+              )
             ) : (
-              <p className="chat-empty">
-                {activeMember.display_name} has no responsibility doc yet. they need to open the
-                app and refresh to generate one.
-              </p>
-            )
-          ) : (
-            <p className="chat-empty">select a member</p>
-          )}
-        </article>
-      </div>
+              <p className="chat-empty">select a member</p>
+            )}
+          </article>
+        </div>
+      )}
     </section>
   )
 }

@@ -1,8 +1,8 @@
-import { Activity, LayoutGrid, MessageSquare, SquareCheck, Users } from 'lucide-react'
+import { Activity, MessageSquare, SquareCheck, Users } from 'lucide-react'
 import type { LucideProps } from 'lucide-react'
 import type { ComponentType } from 'react'
 
-type TabKey = 'chat' | 'pool' | 'timeline' | 'responsibilities' | 'tasks'
+type TabKey = 'chat' | 'timeline' | 'responsibilities' | 'tasks'
 
 type TabsProps = {
   activeTab: TabKey
@@ -13,7 +13,6 @@ const TAB_ICON_SIZE = 15
 
 const TAB_DEFS: Array<{ key: TabKey; label: string; Icon: ComponentType<LucideProps> }> = [
   { key: 'chat', label: 'chat', Icon: MessageSquare },
-  { key: 'pool', label: 'pool', Icon: LayoutGrid },
   { key: 'timeline', label: 'timeline', Icon: Activity },
   { key: 'responsibilities', label: 'team', Icon: Users },
   { key: 'tasks', label: 'tasks', Icon: SquareCheck }

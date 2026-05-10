@@ -676,53 +676,36 @@ button {
 }
 
 .project-list__actions {
-  display: grid;
-  grid-template-columns: 60px 128px 80px;
-  column-gap: 4px;
+  display: flex;
   align-items: center;
+  gap: 8px;
   flex-shrink: 0;
-}
-
-.project-list__folder-button {
-  border: 0;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  min-width: 128px;
-  padding: 14px 16px;
-  text-align: center;
-  white-space: nowrap;
-  font-size: 12px;
-}
-
-.project-list__folder-button:hover {
-  text-decoration: underline;
-}
-
-.project-list__folder-button:disabled {
-  color: var(--text-secondary);
-  cursor: default;
+  padding-right: 16px;
 }
 
 .project-list__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: #8a1f1f;
+  color: #b91c1c;
   cursor: pointer;
-  min-width: 80px;
-  padding: 14px 16px;
-  text-align: left;
-  white-space: nowrap;
-  font-size: 12px;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .project-list__delete:hover {
-  text-decoration: underline;
+  background: rgba(185, 28, 28, 0.08);
+  color: #991b1b;
 }
 
 .project-list__delete:disabled {
-  color: #777777;
-  cursor: default;
+  color: #999999;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .project-empty {
@@ -802,10 +785,6 @@ button {
 
 .citation-chip--personal {
   background: var(--tier-personal);
-}
-
-.citation-chip--pool {
-  background: var(--tier-pool);
 }
 
 .citation-chip--timeline {
@@ -1716,7 +1695,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1736,8 +1715,10 @@ button {
 .pulse__axis-track {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(var(--cols), minmax(28px, 1fr));
-  height: 44px;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 12px;
+  height: 40px;
 }
 
 .pulse__axis-tick {
@@ -1755,6 +1736,7 @@ button {
   letter-spacing: 0.02em;
   color: var(--text-secondary);
   font-feature-settings: "tnum" 1;
+  white-space: nowrap;
 }
 
 .pulse__axis-tick--now .pulse__axis-time {
@@ -1781,6 +1763,20 @@ button {
   padding: 1px 6px 1px 0;
 }
 
+.pulse__axis-day--wide {
+  align-self: center;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.04em;
+}
+
+.pulse__axis-day--wide span {
+  padding: 0;
+  background: transparent;
+}
+
 .pulse__lanes {
   flex: 1;
   overflow-y: auto;
@@ -1801,7 +1797,7 @@ button {
   animation-delay: var(--lane-delay, 0ms);
 }
 
-.pulse__lane:last-child { border-bottom: 0; }
+.pulse__lane:last-child { border-bottom: 1px solid var(--border-soft); }
 
 .pulse__lane:hover {
   background: var(--surface-subtle);
@@ -1887,19 +1883,30 @@ button {
   padding: 10px 0;
 }
 
+.pulse__track--week {
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
 .pulse__cell {
   position: relative;
   border: 0;
   background: transparent;
   padding: 0;
-  margin: 0 1px;
-  border-radius: 4px;
+  margin: 0;
+  border-radius: 6px;
   cursor: pointer;
   transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
-  overflow: visible;
+  overflow: hidden;
   display: flex;
   align-items: stretch;
   font: inherit;
+}
+
+.pulse__cell--day {
+  min-height: 44px;
 }
 
 .pulse__cell--day-start {
@@ -1909,12 +1916,17 @@ button {
 
 .pulse__cell-fill {
   flex: 1;
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--text-primary);
   opacity: var(--intensity, 0);
   transition: opacity 200ms ease, transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: bottom;
   transform: scaleY(calc(0.4 + var(--intensity, 0) * 0.6));
+}
+
+.pulse__cell--day .pulse__cell-fill {
+  opacity: calc(0.18 + var(--global-intensity, 0) * 0.82);
+  transform: none;
 }
 
 .pulse__cell--empty { cursor: default; }
@@ -1925,9 +1937,20 @@ button {
   transform: scaleY(0.12);
 }
 
+.pulse__cell--day.pulse__cell--empty .pulse__cell-fill {
+  opacity: 1;
+  background: var(--surface-muted);
+  transform: none;
+}
+
 .pulse__cell:not(.pulse__cell--empty):hover .pulse__cell-fill {
   opacity: 1;
   transform: scaleY(1);
+}
+
+.pulse__cell--day:not(.pulse__cell--empty):hover .pulse__cell-fill {
+  opacity: 1;
+  transform: none;
 }
 
 .pulse__cell--selected .pulse__cell-fill {
@@ -1936,10 +1959,15 @@ button {
   box-shadow: inset 0 0 0 2px var(--text-primary);
 }
 
+.pulse__cell--day.pulse__cell--selected .pulse__cell-fill {
+  transform: none;
+}
+
 .pulse__cell-count {
   position: absolute;
-  top: -6px;
-  right: -2px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   font-size: 9px;
   font-weight: 500;
   color: var(--text-primary);
@@ -1948,14 +1976,8 @@ button {
   border-radius: 999px;
   border: 1px solid var(--border);
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 160ms ease;
   font-feature-settings: "tnum" 1;
-}
-
-.pulse__cell:hover .pulse__cell-count,
-.pulse__cell--selected .pulse__cell-count {
-  opacity: 1;
+  white-space: nowrap;
 }
 
 .pulse__tooltip {
@@ -1965,8 +1987,9 @@ button {
   color: var(--text-inverse);
   padding: 8px 10px 9px;
   border-radius: 8px;
-  max-width: 280px;
-  min-width: 160px;
+  max-width: min(280px, 90%);
+  min-width: 140px;
+  width: max-content;
   z-index: 20;
   pointer-events: none;
   display: flex;
@@ -1995,7 +2018,6 @@ button {
 .pulse__tooltip-time {
   font-size: 10px;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
   opacity: 0.7;
   font-feature-settings: "tnum" 1;
 }
@@ -2003,6 +2025,10 @@ button {
 .pulse__tooltip-summary {
   font-size: 12px;
   line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .pulse__tooltip-meta {
@@ -2017,7 +2043,8 @@ button {
   overflow: hidden;
   border-top: 1px solid var(--border-soft);
   background: var(--surface-subtle);
-  padding: 14px 20px 16px 200px;
+  padding: 14px 20px 16px;
+  padding-left: calc(200px + 14px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2032,10 +2059,10 @@ button {
 .pulse__detail-meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   font-size: 11px;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--text-secondary);
   font-feature-settings: "tnum" 1;
 }
@@ -2077,6 +2104,8 @@ button {
   line-height: 1.5;
   color: var(--text-primary);
   max-width: 70ch;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .pulse__detail-updated {
@@ -2226,6 +2255,42 @@ button {
   overflow: hidden;
 }
 
+.responsibilities__member-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.responsibilities__member-title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.responsibilities__member-input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-surface);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.responsibilities__member-button {
+  flex: 0 0 auto;
+}
+
+.responsibilities__member-status {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .responsibilities__sidebar {
   display: flex;
   flex-direction: column;
@@ -2338,4 +2403,68 @@ button {
 
 .responsibilities__list li {
   margin-bottom: 4px;
+}
+
+/* ----- Tasks tab ----- */
+
+.tasks-view {
+  padding: 24px 28px;
+}
+
+.tasks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.task-card:hover {
+  border-color: color-mix(in oklab, var(--text-primary) 20%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.task-card__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.task-card--done .task-card__status {
+  color: #16a34a;
+}
+
+.task-card--progress .task-card__status {
+  color: #ca8a04;
+}
+
+.task-card--open .task-card__status {
+  color: var(--text-secondary);
+}
+
+.task-card__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.task-card__authors {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
