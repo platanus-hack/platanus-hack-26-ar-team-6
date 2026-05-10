@@ -35,7 +35,7 @@ Also check the new global retriever endpoint:
 
 ```bash
 curl -X POST https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/global-ctx \
-  -H "Authorization: Bearer dev-token-user1" \
+  -H "Authorization: Bearer <account-session-token>" \
   -H "Content-Type: application/json" \
   -d '{"query":"shared architecture"}'
 ```
@@ -123,7 +123,7 @@ Then:
 
 ```bash
 curl -X POST https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/global-ctx \
-  -H "Authorization: Bearer dev-token-user1" \
+  -H "Authorization: Bearer <account-session-token>" \
   -H "Content-Type: application/json" \
   -d '{"query":"shared architecture"}'
 ```
@@ -133,20 +133,19 @@ Then targeted retrieval. Replace `TARGET_AGENT_ID` with User2's UUID from
 
 ```bash
 curl -X POST https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app/agent-ctx \
-  -H "Authorization: Bearer dev-token-user1" \
+  -H "Authorization: Bearer <account-session-token>" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"TARGET_AGENT_ID","query":"How is the server deployed?"}'
 ```
 
-Finally, run the smoke scripts from a machine that can reach the deployed DB and
-server:
+The smoke scripts are for the local seeded demo only. Start the local server
+with `ALLOW_LEGACY_AUTH_TOKENS=1` before running them; do not point them at the
+public deployment with seed tokens:
 
 ```bash
-SERVER_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app \
-  uv run python apps/server/scripts/smoke_closure.py
+SERVER_URL=http://localhost:8000 uv run python apps/server/scripts/smoke_closure.py
 
-SERVER_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app \
-  uv run python apps/server/scripts/smoke_project_context.py
+SERVER_URL=http://localhost:8000 uv run python apps/server/scripts/smoke_project_context.py
 ```
 
 ## Desktop Configuration
@@ -156,7 +155,6 @@ The desktop app should point at the deployed server:
 ```env
 VITE_API_BASE_URL=https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app
 VITE_ENABLE_HEALTHCHECK=true
-VITE_AUTH_TOKEN=dev-token-user1
 VITE_LOCAL_REPO_PATH=/absolute/path/to/your/repo
 ```
 

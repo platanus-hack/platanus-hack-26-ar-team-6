@@ -22,7 +22,6 @@ const api = {
   getBootstrap: () => ipcRenderer.invoke('bootstrap:load'),
   startAssistantRun: (payload: {
     prompt: string
-    cwd?: string
     bootstrap: unknown
     userId: string
     chatSessionId?: string

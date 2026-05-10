@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import urllib.parse
 import urllib.request
@@ -37,6 +38,8 @@ from relevo.db import (
 )
 
 router = APIRouter()
+
+TRUE_VALUES = {"1", "true", "yes", "y", "on"}
 
 
 class AccountOut(BaseModel):
@@ -100,6 +103,11 @@ def _extract_token(
     return x_user_token or x_auth_token
 
 
+def _legacy_auth_tokens_enabled() -> bool:
+    raw = os.environ.get("ALLOW_LEGACY_AUTH_TOKENS", "")
+    return raw.strip().lower() in TRUE_VALUES
+
+
 def _account_out(account: dict[str, Any]) -> AccountOut:
     return AccountOut(
         id=account["id"],
@@ -133,18 +141,22 @@ def require_auth(
             detail="Missing bearer token",
         )
 
+    allow_legacy_tokens = _legacy_auth_tokens_enabled()
+
     if token.startswith(SESSION_TOKEN_PREFIX):
         account = get_account_by_session_token(conn, token)
         if account is not None:
             return {"kind": "session", "account": account, "token": token}
 
-        user = get_user_by_token(conn, token)
-        if user is not None:
-            return {"kind": "legacy", "user": user, "token": token}
+        if allow_legacy_tokens:
+            user = get_user_by_token(conn, token)
+            if user is not None:
+                return {"kind": "legacy", "user": user, "token": token}
     else:
-        user = get_user_by_token(conn, token)
-        if user is not None:
-            return {"kind": "legacy", "user": user, "token": token}
+        if allow_legacy_tokens:
+            user = get_user_by_token(conn, token)
+            if user is not None:
+                return {"kind": "legacy", "user": user, "token": token}
 
         account = get_account_by_session_token(conn, token)
         if account is not None:

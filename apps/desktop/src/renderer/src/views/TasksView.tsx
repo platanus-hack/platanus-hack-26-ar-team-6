@@ -476,7 +476,6 @@ function TasksView({
     try {
       await window.api.startAssistantRun({
         prompt: buildPrompt(targetDisplayName, projectName, targetDomain),
-        cwd: projectFolderPath ?? undefined,
         bootstrap,
         userId,
         maxTurns: 4,

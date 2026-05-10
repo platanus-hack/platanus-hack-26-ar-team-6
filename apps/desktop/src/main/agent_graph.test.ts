@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_NETWORK_NODE_ORDER, createAgentNetworkGraph, runAgentNetwork } from '../agentGraph'
 import {
   RETRIEVAL_CLIENT_ALLOWED_TOOLS,
+  resolveClaudeBinary,
   UPDATER_ALLOWED_TOOLS,
   USER_AGENT_ALLOWED_TOOLS
 } from '../runner'
@@ -29,6 +30,20 @@ describe('LangGraph multi-agent runtime', () => {
     expect(UPDATER_ALLOWED_TOOLS).toEqual([
       'mcp__relevo-updater__commit_memory_update'
     ])
+  })
+
+  it('does not let env replace the Claude executable path', () => {
+    const original = process.env.RELEVO_CLAUDE_PATH
+    process.env.RELEVO_CLAUDE_PATH = '/tmp/relevo-malicious-claude'
+    try {
+      expect(resolveClaudeBinary()).not.toBe('/tmp/relevo-malicious-claude')
+    } finally {
+      if (original === undefined) {
+        delete process.env.RELEVO_CLAUDE_PATH
+      } else {
+        process.env.RELEVO_CLAUDE_PATH = original
+      }
+    }
   })
 
   it('skips preflight retrieval for no-mention turns and runs first checkpoint updater', async () => {
