@@ -2,7 +2,7 @@
 
 **Current project logo:** project-logo.png
 
-<img src="./project-logo.png" alt="Project Logo" width="200" />
+<img src="./apps/desktop/src/renderer/src/components/logo/Group 47.png" alt="Project Logo" width="200" />
 
 Track: 🛸 Future
 
