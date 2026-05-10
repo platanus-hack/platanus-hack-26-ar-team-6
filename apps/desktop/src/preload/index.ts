@@ -8,6 +8,7 @@ const api = {
   saveAnthropicApiKey: (apiKey: string) => ipcRenderer.invoke('settings:anthropic-key:save', apiKey),
   clearAnthropicApiKey: () => ipcRenderer.invoke('settings:anthropic-key:clear'),
   startGoogleLogin: () => ipcRenderer.invoke('auth:login:start'),
+  demoLogin: (payload: { email: string; password: string }) => ipcRenderer.invoke('auth:demo-login', payload),
   logout: () => ipcRenderer.invoke('auth:logout'),
   refreshProjects: () => ipcRenderer.invoke('auth:projects:refresh'),
   selectProject: (projectId: string) => ipcRenderer.invoke('project:select', projectId),

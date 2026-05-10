@@ -40,9 +40,12 @@ function LoginScreen({
 }): React.JSX.Element {
   const [status, setStatus] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [demoEmail, setDemoEmail] = useState('sbarronbucolo@udesa.edu.ar')
+  const [demoPassword, setDemoPassword] = useState('123')
+  const [isDemoSubmitting, setIsDemoSubmitting] = useState(false)
   const displayStatus = authMessage ?? status
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+  async function handleGoogleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     setIsSubmitting(true)
     setStatus(null)
@@ -58,18 +61,62 @@ function LoginScreen({
     }
   }
 
+  async function handleDemoSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    setIsDemoSubmitting(true)
+    setStatus(null)
+
+    try {
+      const nextSettings = await window.api.demoLogin({
+        email: demoEmail.trim(),
+        password: demoPassword
+      })
+      onSettingsChange(nextSettings)
+      setStatus('Demo login complete')
+    } catch (error) {
+      setStatus(`Demo login failed: ${toErrorMessage(error)}`)
+    } finally {
+      setIsDemoSubmitting(false)
+    }
+  }
+
   return (
     <main className="auth-page">
       <section className="auth-panel">
         <img className="auth-panel__logo" src={loginLogo} alt="" aria-hidden="true" />
         <h1 className="auth-panel__title">omni</h1>
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleGoogleSubmit}>
           <button
             className="settings-form__button settings-form__button--primary auth-form__button--google"
             type="submit"
             disabled={isSubmitting}
           >
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
+          </button>
+        </form>
+        <form className="auth-form auth-form--demo" onSubmit={handleDemoSubmit}>
+          <input
+            className="settings-form__input auth-form__input"
+            type="email"
+            value={demoEmail}
+            onChange={(event) => setDemoEmail(event.target.value)}
+            placeholder="email"
+            autoComplete="username"
+          />
+          <input
+            className="settings-form__input auth-form__input"
+            type="password"
+            value={demoPassword}
+            onChange={(event) => setDemoPassword(event.target.value)}
+            placeholder="password"
+            autoComplete="current-password"
+          />
+          <button
+            className="settings-form__button settings-form__button--primary auth-form__button--demo"
+            type="submit"
+            disabled={isDemoSubmitting || !demoEmail.trim() || !demoPassword}
+          >
+            {isDemoSubmitting ? 'signing in...' : 'Demo login'}
           </button>
         </form>
         {displayStatus && <div className="auth-status">{displayStatus}</div>}
