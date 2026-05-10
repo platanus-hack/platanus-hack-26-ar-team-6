@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import loginLogo from './components/logo/Group 45.svg'
 import SettingsPanel from './components/SettingsPanel'
 import Tabs, { type TabKey } from './components/Tabs'
 import TopBar from './components/TopBar'
@@ -59,9 +60,14 @@ function LoginScreen({
   return (
     <main className="auth-page">
       <section className="auth-panel">
+        <img className="auth-panel__logo" src={loginLogo} alt="" aria-hidden="true" />
         <h1 className="auth-panel__title">omni</h1>
         <form className="auth-form" onSubmit={handleSubmit}>
-          <button className="settings-form__button settings-form__button--primary" type="submit" disabled={isSubmitting}>
+          <button
+            className="settings-form__button settings-form__button--primary auth-form__button--google"
+            type="submit"
+            disabled={isSubmitting}
+          >
             {isSubmitting ? 'opening...' : 'Sign in with Google'}
           </button>
         </form>
@@ -319,6 +325,14 @@ function App(): React.JSX.Element {
     queryFn: (): Promise<DesktopSettings> => window.api.getSettings()
   })
 
+  useEffect(() => {
+    document.body.classList.toggle('app-theme-dark', isDark)
+    document.body.classList.toggle('app-theme-light', !isDark)
+    return () => {
+      document.body.classList.remove('app-theme-dark', 'app-theme-light')
+    }
+  }, [isDark])
+
   const desktopSettings = settingsQuery.data
   const selectedProjectId = desktopSettings?.selectedProjectId ?? null
   const bootstrapQuery = useQuery({
@@ -415,7 +429,7 @@ function App(): React.JSX.Element {
 
   if (!desktopSettings.isLoggedIn) {
     return (
-      <>
+      <div className={`app-shell ${isDark ? 'app-shell--dark' : 'app-shell--light'}`}>
         <LoginScreen authMessage={authMessage} onSettingsChange={handleSettingsChange} />
         {isSettingsOpen && (
           <SettingsPanel
@@ -424,7 +438,7 @@ function App(): React.JSX.Element {
             onSettingsChange={handleSettingsChange}
           />
         )}
-      </>
+      </div>
     )
   }
 

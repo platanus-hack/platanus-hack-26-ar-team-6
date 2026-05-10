@@ -27,3 +27,8 @@ body {
     Helvetica,
     sans-serif;
 }
+
+body.app-theme-dark {
+  --color-background: #141414;
+  --color-text: #f3f3f3;
+}

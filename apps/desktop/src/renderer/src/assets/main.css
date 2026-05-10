@@ -88,22 +88,22 @@ button {
 }
 
 .app-shell--dark {
-  --app-bg: oklch(0.145 0 0);
-  --surface: oklch(0.145 0 0);
-  --surface-subtle: oklch(0.205 0 0);
-  --surface-muted: oklch(0.269 0 0);
-  --surface-inverse: oklch(0.985 0 0);
+  --app-bg: #141414;
+  --surface: #141414;
+  --surface-subtle: #1e1e1e;
+  --surface-muted: #242424;
+  --surface-inverse: #f5f5f5;
   --border: rgba(255, 255, 255, 0.1);
   --border-soft: rgba(255, 255, 255, 0.08);
   --text-primary: #ffffff;
   --text-secondary: #717182;
-  --text-inverse: oklch(0.205 0 0);
-  --bubble-user: oklch(0.985 0 0);
-  --bubble-assistant: oklch(0.269 0 0);
-  --bubble-user-text: oklch(0.205 0 0);
-  --bubble-assistant-text: oklch(0.985 0 0);
-  --input-surface: oklch(0.269 0 0);
-  --user-box-bg: #262626;
+  --text-inverse: #1e1e1e;
+  --bubble-user: #f5f5f5;
+  --bubble-assistant: #1e1e1e;
+  --bubble-user-text: #141414;
+  --bubble-assistant-text: #f5f5f5;
+  --input-surface: #1e1e1e;
+  --user-box-bg: #1e1e1e;
   --user-box-avatar-bg: #ffffff;
   --user-box-avatar-text: #111111;
   --user-box-name: #ffffff;
@@ -504,7 +504,7 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 0;
   width: min(420px, 100%);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -512,8 +512,15 @@ button {
   padding: 32px 24px;
 }
 
+.auth-panel__logo {
+  width: min(72px, 22%);
+  height: auto;
+  display: block;
+  margin-bottom: -5px;
+}
+
 .auth-panel__title {
-  margin: 0;
+  margin: 0 0 10px;
   font-size: 28px;
   font-weight: 600;
 }
@@ -563,6 +570,23 @@ button {
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
+}
+
+.auth-form__button--google.settings-form__button,
+.auth-form__button--google.settings-form__button--primary,
+.auth-form .auth-form__button--google,
+.auth-form__button--google.settings-form__button:hover,
+.auth-form__button--google.settings-form__button--primary:hover,
+.auth-form .auth-form__button--google:hover,
+.auth-form__button--google.settings-form__button:focus,
+.auth-form__button--google.settings-form__button--primary:focus,
+.auth-form .auth-form__button--google:focus,
+.auth-form__button--google.settings-form__button:active,
+.auth-form__button--google.settings-form__button--primary:active,
+.auth-form .auth-form__button--google:active {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
 }
 
 .project-create-form {
@@ -1495,9 +1519,10 @@ button {
 
 .settings-panel {
   width: min(480px, 100%);
-  border: 1px solid #d8d8d8;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--surface);
+  color: var(--text-primary);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
@@ -1507,7 +1532,7 @@ button {
   justify-content: space-between;
   gap: 16px;
   padding: 18px 20px 14px;
-  border-bottom: 1px solid #eeeeee;
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .settings-panel__header h2 {
@@ -1517,14 +1542,14 @@ button {
 
 .settings-panel__header p {
   margin: 4px 0 0;
-  color: #666666;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
 .settings-panel__close {
-  border: 1px solid #d8d8d8;
-  background: #f7f7f7;
-  color: #111111;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
   cursor: pointer;
   width: 28px;
   height: 28px;
@@ -1538,22 +1563,31 @@ button {
 }
 
 .settings-form--stacked {
-  border-top: 1px solid #eeeeee;
+  border-top: 1px solid var(--border-soft);
 }
 
 .settings-form__label {
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .settings-form__input {
-  border: 1px solid #d8d8d8;
+  border: 1px solid var(--border);
+  background: var(--input-surface);
+  color: var(--text-primary);
   padding: 9px 10px;
   font: inherit;
+  border-radius: 8px;
   outline: none;
 }
 
+.settings-form__input::placeholder {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
 .settings-form__input:focus {
-  border-color: #999999;
+  border-color: var(--text-secondary);
 }
 
 .settings-form__actions {
@@ -1584,7 +1618,7 @@ button {
 }
 
 .settings-form__status {
-  color: #555555;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
