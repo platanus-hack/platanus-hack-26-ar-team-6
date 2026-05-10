@@ -2444,6 +2444,20 @@ button {
   flex-shrink: 0;
 }
 
+.responsibilities__sidebar-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.responsibilities__sidebar-item--active .responsibilities__sidebar-avatar {
+  border-color: rgba(47, 128, 237, 0.5);
+}
+
 .responsibilities__sidebar-name {
   flex: 1;
   font-size: 13px;
@@ -2472,9 +2486,21 @@ button {
 }
 
 .responsibilities__panel-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+}
+
+.responsibilities__panel-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid var(--border, #e5e7eb);
 }
 
 .responsibilities__panel-header h3 {

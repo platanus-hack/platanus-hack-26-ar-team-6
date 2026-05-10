@@ -1,4 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import leonardoAvatar from '../assets/tmnt/leonardo.jpg'
+import donatelloAvatar from '../assets/tmnt/donatello.jpg'
+import michelangeloAvatar from '../assets/tmnt/michelangelo.jpg'
+import raphaelAvatar from '../assets/tmnt/raphael.jpg'
+
+const TMNT_AVATARS: Record<string, string> = {
+  leonardo: leonardoAvatar,
+  donatello: donatelloAvatar,
+  michelangelo: michelangeloAvatar,
+  raphael: raphaelAvatar
+}
+
+function tmntAvatar(displayName: string): string | null {
+  return TMNT_AVATARS[displayName.toLowerCase()] ?? null
+}
 
 type ResponsibilitiesResponse = Awaited<ReturnType<typeof window.api.loadResponsibilities>>
 type ResponsibilityMember = ResponsibilitiesResponse['members'][number]
@@ -261,7 +276,15 @@ function ResponsibilitiesView({
                   className={`responsibilities__sidebar-item${isActive ? ' responsibilities__sidebar-item--active' : ''}`}
                   onClick={() => setActiveAgentId(member.agent_id)}
                 >
-                  <span className="responsibilities__sidebar-dot" style={{ background: color }} />
+                  {tmntAvatar(member.display_name) ? (
+                    <img
+                      src={tmntAvatar(member.display_name)!}
+                      alt={member.display_name}
+                      className="responsibilities__sidebar-avatar"
+                    />
+                  ) : (
+                    <span className="responsibilities__sidebar-dot" style={{ background: color }} />
+                  )}
                   <span className="responsibilities__sidebar-name">{member.display_name}</span>
                   {!member.content && (
                     <span className="responsibilities__sidebar-empty">empty</span>
@@ -276,11 +299,20 @@ function ResponsibilitiesView({
               activeMember.content ? (
                 <>
                   <header className="responsibilities__panel-header">
-                    <h3>{activeMember.display_name}</h3>
-                    <p className="responsibilities__panel-meta">
-                      {formatUpdated(activeMember.updated_at)}
-                      {activeMember.word_count != null && ` · ${activeMember.word_count} words`}
-                    </p>
+                    {tmntAvatar(activeMember.display_name) && (
+                      <img
+                        src={tmntAvatar(activeMember.display_name)!}
+                        alt={activeMember.display_name}
+                        className="responsibilities__panel-avatar"
+                      />
+                    )}
+                    <div>
+                      <h3>{activeMember.display_name}</h3>
+                      <p className="responsibilities__panel-meta">
+                        {formatUpdated(activeMember.updated_at)}
+                        {activeMember.word_count != null && ` · ${activeMember.word_count} words`}
+                      </p>
+                    </div>
                   </header>
                   <div className="responsibilities__panel-body">
                     {renderMarkdown(activeMember.content)}
