@@ -4,10 +4,20 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 type TeamPulseResponse = Awaited<ReturnType<typeof window.api.loadTeamPulse>>;
 type TeamPulseMember = TeamPulseResponse["members"][number];
 type TeamPulseCell = TeamPulseMember["cells"][number];
-type TeamPulseRawEvent = Awaited<ReturnType<typeof window.api.loadTeamPulseRawEvents>>[number];
+type TeamPulseRawEvent = Awaited<
+  ReturnType<typeof window.api.loadTeamPulseRawEvents>
+>[number];
 
 const TIMELINE_BUCKET_SIZE = 3600;
 const TIMELINE_BUCKET_COUNT = 24 * 7;
+const CHECKPOINT_DETAIL_TIMEOUT_MS = 15_000;
+
+type TimelineCheckpoint = {
+  id: string;
+  label: string;
+  content: string;
+  capturedAt: string | null;
+};
 
 type DayCell = {
   dayKey: string;
@@ -17,6 +27,7 @@ type DayCell = {
   endIso: string;
   eventCount: number;
   summary: string | null;
+  summaryCheckpoints: TimelineCheckpoint[];
   updatedAt: string | null;
 };
 
@@ -41,13 +52,6 @@ type CheckpointLoadState =
   | { status: "loading"; events: TeamPulseRawEvent[]; error?: undefined }
   | { status: "loaded"; events: TeamPulseRawEvent[]; error?: undefined }
   | { status: "error"; events: TeamPulseRawEvent[]; error: string };
-
-type TimelineCheckpoint = {
-  id: string;
-  label: string;
-  content: string;
-  capturedAt: string | null;
-};
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -108,13 +112,17 @@ function formatUpdated(value: string | null): string {
 }
 
 function mergeSummaries(cells: TeamPulseCell[]): string | null {
+  const deduped = summaryTextsForCells(cells);
+  if (deduped.length === 0) return null;
+  if (deduped.length === 1) return deduped[0]!;
+  return deduped.slice(0, 3).join(" · ");
+}
+
+function summaryTextsForCells(cells: TeamPulseCell[]): string[] {
   const unique = cells
     .map((cell) => cell.summary?.trim())
     .filter((value): value is string => Boolean(value));
-  if (unique.length === 0) return null;
-  const deduped = [...new Set(unique)];
-  if (deduped.length === 1) return deduped[0]!;
-  return deduped.slice(0, 3).join(" · ");
+  return [...new Set(unique)];
 }
 
 function latestUpdatedAt(cells: TeamPulseCell[]): string | null {
@@ -140,61 +148,86 @@ function isCheckpointEvent(event: TeamPulseRawEvent): boolean {
   );
 }
 
-function compactCheckpointContent(content: string, maxLength = 2200): string {
-  const trimmed = content.trim();
-  if (trimmed.length <= maxLength) return trimmed;
-  return `${trimmed.slice(0, maxLength - 31).trimEnd()}\n...[checkpoint truncated]`;
+function checkpointNumberFromEvent(event: TeamPulseRawEvent): string | null {
+  const contentMatch = event.content.trim().match(/^Checkpoint\s+(\d+):/i);
+  if (contentMatch?.[1]) return contentMatch[1];
+
+  const metadataIndex = event.metadata?.checkpoint_index;
+  if (typeof metadataIndex === "number" && Number.isFinite(metadataIndex)) {
+    return String(metadataIndex);
+  }
+  if (typeof metadataIndex === "string" && metadataIndex.trim()) {
+    return metadataIndex.trim();
+  }
+  return null;
 }
 
 function checkpointLabel(event: TeamPulseRawEvent, index: number): string {
-  const match = event.content.trim().match(/^Checkpoint\s+(\d+):/i);
-  return match?.[1] ? `checkpoint ${match[1]}` : `checkpoint ${index + 1}`;
+  const checkpointNumber = checkpointNumberFromEvent(event);
+  return checkpointNumber
+    ? `checkpoint ${checkpointNumber}`
+    : `checkpoint ${index + 1}`;
 }
 
-function checkpointsFromEvents(events: TeamPulseRawEvent[]): TimelineCheckpoint[] {
-  return events.filter(isCheckpointEvent).map((event, index) => ({
-    id: event.id,
-    label: checkpointLabel(event, index),
-    content: compactCheckpointContent(event.content || "No checkpoint content captured."),
-    capturedAt: event.created_at || null,
-  }));
+function compactCheckpointContent(content: string, maxLength = 2400): string {
+  const withoutHeader = content.replace(/^Checkpoint\s+\d+:\s*/i, "").trim();
+  const readable = (
+    withoutHeader ||
+    content.trim() ||
+    "No checkpoint content captured."
+  )
+    .replace(/\s+(ASSISTANT:)/g, "\n\n$1")
+    .replace(/\s+(Code changes:)/g, "\n\n$1");
+  if (readable.length <= maxLength) return readable;
+  return `${readable.slice(0, maxLength - 31).trimEnd()}\n...[checkpoint truncated]`;
 }
 
-function placeholderCheckpoint(cell: DayCell, index: number, status: CheckpointLoadState["status"] | "pending"): TimelineCheckpoint {
-  const checkpointNumber = index + 1;
-  const detail =
-    status === "loading" || status === "pending"
-      ? "Loading checkpoint detail."
-      : cell.summary || "Checkpoint detail is unavailable for this square.";
-  return {
-    id: `${cell.dayKey}:checkpoint-${checkpointNumber}`,
-    label: `checkpoint ${checkpointNumber}`,
-    content: detail,
-    capturedAt: cell.updatedAt,
-  };
-}
-
-function checkpointPagesForCell(
-  cell: DayCell,
-  state: CheckpointLoadState | null,
+function checkpointsFromEvents(
+  events: TeamPulseRawEvent[],
 ): TimelineCheckpoint[] {
-  const expectedCount = Math.max(1, cell.eventCount || 0);
-  const status = state?.status ?? "pending";
+  return events
+    .filter(isCheckpointEvent)
+    .sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    )
+    .map((event, index) => ({
+      id: event.id,
+      label: checkpointLabel(event, index),
+      content: compactCheckpointContent(event.content),
+      capturedAt: event.created_at || null,
+    }));
+}
 
-  if (state?.status === "loaded") {
-    const checkpoints = checkpointsFromEvents(state.events);
-    if (checkpoints.length >= expectedCount) return checkpoints;
-    return [
-      ...checkpoints,
-      ...Array.from({ length: expectedCount - checkpoints.length }, (_, index) =>
-        placeholderCheckpoint(cell, checkpoints.length + index, "error"),
-      ),
-    ];
-  }
+function checkpointsFromCachedCells(
+  dayKey: string,
+  cells: TeamPulseCell[],
+): TimelineCheckpoint[] {
+  const seen = new Set<string>();
+  const checkpoints: TimelineCheckpoint[] = [];
 
-  return Array.from({ length: expectedCount }, (_, index) =>
-    placeholderCheckpoint(cell, index, status),
-  );
+  cells.forEach((cell) => {
+    const summary = cell.summary?.trim();
+    if (!summary || seen.has(summary)) return;
+    seen.add(summary);
+    checkpoints.push({
+      id: `${dayKey}:summary-${checkpoints.length}`,
+      label: `cached summary ${checkpoints.length + 1}`,
+      content: summary,
+      capturedAt: cell.updated_at ?? null,
+    });
+  });
+
+  return checkpoints;
+}
+
+function timeoutAfter(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    window.setTimeout(
+      () => reject(new Error("Checkpoint detail request timed out.")),
+      ms,
+    );
+  });
 }
 
 function aggregatePulseByDay(pulse: TeamPulseResponse): DayPulse {
@@ -228,15 +261,23 @@ function aggregatePulseByDay(pulse: TeamPulseResponse): DayPulse {
       display_name: member.display_name,
       cells: orderedDays.map((day) => {
         const dayCells = byDay.get(day.key) ?? [];
-        return {
+        const cell: DayCell = {
           dayKey: day.key,
           dayLabel: day.label,
           detailLabel: day.detailLabel,
           startIso: day.startIso,
           endIso: day.endIso,
-          eventCount: dayCells.reduce((sum, cell) => sum + (cell.event_count || 0), 0),
+          eventCount: dayCells.reduce(
+            (sum, cell) => sum + (cell.event_count || 0),
+            0,
+          ),
           summary: mergeSummaries(dayCells),
+          summaryCheckpoints: [],
           updatedAt: latestUpdatedAt(dayCells),
+        };
+        return {
+          ...cell,
+          summaryCheckpoints: checkpointsFromCachedCells(day.key, dayCells),
         };
       }),
     };
@@ -250,6 +291,7 @@ type TimelineViewProps = {
 };
 
 function TimelineView(_props: TimelineViewProps): React.JSX.Element {
+  void _props;
   const [pulse, setPulse] = useState<TeamPulseResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -259,7 +301,9 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
     dayIndex: number;
     checkpointIndex: number;
   } | null>(null);
-  const [checkpointCache, setCheckpointCache] = useState<Record<string, CheckpointLoadState>>({});
+  const [checkpointCache, setCheckpointCache] = useState<
+    Record<string, CheckpointLoadState>
+  >({});
   const [hover, setHover] = useState<{
     memberId: string;
     dayIndex: number;
@@ -267,6 +311,8 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
     y: number;
   } | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const mountedRef = useRef(true);
+  const requestedCheckpointKeysRef = useRef<Set<string>>(new Set());
 
   const loadPulse = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -278,6 +324,7 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
       });
       setPulse(next);
       setCheckpointCache({});
+      requestedCheckpointKeysRef.current.clear();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -299,6 +346,7 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
       });
       setPulse(next);
       setCheckpointCache({});
+      requestedCheckpointKeysRef.current.clear();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -310,20 +358,32 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
     void loadPulse();
   }, [loadPulse]);
 
-  const dayPulse = useMemo(() => (pulse ? aggregatePulseByDay(pulse) : null), [pulse]);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const dayPulse = useMemo(
+    () => (pulse ? aggregatePulseByDay(pulse) : null),
+    [pulse],
+  );
 
   const globalMax = useMemo(() => {
     if (!dayPulse) return 1;
     let max = 1;
     for (const member of dayPulse.members) {
-      for (const cell of member.cells) if (cell.eventCount > max) max = cell.eventCount;
+      for (const cell of member.cells)
+        if (cell.eventCount > max) max = cell.eventCount;
     }
     return max;
   }, [dayPulse]);
 
   const selectedDetail = useMemo(() => {
     if (!dayPulse || !selected) return null;
-    const member = dayPulse.members.find((item) => item.agent_id === selected.memberId);
+    const member = dayPulse.members.find(
+      (item) => item.agent_id === selected.memberId,
+    );
     if (!member) return null;
     const cell = member.cells[selected.dayIndex];
     if (!cell) return null;
@@ -332,87 +392,129 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
 
   useEffect(() => {
     if (!selected || !selectedDetail) return;
-    const cacheKey = checkpointCacheKey(selected.memberId, selectedDetail.cell.dayKey);
+    const cacheKey = checkpointCacheKey(
+      selected.memberId,
+      selectedDetail.cell.dayKey,
+    );
     const existing = checkpointCache[cacheKey];
-    if (existing) return;
+    if (existing || requestedCheckpointKeysRef.current.has(cacheKey)) return;
 
-    let cancelled = false;
-    setCheckpointCache((prev) => ({
-      ...prev,
-      [cacheKey]: { status: "loading", events: [] },
-    }));
+    requestedCheckpointKeysRef.current.add(cacheKey);
 
-    void window.api
-      .loadTeamPulseRawEvents({
-        agentId: selected.memberId,
-        since: selectedDetail.cell.startIso,
-        until: selectedDetail.cell.endIso,
-        bucketSize: TIMELINE_BUCKET_SIZE,
-        bucketCount: TIMELINE_BUCKET_COUNT,
-      })
-      .then((events) => {
-        if (cancelled) return;
-        setCheckpointCache((prev) => ({
-          ...prev,
-          [cacheKey]: { status: "loaded", events },
-        }));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setCheckpointCache((prev) => ({
-          ...prev,
-          [cacheKey]: {
-            status: "error",
-            events: [],
-            error: err instanceof Error ? err.message : String(err),
-          },
-        }));
-      });
+    try {
+      const loadRawEvents = window.api.loadTeamPulseRawEvents;
+      if (typeof loadRawEvents !== "function") {
+        throw new Error(
+          "Checkpoint detail API is unavailable. Restart the desktop app so the preload bridge reloads.",
+        );
+      }
 
-    return () => {
-      cancelled = true;
-    };
+      void Promise.race([
+        loadRawEvents({
+          agentId: selected.memberId,
+          since: selectedDetail.cell.startIso,
+          until: selectedDetail.cell.endIso,
+          bucketSize: TIMELINE_BUCKET_SIZE,
+          bucketCount: TIMELINE_BUCKET_COUNT,
+        }),
+        timeoutAfter(CHECKPOINT_DETAIL_TIMEOUT_MS),
+      ])
+        .then((events) => {
+          if (!mountedRef.current) return;
+          setCheckpointCache((prev) => ({
+            ...prev,
+            [cacheKey]: { status: "loaded", events },
+          }));
+        })
+        .catch((err) => {
+          if (!mountedRef.current) return;
+          setCheckpointCache((prev) => ({
+            ...prev,
+            [cacheKey]: {
+              status: "error",
+              events: [],
+              error: err instanceof Error ? err.message : String(err),
+            },
+          }));
+        });
+    } catch (err) {
+      setCheckpointCache((prev) => ({
+        ...prev,
+        [cacheKey]: {
+          status: "error",
+          events: [],
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
   }, [checkpointCache, selected, selectedDetail]);
 
   const selectedCheckpointState = useMemo(() => {
     if (!selected || !selectedDetail) return null;
-    return checkpointCache[checkpointCacheKey(selected.memberId, selectedDetail.cell.dayKey)] ?? null;
+    return (
+      checkpointCache[
+        checkpointCacheKey(selected.memberId, selectedDetail.cell.dayKey)
+      ] ?? {
+        status: "loading",
+        events: [],
+      }
+    );
   }, [checkpointCache, selected, selectedDetail]);
 
   const selectedCheckpoints = useMemo(() => {
-    if (!selectedDetail) return [];
-    return checkpointPagesForCell(selectedDetail.cell, selectedCheckpointState);
+    const rawCheckpoints =
+      selectedCheckpointState?.status === "loaded"
+        ? checkpointsFromEvents(selectedCheckpointState.events)
+        : [];
+    if (rawCheckpoints.length > 0) return rawCheckpoints;
+    return selectedDetail?.cell.summaryCheckpoints ?? [];
   }, [selectedCheckpointState, selectedDetail]);
 
-  useEffect(() => {
-    if (selectedCheckpoints.length === 0) return;
-    setSelected((prev) => {
-      if (!prev || prev.checkpointIndex < selectedCheckpoints.length) return prev;
-      return { ...prev, checkpointIndex: selectedCheckpoints.length - 1 };
-    });
-  }, [selectedCheckpoints.length]);
+  const selectedRawCheckpointCount = useMemo(() => {
+    if (selectedCheckpointState?.status !== "loaded") return 0;
+    return checkpointsFromEvents(selectedCheckpointState.events).length;
+  }, [selectedCheckpointState]);
+  const showingRawCheckpoints = selectedRawCheckpointCount > 0;
 
   const selectedCheckpointIndex = selected
-    ? Math.min(selected.checkpointIndex, Math.max(0, selectedCheckpoints.length - 1))
+    ? Math.min(
+        selected.checkpointIndex,
+        Math.max(0, selectedCheckpoints.length - 1),
+      )
     : 0;
-  const selectedCheckpoint = selectedCheckpoints[selectedCheckpointIndex] ?? null;
+  const selectedCheckpoint =
+    selectedCheckpoints[selectedCheckpointIndex] ?? null;
   const selectedCheckpointCount = selectedCheckpoints.length;
-  const canNavigateCheckpoints = selectedCheckpoints.length > 1;
+  const displayedCheckpointCount = showingRawCheckpoints
+    ? selectedCheckpointCount
+    : (selectedDetail?.cell.eventCount ?? selectedCheckpointCount);
+  const canNavigateCheckpoints = selectedCheckpointCount > 1;
 
   function moveCheckpoint(delta: number): void {
-    const count = selectedCheckpoints.length;
-    if (count <= 0) return;
+    if (selectedCheckpointCount <= 1) return;
     setSelected((prev) => {
       if (!prev) return prev;
-      const nextIndex = Math.min(count - 1, Math.max(0, prev.checkpointIndex + delta));
-      return nextIndex === prev.checkpointIndex ? prev : { ...prev, checkpointIndex: nextIndex };
+      const currentIndex = Math.min(
+        prev.checkpointIndex,
+        selectedCheckpointCount - 1,
+      );
+      const nextIndex = Math.min(
+        selectedCheckpointCount - 1,
+        Math.max(0, currentIndex + delta),
+      );
+      return nextIndex === currentIndex
+        ? prev
+        : { ...prev, checkpointIndex: nextIndex };
     });
   }
 
   if (loading && !pulse) {
     return (
       <section className="content-panel pulse">
-        <PulseToolbar onRefresh={() => void refreshPulse()} refreshing={loading || refreshing} />
+        <PulseToolbar
+          onRefresh={() => void refreshPulse()}
+          refreshing={loading || refreshing}
+        />
         <div className="pulse__loading">
           {Array.from({ length: 4 }).map((_, i) => (
             <div className="pulse__skeleton-row" key={i}>
@@ -428,7 +530,10 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
   if (error && !pulse) {
     return (
       <section className="content-panel pulse">
-        <PulseToolbar onRefresh={() => void refreshPulse()} refreshing={refreshing} />
+        <PulseToolbar
+          onRefresh={() => void refreshPulse()}
+          refreshing={refreshing}
+        />
         <div className="pulse__error">
           <p className="pulse__error-msg">{error}</p>
           <button
@@ -446,7 +551,10 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
   if (!dayPulse || dayPulse.members.length === 0) {
     return (
       <section className="content-panel pulse">
-        <PulseToolbar onRefresh={() => void refreshPulse()} refreshing={refreshing} />
+        <PulseToolbar
+          onRefresh={() => void refreshPulse()}
+          refreshing={refreshing}
+        />
         <div className="pulse__empty">
           <svg
             className="pulse__empty-line"
@@ -465,14 +573,20 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
 
   return (
     <section className="content-panel pulse">
-      <PulseToolbar onRefresh={() => void refreshPulse()} refreshing={refreshing} />
+      <PulseToolbar
+        onRefresh={() => void refreshPulse()}
+        refreshing={refreshing}
+      />
 
       {error && <div className="pulse__inline-error">{error}</div>}
 
       <div className="pulse__board">
         <div className="pulse__axis" aria-hidden="true">
           <div className="pulse__axis-corner" />
-          <div className="pulse__axis-track" style={{ ["--cols" as string]: dayCount }}>
+          <div
+            className="pulse__axis-track"
+            style={{ ["--cols" as string]: dayCount }}
+          >
             {dayPulse.days.map((day, index) => (
               <div
                 key={day.key}
@@ -487,11 +601,18 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
 
         <div className="pulse__lanes" ref={gridRef}>
           {dayPulse.members.map((member, memberIdx) => {
-            const memberMax = Math.max(1, ...member.cells.map((cell) => cell.eventCount || 0));
+            const memberMax = Math.max(
+              1,
+              ...member.cells.map((cell) => cell.eventCount || 0),
+            );
             const lastCell = member.cells[dayCount - 1];
             const isLive = (lastCell?.eventCount ?? 0) > 0;
-            const memberTotal = member.cells.reduce((sum, cell) => sum + (cell.eventCount || 0), 0);
-            const isExpanded = selectedDetail?.member.agent_id === member.agent_id;
+            const memberTotal = member.cells.reduce(
+              (sum, cell) => sum + (cell.eventCount || 0),
+              0,
+            );
+            const isExpanded =
+              selectedDetail?.member.agent_id === member.agent_id;
 
             return (
               <div
@@ -507,9 +628,12 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                     {initials(member.display_name)}
                   </span>
                   <span className="pulse__name-text">
-                    <span className="pulse__name-primary">{member.display_name}</span>
+                    <span className="pulse__name-primary">
+                      {member.display_name}
+                    </span>
                     <span className="pulse__name-secondary">
-                      {memberTotal} event{memberTotal === 1 ? "" : "s"} this week
+                      {memberTotal} event{memberTotal === 1 ? "" : "s"} this
+                      week
                     </span>
                   </span>
                 </div>
@@ -524,9 +648,12 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                     const intensity = isEmpty
                       ? 0
                       : 0.18 + 0.82 * (cell.eventCount / memberMax);
-                    const globalIntensity = isEmpty ? 0 : cell.eventCount / globalMax;
+                    const globalIntensity = isEmpty
+                      ? 0
+                      : cell.eventCount / globalMax;
                     const isSelected =
-                      selected?.memberId === member.agent_id && selected.dayIndex === index;
+                      selected?.memberId === member.agent_id &&
+                      selected.dayIndex === index;
 
                     return (
                       <button
@@ -535,15 +662,21 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                         className={`pulse__cell pulse__cell--day${isEmpty ? " pulse__cell--empty" : ""}${isSelected ? " pulse__cell--selected" : ""}`}
                         style={{
                           ["--intensity" as string]: intensity.toFixed(3),
-                          ["--global-intensity" as string]: globalIntensity.toFixed(3),
+                          ["--global-intensity" as string]:
+                            globalIntensity.toFixed(3),
                         }}
                         disabled={isEmpty}
                         onClick={() => {
                           if (isEmpty) return;
                           setSelected((prev) =>
-                            prev?.memberId === member.agent_id && prev.dayIndex === index
+                            prev?.memberId === member.agent_id &&
+                            prev.dayIndex === index
                               ? null
-                              : { memberId: member.agent_id, dayIndex: index, checkpointIndex: 0 },
+                              : {
+                                  memberId: member.agent_id,
+                                  dayIndex: index,
+                                  checkpointIndex: 0,
+                                },
                           );
                         }}
                         onMouseEnter={(event) => {
@@ -551,12 +684,18 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                             setHover(null);
                             return;
                           }
-                          const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                          const containerRect = gridRef.current?.getBoundingClientRect();
+                          const rect = (
+                            event.currentTarget as HTMLElement
+                          ).getBoundingClientRect();
+                          const containerRect =
+                            gridRef.current?.getBoundingClientRect();
                           setHover({
                             memberId: member.agent_id,
                             dayIndex: index,
-                            x: rect.left + rect.width / 2 - (containerRect?.left ?? 0),
+                            x:
+                              rect.left +
+                              rect.width / 2 -
+                              (containerRect?.left ?? 0),
                             y: rect.top - (containerRect?.top ?? 0),
                           });
                         }}
@@ -568,7 +707,9 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                       >
                         <span className="pulse__cell-fill" />
                         {!isEmpty && (
-                          <span className="pulse__cell-count">{cell.eventCount}</span>
+                          <span className="pulse__cell-count">
+                            {cell.eventCount}
+                          </span>
                         )}
                       </button>
                     );
@@ -587,34 +728,69 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                             top: `${hover.y}px`,
                           }}
                         >
-                          <span className="pulse__tooltip-time">{cell.detailLabel}</span>
-                          <span className="pulse__tooltip-summary">{cell.summary}</span>
+                          <span className="pulse__tooltip-time">
+                            {cell.detailLabel}
+                          </span>
+                          <span className="pulse__tooltip-summary">
+                            {cell.summary}
+                          </span>
                           <span className="pulse__tooltip-meta">
-                            {cell.eventCount} event{cell.eventCount === 1 ? "" : "s"}
+                            {cell.eventCount} event
+                            {cell.eventCount === 1 ? "" : "s"}
                           </span>
                         </div>
                       );
                     })()}
                 </div>
 
-                {isExpanded && selectedDetail && selectedCheckpoint && (
+                {isExpanded && selectedDetail && (
                   <div className="pulse__detail">
                     <div className="pulse__detail-meta">
                       <span className="pulse__detail-time">
                         {selectedDetail.cell.detailLabel}
                       </span>
                       <span className="pulse__detail-count">
-                        {selectedCheckpointCount} checkpoint
-                        {selectedCheckpointCount === 1 ? "" : "s"}
+                        {displayedCheckpointCount} checkpoint
+                        {displayedCheckpointCount === 1 ? "" : "s"}
                       </span>
-                      {selectedCheckpointState?.status === "loading" && (
-                        <span className="pulse__detail-status">loading checkpoint detail</span>
-                      )}
-                      {selectedCheckpointState?.status === "error" && (
-                        <span className="pulse__detail-status pulse__detail-status--error">
-                          checkpoint detail unavailable
-                        </span>
-                      )}
+                      {selectedCheckpointState?.status === "loading" &&
+                        selectedCheckpoint && (
+                          <span className="pulse__detail-status">
+                            loading raw detail
+                          </span>
+                        )}
+                      {selectedCheckpointState?.status === "loading" &&
+                        !selectedCheckpoint && (
+                          <span className="pulse__detail-status">
+                            loading checkpoint detail
+                          </span>
+                        )}
+                      {selectedCheckpointState?.status === "error" &&
+                        selectedCheckpoint && (
+                          <span className="pulse__detail-status">
+                            showing cached summary
+                          </span>
+                        )}
+                      {selectedCheckpointState?.status === "error" &&
+                        !selectedCheckpoint && (
+                          <span className="pulse__detail-status pulse__detail-status--error">
+                            checkpoint detail unavailable
+                          </span>
+                        )}
+                      {selectedCheckpointState?.status === "loaded" &&
+                        !showingRawCheckpoints &&
+                        selectedCheckpoint && (
+                          <span className="pulse__detail-status">
+                            showing cached summary
+                          </span>
+                        )}
+                      {selectedCheckpointState?.status === "loaded" &&
+                        !showingRawCheckpoints &&
+                        !selectedCheckpoint && (
+                          <span className="pulse__detail-status pulse__detail-status--error">
+                            no raw checkpoints found
+                          </span>
+                        )}
                       <button
                         type="button"
                         className="pulse__detail-close"
@@ -624,53 +800,70 @@ function TimelineView(_props: TimelineViewProps): React.JSX.Element {
                         <X size={14} strokeWidth={1.8} />
                       </button>
                     </div>
-                    <div className="pulse__detail-navigator">
-                      <button
-                        type="button"
-                        className="pulse__detail-arrow"
-                        onClick={() => moveCheckpoint(-1)}
-                        disabled={!canNavigateCheckpoints || selectedCheckpointIndex === 0}
-                        aria-label="previous checkpoint"
-                        title="previous checkpoint"
-                      >
-                        <ChevronLeft size={18} strokeWidth={1.8} />
-                      </button>
+                    {selectedCheckpoint ? (
+                      <div className="pulse__detail-navigator">
+                        <button
+                          type="button"
+                          className="pulse__detail-arrow"
+                          onClick={() => moveCheckpoint(-1)}
+                          disabled={
+                            !canNavigateCheckpoints ||
+                            selectedCheckpointIndex === 0
+                          }
+                          aria-label="previous checkpoint"
+                          title="previous checkpoint"
+                        >
+                          <ChevronLeft size={18} strokeWidth={1.8} />
+                        </button>
 
-                      <div className="pulse__detail-main">
-                        <div className="pulse__detail-checkpoint-meta">
-                          <span>{selectedCheckpoint.label}</span>
-                          <span>
-                            {selectedCheckpointIndex + 1} of {selectedCheckpointCount}
-                          </span>
-                          {selectedCheckpoint.capturedAt && (
-                            <span>captured {formatUpdated(selectedCheckpoint.capturedAt)}</span>
-                          )}
+                        <div className="pulse__detail-main">
+                          <div className="pulse__detail-checkpoint-meta">
+                            <span>{selectedCheckpoint.label}</span>
+                            <span>
+                              {selectedCheckpointIndex + 1} of{" "}
+                              {selectedCheckpointCount}
+                            </span>
+                            {selectedCheckpoint.capturedAt && (
+                              <span>
+                                captured{" "}
+                                {formatUpdated(selectedCheckpoint.capturedAt)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="pulse__detail-summary pulse__detail-summary--checkpoint">
+                            {selectedCheckpoint.content}
+                          </p>
                         </div>
-                        <p className="pulse__detail-summary pulse__detail-summary--checkpoint">
-                          {selectedCheckpoint.content}
-                        </p>
-                        {selectedCheckpointState?.status === "error" && (
-                          <p className="pulse__detail-updated">{selectedCheckpointState.error}</p>
-                        )}
-                      </div>
 
-                      <button
-                        type="button"
-                        className="pulse__detail-arrow"
-                        onClick={() => moveCheckpoint(1)}
-                        disabled={
-                          !canNavigateCheckpoints ||
-                          selectedCheckpointIndex >= selectedCheckpoints.length - 1
-                        }
-                        aria-label="next checkpoint"
-                        title="next checkpoint"
-                      >
-                        <ChevronRight size={18} strokeWidth={1.8} />
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          className="pulse__detail-arrow"
+                          onClick={() => moveCheckpoint(1)}
+                          disabled={
+                            !canNavigateCheckpoints ||
+                            selectedCheckpointIndex >=
+                              selectedCheckpointCount - 1
+                          }
+                          aria-label="next checkpoint"
+                          title="next checkpoint"
+                        >
+                          <ChevronRight size={18} strokeWidth={1.8} />
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="pulse__detail-summary">
+                        {selectedCheckpointState?.status === "error"
+                          ? selectedCheckpointState.error
+                          : selectedCheckpointState?.status === "loaded"
+                            ? selectedDetail.cell.summary ||
+                              "No checkpoint detail is available."
+                            : "Loading checkpoint detail."}
+                      </p>
+                    )}
                     {selectedDetail.cell.updatedAt && (
                       <p className="pulse__detail-updated">
-                        captured {formatUpdated(selectedDetail.cell.updatedAt)}
+                        daily summary captured{" "}
+                        {formatUpdated(selectedDetail.cell.updatedAt)}
                       </p>
                     )}
                   </div>
