@@ -1,6 +1,6 @@
 # team-6 Platanus Hack 26: Buenos Aires Project
 
-**Current project logo:** project-logo.png
+**Current project logo:** ./apps/desktop/src/renderer/src/components/logo/Group 47.png
 
 <img src="./apps/desktop/src/renderer/src/components/logo/Group 47.png" alt="Project Logo" width="200" />
 
