@@ -247,6 +247,12 @@ interface DesktopApi {
   loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseResponse>
   refreshTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) => Promise<TeamPulseRefreshResult>
   loadResponsibilities: () => Promise<ResponsibilitiesResponse>
+  syncTasksToMemory: (payload: {
+    userId: string
+    projectId: string
+    eventContent: string
+    canonicalContent: string
+  }) => Promise<{ event_ids: string[]; document_ids: string[] }>
   loadProjectGraph: (opts?: {
     includeLocal?: boolean
     maxDocs?: number

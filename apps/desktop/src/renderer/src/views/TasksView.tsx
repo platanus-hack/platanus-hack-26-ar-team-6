@@ -79,6 +79,37 @@ function saveApprovedToStorage(projectId: string, tasks: ApprovedTask[]): void {
   localStorage.setItem(storageKey(projectId), JSON.stringify({ approved: tasks }))
 }
 
+function buildTasksCanonicalContent(tasks: ApprovedTask[], ownerDisplayName: string): string {
+  if (tasks.length === 0) return `## ${ownerDisplayName}'s task board\n\nNo approved tasks yet.`
+
+  const byStatus = (s: ApprovedTask['status']) => tasks.filter((t) => t.status === s)
+  const inProgress = byStatus('in progress')
+  const open = byStatus('open')
+  const done = byStatus('done')
+
+  const section = (label: string, items: ApprovedTask[]): string => {
+    if (items.length === 0) return ''
+    const lines = items.map((t) =>
+      `- **${t.title}** (${t.priority} priority)${t.context ? `\n  ${t.context}` : ''}`
+    )
+    return `### ${label}\n${lines.join('\n')}`
+  }
+
+  return [
+    `## ${ownerDisplayName}'s task board`,
+    section('In Progress', inProgress),
+    section('Open', open),
+    section('Done', done),
+  ].filter(Boolean).join('\n\n')
+}
+
+function buildTasksEventContent(tasks: ApprovedTask[]): string {
+  const open = tasks.filter((t) => t.status === 'open').length
+  const inProgress = tasks.filter((t) => t.status === 'in progress').length
+  const done = tasks.filter((t) => t.status === 'done').length
+  return `Task board updated: ${tasks.length} task${tasks.length !== 1 ? 's' : ''} (${inProgress} in progress, ${open} open, ${done} done)`
+}
+
 function parseSuggestionsJson(raw: string): TaskSuggestion[] {
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
   const str = (fenceMatch ? fenceMatch[1] : raw).trim()
@@ -244,28 +275,36 @@ function TasksView({
       ? null
       : roster.find((m) => m.id === selectedOwnerId) ?? null
 
+  const syncToMemory = useCallback((allTasks: ApprovedTask[]) => {
+    const myTasks = allTasks.filter((t) => t.ownerId === userId)
+    window.api.syncTasksToMemory({
+      userId,
+      projectId,
+      eventContent: buildTasksEventContent(myTasks),
+      canonicalContent: buildTasksCanonicalContent(myTasks, userDisplayName),
+    }).catch(() => { /* silent — localStorage is source of truth */ })
+  }, [userId, projectId, userDisplayName])
+
   const cycleStatus = useCallback(
     (taskId: string) => {
-      setApproved((prev) => {
-        const next = prev.map((t) =>
-          t.id === taskId ? { ...t, status: STATUS_CONFIG[t.status]!.next } : t
-        )
-        saveApprovedToStorage(projectId, next)
-        return next
-      })
+      const next = approved.map((t) =>
+        t.id === taskId ? { ...t, status: STATUS_CONFIG[t.status]!.next } : t
+      )
+      saveApprovedToStorage(projectId, next)
+      syncToMemory(next)
+      setApproved(next)
     },
-    [projectId]
+    [approved, projectId, syncToMemory]
   )
 
   const deleteTask = useCallback(
     (taskId: string) => {
-      setApproved((prev) => {
-        const next = prev.filter((t) => t.id !== taskId)
-        saveApprovedToStorage(projectId, next)
-        return next
-      })
+      const next = approved.filter((t) => t.id !== taskId)
+      saveApprovedToStorage(projectId, next)
+      syncToMemory(next)
+      setApproved(next)
     },
-    [projectId]
+    [approved, projectId, syncToMemory]
   )
 
   const approveSuggestion = useCallback(
@@ -283,18 +322,17 @@ function TasksView({
         ownerId,
         ownerDisplayName,
       }
-      setApproved((prev) => {
-        const next = [...prev, newTask]
-        saveApprovedToStorage(projectId, next)
-        return next
-      })
+      const next = [...approved, newTask]
+      saveApprovedToStorage(projectId, next)
+      syncToMemory(next)
+      setApproved(next)
       setSuggestions((prev) => {
         if (prev.kind !== 'visible') return prev
         const remaining = prev.suggestions.filter((s) => s.id !== suggestion.id)
         return remaining.length === 0 ? { kind: 'hidden' } : { ...prev, suggestions: remaining }
       })
     },
-    [projectId, selectedOwnerId, userId, userDisplayName, roster]
+    [approved, projectId, selectedOwnerId, userId, userDisplayName, roster, syncToMemory]
   )
 
   const dismissSuggestion = useCallback((id: string) => {

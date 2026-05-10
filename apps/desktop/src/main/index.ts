@@ -36,6 +36,7 @@ import {
   loadProjectGraph as loadProjectGraphClient,
   type ProjectGraphResponse
 } from '../projectGraph.js'
+import { commitMemoryUpdate } from '../memoryTools.js'
 
 const viteEnv = import.meta.env as unknown as Record<string, string | undefined>
 const FALLBACK_API_BASE_URL = 'https://platanus-hack-26-ar-team-6-production-75c7.up.railway.app'
@@ -632,6 +633,35 @@ app.whenReady().then(() => {
       })
     }
   )
+
+  ipcMain.handle('tasks:sync', async (_, payload: {
+    userId: string
+    projectId: string
+    eventContent: string
+    canonicalContent: string
+  }) => {
+    const { serverBaseUrl, sessionToken } = await getSessionContext(false)
+    return commitMemoryUpdate(
+      {
+        serverUrl: serverBaseUrl,
+        userId: payload.userId,
+        authToken: sessionToken,
+        projectId: payload.projectId,
+      },
+      {
+        chat_session_id: `tasks-board:${payload.projectId}:${payload.userId}`,
+        checkpoint_index: 1,
+        operations: [{
+          author_agent_id: payload.userId,
+          importance: 'global',
+          document_key: 'tasks',
+          event_content: payload.eventContent,
+          canonical_content: payload.canonicalContent,
+          metadata: { source: 'task-board' },
+        }],
+      }
+    )
+  })
 
   ipcMain.handle('assistant:run:start', async (event, payload: StartAssistantRunPayload): Promise<void> => {
     const senderId = event.sender.id
