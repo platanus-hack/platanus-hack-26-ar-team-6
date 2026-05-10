@@ -93,7 +93,7 @@ function ProjectSelection({
   const [isSaving, setIsSaving] = useState(false)
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
   const [leavingProjectId, setLeavingProjectId] = useState<string | null>(null)
-  const [connectingProjectId, setConnectingProjectId] = useState<string | null>(null)
+  const [, setConnectingProjectId] = useState<string | null>(null)
 
   async function connectProjectFolder(projectId: string): Promise<DesktopSettings> {
     setConnectingProjectId(projectId)
@@ -216,7 +216,6 @@ function ProjectSelection({
           <div className="project-list">
             {settings.projects.map((project) => {
               const projectFolder = settings.projectFolders[project.project_id] ?? null
-              const isConnectingFolder = connectingProjectId === project.project_id
               return (
               <div
                 className={`project-list__item ${
