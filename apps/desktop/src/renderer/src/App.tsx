@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import loginLogo from './components/logo/Group 45.svg'
@@ -231,17 +231,6 @@ function ProjectSelection({
                 </button>
                 <div className="project-list__actions">
                   <span className="project-list__meta">{project.role}</span>
-                  {!projectFolder && (
-                    <button
-                      className="project-list__connect-folder"
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); void connectProjectFolder(project.project_id) }}
-                      title="Connect a local folder"
-                      aria-label="Connect folder"
-                    >
-                      <FolderOpen size={14} />
-                    </button>
-                  )}
                   {project.role === 'leader' && (
                     <button
                       className="project-list__delete"
