@@ -2628,6 +2628,80 @@ button {
   background: var(--surface-inverse);
 }
 
+/* Tasks — manual add form */
+.tasks-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.tasks-add-form__input {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 140ms ease;
+}
+
+.tasks-add-form__input:focus {
+  border-color: color-mix(in oklab, var(--text-primary) 30%, transparent);
+}
+
+.tasks-add-form__input::placeholder {
+  color: var(--text-secondary);
+}
+
+.tasks-add-form__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tasks-add-form__pri {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.tasks-add-form__pri--high.tasks-add-form__pri--active {
+  background: rgba(185, 28, 28, 0.1);
+  border-color: rgba(185, 28, 28, 0.3);
+  color: #b91c1c;
+}
+
+.tasks-add-form__pri--medium.tasks-add-form__pri--active {
+  background: rgba(202, 138, 4, 0.1);
+  border-color: rgba(202, 138, 4, 0.3);
+  color: #ca8a04;
+}
+
+.tasks-add-form__pri--low.tasks-add-form__pri--active {
+  background: rgba(100, 116, 139, 0.1);
+  border-color: rgba(100, 116, 139, 0.2);
+  color: #64748b;
+}
+
+.tasks-btn--add {
+  margin-left: auto;
+}
+
+.tasks-btn--add:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
 /* Tasks — approved empty state */
 .tasks-approved-empty {
   display: flex;

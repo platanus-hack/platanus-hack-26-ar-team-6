@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Circle, Clock, Sparkles, X, Plus, Trash2 } from 'lucide-react'
 
 type BootstrapResponse = Awaited<ReturnType<typeof window.api.getBootstrap>>
+type BootstrapContextEntry = BootstrapResponse['project_context'][number]
 
 type RunnerBootstrapPayload = {
   user_summary: BootstrapResponse['user']
@@ -59,7 +60,7 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   done: { icon: CheckCircle2, label: 'Done', className: 'task-card--done', next: 'open' },
 }
 
-// v3: project-scoped (not user-scoped) so all member tasks live together
+// v3: project-scoped so all member tasks live together
 function storageKey(projectId: string): string {
   return `relevo:tasks:v3:${projectId}`
 }
@@ -79,28 +80,52 @@ function saveApprovedToStorage(projectId: string, tasks: ApprovedTask[]): void {
   localStorage.setItem(storageKey(projectId), JSON.stringify({ approved: tasks }))
 }
 
-function buildTasksCanonicalContent(tasks: ApprovedTask[], ownerDisplayName: string): string {
-  if (tasks.length === 0) return `## ${ownerDisplayName}'s task board\n\nNo approved tasks yet.`
-
-  const byStatus = (s: ApprovedTask['status']) => tasks.filter((t) => t.status === s)
-  const inProgress = byStatus('in progress')
-  const open = byStatus('open')
-  const done = byStatus('done')
-
-  const section = (label: string, items: ApprovedTask[]): string => {
-    if (items.length === 0) return ''
-    const lines = items.map((t) =>
-      `- **${t.title}** (${t.priority} priority)${t.context ? `\n  ${t.context}` : ''}`
-    )
-    return `### ${label}\n${lines.join('\n')}`
+// Parse tasks written by teammates from server global memory (bootstrap project_context)
+function loadFromBootstrapEntries(entries: BootstrapContextEntry[]): ApprovedTask[] {
+  const tasks: ApprovedTask[] = []
+  for (const entry of entries) {
+    if (entry.metadata?.source !== 'task-board') continue
+    try {
+      const match = entry.content.match(/(\[[\s\S]*\])/)
+      if (!match) continue
+      const parsed = JSON.parse(match[1]) as unknown[]
+      if (!Array.isArray(parsed)) continue
+      for (const item of parsed) {
+        if (typeof item !== 'object' || item === null) continue
+        const t = item as Record<string, unknown>
+        if (typeof t.id !== 'string' || typeof t.title !== 'string') continue
+        tasks.push({
+          id: t.id,
+          title: t.title,
+          priority: (['high', 'medium', 'low'].includes(t.priority as string)
+            ? t.priority : 'medium') as ApprovedTask['priority'],
+          status: (['open', 'in progress', 'done'].includes(t.status as string)
+            ? t.status : 'open') as ApprovedTask['status'],
+          context: typeof t.context === 'string' ? t.context : '',
+          approvedAt: typeof t.approvedAt === 'string' ? t.approvedAt : new Date().toISOString(),
+          ownerId: typeof t.ownerId === 'string' ? t.ownerId : '',
+          ownerDisplayName: typeof t.ownerDisplayName === 'string' ? t.ownerDisplayName : '',
+        })
+      }
+    } catch {
+      // skip malformed entries
+    }
   }
+  return tasks
+}
 
-  return [
-    `## ${ownerDisplayName}'s task board`,
-    section('In Progress', inProgress),
-    section('Open', open),
-    section('Done', done),
-  ].filter(Boolean).join('\n\n')
+// Merge server tasks with local tasks; local wins on id conflict (user's own recent changes)
+function mergeApproved(fromServer: ApprovedTask[], fromLocal: ApprovedTask[]): ApprovedTask[] {
+  const byId = new Map<string, ApprovedTask>()
+  for (const t of fromServer) byId.set(t.id, t)
+  for (const t of fromLocal) byId.set(t.id, t)
+  return Array.from(byId.values())
+}
+
+// Canonical content stored as JSON so teammates can read it back from bootstrap entries
+function buildTasksCanonicalContent(tasks: ApprovedTask[], ownerDisplayName: string): string {
+  if (tasks.length === 0) return `${ownerDisplayName}'s task board:\n[]`
+  return `${ownerDisplayName}'s task board:\n${JSON.stringify(tasks)}`
 }
 
 function buildTasksEventContent(tasks: ApprovedTask[]): string {
@@ -154,6 +179,68 @@ Order by priority descending.`
 function PriorityBadge({ priority }: { priority: TaskSuggestion['priority'] }): React.JSX.Element {
   return (
     <span className={`task-card__priority task-card__priority--${priority}`}>{priority}</span>
+  )
+}
+
+function AddTaskForm({
+  ownerId,
+  ownerDisplayName,
+  onAdd,
+}: {
+  ownerId: string
+  ownerDisplayName: string
+  onAdd: (task: ApprovedTask) => void
+}): React.JSX.Element {
+  const [title, setTitle] = useState('')
+  const [priority, setPriority] = useState<ApprovedTask['priority']>('medium')
+
+  function handleSubmit(e: React.FormEvent): void {
+    e.preventDefault()
+    const t = title.trim()
+    if (!t) return
+    onAdd({
+      id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: t,
+      priority,
+      status: 'open',
+      context: '',
+      approvedAt: new Date().toISOString(),
+      ownerId,
+      ownerDisplayName,
+    })
+    setTitle('')
+  }
+
+  return (
+    <form className="tasks-add-form" onSubmit={handleSubmit}>
+      <input
+        className="tasks-add-form__input"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder={`Add a task for ${ownerDisplayName}...`}
+        maxLength={120}
+      />
+      <div className="tasks-add-form__row">
+        {(['high', 'medium', 'low'] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            className={`tasks-add-form__pri tasks-add-form__pri--${p}${priority === p ? ' tasks-add-form__pri--active' : ''}`}
+            onClick={() => setPriority(p)}
+          >
+            {p}
+          </button>
+        ))}
+        <button
+          type="submit"
+          className="tasks-btn tasks-btn--add"
+          disabled={!title.trim()}
+        >
+          <Plus size={13} />
+          Add
+        </button>
+      </div>
+    </form>
   )
 }
 
@@ -254,16 +341,22 @@ function TasksView({
 }: TasksViewProps): React.JSX.Element {
   const roster = bootstrap.project_context.roster
 
-  const [approved, setApproved] = useState<ApprovedTask[]>(() =>
-    loadApproved(projectId)
-  )
+  const [approved, setApproved] = useState<ApprovedTask[]>(() => {
+    const local = loadApproved(projectId)
+    const fromServer = loadFromBootstrapEntries(bootstrap.project_context.project_context)
+    return mergeApproved(fromServer, local)
+  })
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | 'all'>('all')
   const [suggestions, setSuggestions] = useState<SuggestionsPhase>({ kind: 'hidden' })
 
+  // Reload and re-merge when the active project changes
   useEffect(() => {
-    setApproved(loadApproved(projectId))
+    const local = loadApproved(projectId)
+    const fromServer = loadFromBootstrapEntries(bootstrap.project_context.project_context)
+    setApproved(mergeApproved(fromServer, local))
     setSelectedOwnerId('all')
     setSuggestions({ kind: 'hidden' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   const unsubscribeRef = useRef<(() => void) | null>(null)
@@ -304,6 +397,16 @@ function TasksView({
   const deleteTask = useCallback(
     (taskId: string) => {
       const next = approved.filter((t) => t.id !== taskId)
+      saveApprovedToStorage(projectId, next)
+      syncToMemory(next)
+      setApproved(next)
+    },
+    [approved, projectId, syncToMemory]
+  )
+
+  const addTaskManually = useCallback(
+    (task: ApprovedTask) => {
+      const next = [...approved, task]
       saveApprovedToStorage(projectId, next)
       syncToMemory(next)
       setApproved(next)
@@ -404,6 +507,12 @@ function TasksView({
   const isGenerating = suggestions.kind === 'generating'
   const showOwnerOnCards = selectedOwnerId === 'all'
 
+  const addFormOwnerId = selectedOwnerId === 'all' ? userId : selectedOwnerId
+  const addFormOwnerDisplayName =
+    selectedOwnerId === 'all'
+      ? userDisplayName
+      : (roster.find((m) => m.id === selectedOwnerId)?.display_name ?? userDisplayName)
+
   const suggestLabel = isGenerating
     ? 'analyzing...'
     : selectedMember
@@ -446,12 +555,19 @@ function TasksView({
         </button>
       </div>
 
+      {/* Manual add form */}
+      <AddTaskForm
+        ownerId={addFormOwnerId}
+        ownerDisplayName={addFormOwnerDisplayName}
+        onAdd={addTaskManually}
+      />
+
       {/* Task grid */}
       {visibleTasks.length === 0 ? (
         <div className="tasks-approved-empty">
           <p>
             {selectedOwnerId === 'all'
-              ? 'no tasks yet — get suggestions and add what you want to work on'
+              ? 'no tasks yet — add one above or get AI suggestions'
               : `no tasks for ${selectedMember?.display_name ?? 'this person'} yet`}
           </p>
         </div>
