@@ -526,8 +526,17 @@ function App(): React.JSX.Element {
         onMemberAdded={() => bootstrapQuery.refetch().then(() => undefined)}
       />
     )
-  } else if (activeTab === 'tasks') {
-    activeView = <TasksView />
+  } else if (activeTab === 'tasks' && runnerBootstrap) {
+    activeView = (
+      <TasksView
+        bootstrap={runnerBootstrap}
+        userId={activeUserId}
+        userDisplayName={bootstrapQuery.data?.user.display_name ?? 'you'}
+        projectId={selectedProjectId}
+        projectName={workspaceName}
+        projectFolderPath={selectedProjectFolderPath}
+      />
+    )
   }
 
   return (
