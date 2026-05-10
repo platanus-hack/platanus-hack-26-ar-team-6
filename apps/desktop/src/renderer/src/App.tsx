@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { FolderOpen, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import loginLogo from './components/logo/Group 45.svg'
@@ -116,15 +116,6 @@ function ProjectSelection({
   async function handleSelect(projectId: string): Promise<void> {
     setStatus(null)
     try {
-      let settingsWithFolder = settings
-      if (!settingsWithFolder.projectFolders[projectId]) {
-        settingsWithFolder = await connectProjectFolder(projectId)
-        if (!settingsWithFolder.projectFolders[projectId]) {
-          setStatus('Connect a local folder before entering this project')
-          return
-        }
-      }
-
       const nextSettings = await window.api.selectProject(projectId)
       onSettingsChange(nextSettings)
       onProjectEntered()
@@ -240,6 +231,17 @@ function ProjectSelection({
                 </button>
                 <div className="project-list__actions">
                   <span className="project-list__meta">{project.role}</span>
+                  {!projectFolder && (
+                    <button
+                      className="project-list__connect-folder"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); void connectProjectFolder(project.project_id) }}
+                      title="Connect a local folder"
+                      aria-label="Connect folder"
+                    >
+                      <FolderOpen size={14} />
+                    </button>
+                  )}
                   {project.role === 'leader' && (
                     <button
                       className="project-list__delete"
@@ -384,17 +386,6 @@ function App(): React.JSX.Element {
 
   async function handleProjectSelect(projectId: string): Promise<void> {
     setFolderMessage(null)
-    let settingsWithFolder = desktopSettings
-
-    if (!settingsWithFolder?.projectFolders[projectId]) {
-      settingsWithFolder = await window.api.chooseProjectFolder(projectId)
-      queryClient.setQueryData(['desktop-settings'], settingsWithFolder)
-      if (!settingsWithFolder.projectFolders[projectId]) {
-        setFolderMessage('Connect a local folder before entering this project')
-        return
-      }
-    }
-
     const nextSettings = await window.api.selectProject(projectId)
     queryClient.setQueryData(['desktop-settings'], nextSettings)
     setActiveTab('chat')
