@@ -650,7 +650,7 @@ button {
 }
 
 .project-list__item--selected {
-  border-left: 3px solid var(--text-primary);
+  border-left: 0;
 }
 
 .project-list__select {
