@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   hydrateRailwaywiseDemoLocalData,
-  isMissingRailwaywiseDemoEndpointError,
   resolveRailwaywiseProjectId
 } from './demoRailwaywise'
 
@@ -150,20 +149,5 @@ describe('resolveRailwaywiseProjectId', () => {
         ]
       )
     ).toBe('project-rw')
-  })
-})
-
-describe('isMissingRailwaywiseDemoEndpointError', () => {
-  it('detects old servers that do not expose the Railwaywise demo endpoint', () => {
-    expect(
-      isMissingRailwaywiseDemoEndpointError(
-        new Error('404 Not Found: {"detail":"Not Found"}')
-      )
-    ).toBe(true)
-  })
-
-  it('does not hide non-404 failures', () => {
-    expect(isMissingRailwaywiseDemoEndpointError(new Error('401 Unauthorized'))).toBe(false)
-    expect(isMissingRailwaywiseDemoEndpointError(new Error('500 Internal Server Error'))).toBe(false)
   })
 })

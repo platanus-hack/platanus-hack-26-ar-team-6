@@ -343,11 +343,6 @@ export function isRailwaywiseDemoProject(projectName: string | null | undefined)
   return normalizedText(projectName).includes('railwaywise')
 }
 
-export function isMissingRailwaywiseDemoEndpointError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.includes('404') && message.toLowerCase().includes('not found')
-}
-
 export function resolveRailwaywiseProjectId(
   responseBody: unknown,
   projects: Array<{ project_id: string; project_name: string }>
