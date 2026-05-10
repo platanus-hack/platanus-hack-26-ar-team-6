@@ -186,13 +186,13 @@ describe('LangGraph multi-agent runtime', () => {
       ]
     })
 
-    expect(calls).toEqual(['updater:0'])
+    expect(calls).toEqual(['updater:1'])
     expect(result.shouldUpdate).toBe(true)
-    expect(result.checkpointIndex).toBe(1)
+    expect(result.checkpointIndex).toBe(2)
     expect(result.events.at(-1)).toMatchObject({
       type: 'memory_update',
       status: 'succeeded',
-      checkpointIndex: 0
+      checkpointIndex: 1
     })
   })
 
@@ -226,7 +226,7 @@ describe('LangGraph multi-agent runtime', () => {
       conversationMessages: [{ role: 'user', text: 'second' }]
     })
 
-    expect(calls).toEqual(['updater:0'])
+    expect(calls).toEqual(['updater:1'])
     expect(result.shouldUpdate).toBe(true)
   })
 

@@ -240,6 +240,41 @@ class MemoryRouteTest(unittest.TestCase):
         self.assertEqual(operation["checkpoint_index"], 1)
         self.assertEqual(operation["author_agent_id"], ASKER_ID)
 
+    def test_claude_code_activity_commits_current_user_memory(self) -> None:
+        commit = Mock(return_value={"event_ids": ["event-1"], "document_ids": ["doc-1"]})
+
+        with patch.object(context_api, "commit_memory_update", commit):
+            response = self.client.post(
+                "/claude-code/activity",
+                json={
+                    "session_id": "claude-session-1",
+                    "checkpoint_index": 2,
+                    "cwd": "/repo",
+                    "prompt": "Add the hook.",
+                    "final_answer": "Implemented the hook.",
+                    "changed_files": [".claude/hooks/relevo_activity.py"],
+                    "diff": "diff --git a/.claude/hooks/relevo_activity.py b/.claude/hooks/relevo_activity.py\n",
+                    "transcript_path": "/tmp/transcript.jsonl",
+                    "hook_event_name": "Stop",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"event_ids": ["event-1"], "document_ids": ["doc-1"]})
+        commit.assert_called_once()
+        self.assertEqual(commit.call_args.kwargs["project_id"], PROJECT_ID)
+        operation = commit.call_args.kwargs["operations"][0]
+        self.assertEqual(operation["author_agent_id"], ASKER_ID)
+        self.assertEqual(operation["importance"], "global")
+        self.assertEqual(operation["chat_session_id"], "claude-code:claude-session-1")
+        self.assertEqual(operation["checkpoint_index"], 2)
+        self.assertEqual(operation["document_key"], "claude-code:claude-session-1")
+        self.assertIn("Prompt:\nAdd the hook.", operation["event_content"])
+        self.assertIn("Final answer:\nImplemented the hook.", operation["event_content"])
+        self.assertIn("Diff:\n```diff", operation["event_content"])
+        self.assertEqual(operation["metadata"]["source"], "claude_code_hook")
+        self.assertEqual(operation["metadata"]["changed_files"], [".claude/hooks/relevo_activity.py"])
+
     def test_request_context_route_is_removed(self) -> None:
         response = self.client.post(
             "/request-context",

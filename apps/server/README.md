@@ -171,6 +171,37 @@ curl -X POST http://localhost:8000/memory-updates \
 The old `/request-context` and `/context-entries` routes are intentionally not
 mounted.
 
+Claude Code activity ingest:
+
+```sh
+curl -X POST http://localhost:8000/claude-code/activity \
+  -H 'Authorization: Bearer <token>' \
+  -H 'X-Project-Id: <project uuid for account sessions>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "claude-session-id",
+    "checkpoint_index": 1,
+    "cwd": "/path/to/project",
+    "prompt": "Implement the hook.",
+    "final_answer": "Implemented the hook.",
+    "changed_files": [".claude/hooks/relevo_activity.py"],
+    "diff": "diff --git ..."
+  }'
+```
+
+The desktop app installs this hook when a user connects a local project folder.
+It creates or updates `.claude/settings.json`, writes
+`.claude/hooks/relevo_activity.py`, stores hook credentials under the Electron
+user data directory instead of inside the repo, and posts changed Claude Code
+sessions here. The hook records the submitted prompt, captures the final
+assistant answer from Claude's transcript on `Stop`, computes a Git diff from a
+non-destructive prompt-time snapshot, and excludes `.env`, `.relevo`, common
+key/cert files, and secret folders from the captured diff. The desktop settings
+panel can disable this tracking; disabling removes only Relevo hook commands
+from connected folders.
+
+For hook debugging, launch Claude Code with `RELEVO_CLAUDE_HOOK_DEBUG=1`.
+
 ## Seed and Migrate
 
 With local Postgres running:

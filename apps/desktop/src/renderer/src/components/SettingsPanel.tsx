@@ -17,6 +17,7 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
   const [status, setStatus] = useState<string | null>(null)
   const [isSavingKey, setIsSavingKey] = useState(false)
   const [isTogglingGraph, setIsTogglingGraph] = useState(false)
+  const [isTogglingHooks, setIsTogglingHooks] = useState(false)
   const hasAnthropicApiKey = Boolean(settings?.hasAnthropicApiKey)
   const displayStatus = status ?? (hasAnthropicApiKey ? 'Anthropic API key saved' : null)
 
@@ -54,6 +55,21 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
       setStatus(`Toggle failed: ${toErrorMessage(error)}`)
     } finally {
       setIsTogglingGraph(false)
+    }
+  }
+
+  async function handleToggleClaudeHooks(): Promise<void> {
+    setIsTogglingHooks(true)
+    setStatus(null)
+    try {
+      const nextEnabled = !settings?.claudeCodeHooksEnabled
+      const nextSettings = await window.api.setClaudeCodeHooksEnabled(nextEnabled)
+      onSettingsChange(nextSettings)
+      setStatus(nextEnabled ? 'Claude Code hooks enabled' : 'Claude Code hooks disabled')
+    } catch (error) {
+      setStatus(`Toggle failed: ${toErrorMessage(error)}`)
+    } finally {
+      setIsTogglingHooks(false)
     }
   }
 
@@ -130,6 +146,25 @@ function SettingsPanel({ settings, onClose, onSettingsChange }: SettingsPanelPro
               {isTogglingGraph ? 'saving...' : settings?.activityGraphEnabled ? 'enabled' : 'disabled'}
             </button>
           </div>
+        </div>
+
+        <div className="settings-form">
+          <label className="settings-form__label">Claude Code hooks</label>
+          <div className="settings-form__actions">
+            <button
+              className={`settings-form__button${settings?.selectedProjectClaudeHook.active ? ' settings-form__button--primary' : ''}`}
+              type="button"
+              onClick={handleToggleClaudeHooks}
+              disabled={isTogglingHooks}
+            >
+              {isTogglingHooks ? 'saving...' : settings?.claudeCodeHooksEnabled ? 'enabled' : 'disabled'}
+            </button>
+          </div>
+          {settings?.selectedProjectClaudeHook.message && (
+            <div className="settings-form__status settings-form__status--panel">
+              {settings.selectedProjectClaudeHook.message}
+            </div>
+          )}
         </div>
 
         {displayStatus && <div className="settings-form__status settings-form__status--panel">{displayStatus}</div>}

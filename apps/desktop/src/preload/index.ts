@@ -42,6 +42,7 @@ const api = {
   ) => ipcRenderer.invoke('conversation:save', workspaceId, data),
   clearConversation: (workspaceId: string) => ipcRenderer.invoke('conversation:clear', workspaceId),
   toggleActivityGraph: (enabled: boolean) => ipcRenderer.invoke('settings:activity-graph:toggle', enabled),
+  setClaudeCodeHooksEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:claude-hooks:set-enabled', enabled),
   getActivityNotes: (projectFolderPath: string) => ipcRenderer.invoke('activity-graph:get-notes', projectFolderPath),
   loadTeamPulse: (opts?: { bucketSize?: number; bucketCount?: number }) =>
     ipcRenderer.invoke('team-pulse:load', opts),

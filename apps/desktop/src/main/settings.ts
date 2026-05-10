@@ -2,6 +2,14 @@ import { app, safeStorage } from 'electron'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
+import {
+  getClaudeCodeHookStatus,
+  installClaudeCodeHook,
+  removeClaudeCodeHook,
+  removeClaudeCodeHookConfig,
+  type ClaudeCodeHookStatus
+} from './claudeHookInstaller.js'
+
 type StoredSecret = {
   value: string
   encrypted: boolean
@@ -33,6 +41,7 @@ type StoredSettings = {
   selectedProjectId?: string | null
   projectFolders?: Record<string, string>
   activityGraphEnabled?: boolean
+  claudeCodeHooksEnabled?: boolean
 }
 
 export type DesktopSettingsResponse = {
@@ -46,6 +55,8 @@ export type DesktopSettingsResponse = {
   projectFolders: Record<string, string>
   selectedProjectFolderPath: string | null
   activityGraphEnabled: boolean
+  claudeCodeHooksEnabled: boolean
+  selectedProjectClaudeHook: ClaudeCodeHookStatus
 }
 
 function settingsPath(): string {
@@ -182,6 +193,13 @@ export async function getDesktopSettings(defaultServerBaseUrl: string): Promise<
   const selectedProjectId = sanitizeSelectedProjectId(settings.selectedProjectId, projects)
   const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
   const sessionToken = await readRelevoSessionToken()
+  const selectedProjectFolderPath = selectedProjectId ? (projectFolders[selectedProjectId] ?? null) : null
+  const claudeCodeHooksEnabled = settings.claudeCodeHooksEnabled ?? true
+  const selectedProjectClaudeHook = await getClaudeCodeHookStatus(
+    selectedProjectFolderPath,
+    selectedProjectId,
+    claudeCodeHooksEnabled
+  )
 
   return {
     hasAnthropicApiKey: Boolean(await readAnthropicApiKey()),
@@ -192,8 +210,10 @@ export async function getDesktopSettings(defaultServerBaseUrl: string): Promise<
     projects,
     selectedProjectId,
     projectFolders,
-    selectedProjectFolderPath: selectedProjectId ? (projectFolders[selectedProjectId] ?? null) : null,
-    activityGraphEnabled: settings.activityGraphEnabled ?? false
+    selectedProjectFolderPath,
+    activityGraphEnabled: settings.activityGraphEnabled ?? false,
+    claudeCodeHooksEnabled,
+    selectedProjectClaudeHook
   }
 }
 
@@ -267,6 +287,9 @@ export async function saveRelevoAuthState(
 
 export async function clearRelevoSession(defaultServerBaseUrl: string): Promise<DesktopSettingsResponse> {
   const settings = await readStoredSettings()
+  const projectFolders = sanitizeProjectFolders(settings.projectFolders, settings.projects ?? [])
+  await Promise.all(Object.values(projectFolders).map((folderPath) => removeClaudeCodeHook(folderPath)))
+  await Promise.all(Object.keys(projectFolders).map((projectId) => removeClaudeCodeHookConfig(projectId)))
   const nextSettings = { ...settings }
   delete nextSettings.relevoSessionToken
   await writeStoredSettings({
@@ -274,7 +297,8 @@ export async function clearRelevoSession(defaultServerBaseUrl: string): Promise<
     account: null,
     projects: [],
     selectedProjectId: null,
-    projectFolders: {}
+    projectFolders: {},
+    claudeCodeHooksEnabled: settings.claudeCodeHooksEnabled ?? true
   })
   return getDesktopSettings(defaultServerBaseUrl)
 }
@@ -309,6 +333,23 @@ export async function saveProjectFolder(
   }
 
   const resolvedFolderPath = await resolveProjectFolderPath(folderPath)
+  const sessionToken = await readRelevoSessionToken()
+  if (!sessionToken) {
+    throw new Error('Sign in with Google before connecting a project folder.')
+  }
+
+  if (settings.claudeCodeHooksEnabled ?? true) {
+    await installClaudeCodeHook({
+      projectId,
+      projectFolderPath: resolvedFolderPath,
+      serverUrl: normalizeServerBaseUrl(defaultServerBaseUrl),
+      authToken: sessionToken
+    })
+  } else {
+    await removeClaudeCodeHook(resolvedFolderPath)
+    await removeClaudeCodeHookConfig(projectId)
+  }
+
   const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
   await writeStoredSettings({
     ...settings,
@@ -329,6 +370,42 @@ export async function toggleActivityGraph(
   return getDesktopSettings(defaultServerBaseUrl)
 }
 
+export async function setClaudeCodeHooksEnabled(
+  enabled: boolean,
+  defaultServerBaseUrl: string
+): Promise<DesktopSettingsResponse> {
+  const settings = await readStoredSettings()
+  const projects = settings.projects ?? []
+  const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
+
+  if (enabled) {
+    const sessionToken = await readRelevoSessionToken()
+    if (!sessionToken) {
+      throw new Error('Sign in with Google before enabling Claude Code hooks.')
+    }
+    await Promise.all(
+      Object.entries(projectFolders).map(([projectId, projectFolderPath]) =>
+        installClaudeCodeHook({
+          projectId,
+          projectFolderPath,
+          serverUrl: normalizeServerBaseUrl(defaultServerBaseUrl),
+          authToken: sessionToken
+        })
+      )
+    )
+  } else {
+    await Promise.all(Object.values(projectFolders).map((projectFolderPath) => removeClaudeCodeHook(projectFolderPath)))
+    await Promise.all(Object.keys(projectFolders).map((projectId) => removeClaudeCodeHookConfig(projectId)))
+  }
+
+  await writeStoredSettings({
+    ...settings,
+    projectFolders,
+    claudeCodeHooksEnabled: enabled
+  })
+  return getDesktopSettings(defaultServerBaseUrl)
+}
+
 export async function clearProjectFolder(
   projectId: string,
   defaultServerBaseUrl: string
@@ -340,6 +417,11 @@ export async function clearProjectFolder(
   }
 
   const projectFolders = sanitizeProjectFolders(settings.projectFolders, projects)
+  const projectFolderPath = projectFolders[projectId]
+  if (projectFolderPath) {
+    await removeClaudeCodeHook(projectFolderPath)
+    await removeClaudeCodeHookConfig(projectId)
+  }
   delete projectFolders[projectId]
   await writeStoredSettings({
     ...settings,
