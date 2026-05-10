@@ -44,7 +44,7 @@ notes:
   picker before chat can run
 - connecting a project folder installs/updates a Claude Code hook in that
   folder's `.claude` directory so external Claude Code sessions can send
-  prompt, final answer, changed files, and Git diff context back to the server
+  prompt, final answer, changed files, and checkpoint context back to the server
 - the hook auth config is stored in the desktop app's user-data directory, not
   in the connected project folder
 - settings shows the selected folder's Claude Code hook status and can disable

@@ -184,8 +184,7 @@ curl -X POST http://localhost:8000/claude-code/activity \
     "cwd": "/path/to/project",
     "prompt": "Implement the hook.",
     "final_answer": "Implemented the hook.",
-    "changed_files": [".claude/hooks/relevo_activity.py"],
-    "diff": "diff --git ..."
+    "changed_files": [".claude/hooks/relevo_activity.py"]
   }'
 ```
 
@@ -194,11 +193,10 @@ It creates or updates `.claude/settings.json`, writes
 `.claude/hooks/relevo_activity.py`, stores hook credentials under the Electron
 user data directory instead of inside the repo, and posts changed Claude Code
 sessions here. The hook records the submitted prompt, captures the final
-assistant answer from Claude's transcript on `Stop`, computes a Git diff from a
-non-destructive prompt-time snapshot, and excludes `.env`, `.relevo`, common
-key/cert files, and secret folders from the captured diff. The desktop settings
-panel can disable this tracking; disabling removes only Relevo hook commands
-from connected folders.
+assistant answer from Claude's transcript on `Stop`, and filters `.env`,
+`.relevo`, common key/cert files, and secret folders from file-change metadata.
+The desktop settings panel can disable this tracking; disabling removes only
+Relevo hook commands from connected folders.
 
 For hook debugging, launch Claude Code with `RELEVO_CLAUDE_HOOK_DEBUG=1`.
 

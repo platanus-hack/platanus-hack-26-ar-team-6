@@ -26,8 +26,8 @@ qué se decidió o qué falta hacer.
 ## Cómo funciona
 
 1. Cada integrante trabaja con su propio asistente local.
-2. Omni captura actividad relevante: conversaciones, decisiones, archivos,
-   avances, bloqueos y tareas.
+2. Omni captura actividad relevante: prompts, respuestas finales, archivos
+   cambiados y actualizaciones de memoria.
 3. Esa actividad se transforma en memoria compartida del equipo.
 4. Los agentes pueden consultar esa memoria en tiempo real cuando necesitan
    contexto de otra persona o del proyecto completo.
@@ -40,7 +40,7 @@ qué se decidió o qué falta hacer.
 - Saber en qué quedó una tarea o decisión.
 - Entender qué cambió en el proyecto y quién lo trabajó.
 - Mantener una memoria viva del equipo, no solo historiales aislados.
-- Proponer tareas que no se pisan entre sí.
+- Proponer tareas usando el contexto compartido.
 - Visualizar responsabilidades, avances y relaciones entre agentes, personas y
   documentos.
 
@@ -56,13 +56,13 @@ persona para responder mejor sin romper el flujo de trabajo.
 
 Con la información compartida, Omni genera un tablero de responsabilidades por
 usuario. Cada integrante tiene una descripción viva de su rol, su área de
-ownership, su estado reciente y sus posibles bloqueos.
+ownership y su trabajo reciente.
 
 ### Propuesta de tareas
 
 Omni puede sugerir nuevas tareas usando la memoria del proyecto: actividad
-reciente, responsabilidades, bloqueos y cosas que quedaron abiertas. La idea es
-ayudar a repartir trabajo sin duplicar esfuerzos ni pisarse entre integrantes.
+reciente, responsabilidades y cosas que quedaron abiertas. La idea es ayudar a
+decidir qué hacer después con contexto del equipo.
 
 ### Línea de tiempo de avances
 
@@ -72,8 +72,8 @@ equipo sin depender de reportes manuales.
 
 ### Grafo del trabajo del equipo
 
-El grafo muestra cómo se conectan personas, agentes, documentos, eventos, tareas
-y consultas de contexto. Ayuda a ver no solo qué información existe, sino también
+El grafo muestra cómo se conectan agentes, documentos de memoria, eventos y
+consultas de contexto. Ayuda a ver no solo qué información existe, sino también
 cómo circula dentro del equipo.
 
 Construido durante Platanus Hack 2026 en 36 horas.
