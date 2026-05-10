@@ -1,5 +1,6 @@
 {
-  "project-name": "<FILL THIS>",
-  "project-oneliner-spanish": "<FILL THIS>",
-  "project-description-spanish": "<FILL THIS>"
+  "project-name": "Omni",
+  "project-description-spanish": "Omni es una red de agentes de IA para equipos. Cada integrante trabaja con su asistente local, y Omni conecta todos esos asistentes: guarda conversaciones, decisiones y avances de cada uno, y los hace accesibles para cualquier persona o agente del equipo en tiempo real. Si alguien no está disponible, su agente lo está. Con esa información compartida, Omni genera un tablero de responsabilidades por usuario, propone tareas que no se pisan entre sí, arma una línea de tiempo de avances y un grafo del trabajo del equipo.",
+  "project-oneliner-spanish": "Omni conecta los agentes de IA de cada integrante del equipo para que el conocimiento del proyecto esté siempre disponible, sin depender de que alguien esté disponible para contártelo.",
+  "deploy-url": "https://platanus-hack-26-ar-team-6-copy-production-5a85.up.railway.app"
 }
