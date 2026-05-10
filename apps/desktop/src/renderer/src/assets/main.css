@@ -2474,16 +2474,56 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
-.tasks-header__title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+/* Tasks — slicer pill group */
+.tasks-slicer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tasks-slicer__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
   color: var(--text-secondary);
-  text-transform: lowercase;
-  letter-spacing: 0.04em;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  white-space: nowrap;
+}
+
+.tasks-slicer__pill:hover {
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+}
+
+.tasks-slicer__pill--active {
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+  border-color: var(--surface-inverse);
+}
+
+.tasks-slicer__pill--active:hover {
+  opacity: 0.88;
+  background: var(--surface-inverse);
+  color: var(--text-inverse);
+}
+
+.tasks-slicer__you {
+  font-size: 10px;
+  opacity: 0.65;
+  font-style: italic;
 }
 
 /* Tasks — shared button */
