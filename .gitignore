@@ -149,3 +149,4 @@ tmp/
 *.orig
 *.env
 *.env.*
+.claude/
