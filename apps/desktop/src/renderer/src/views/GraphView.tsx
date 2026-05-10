@@ -80,7 +80,7 @@ function buildSim(
 
 // Run sim iterations synchronously to settle layout before first paint.
 function prewarm(nodes: SimNode[], edges: SimEdge[]): void {
-  const iters = Math.min(400, 80 + nodes.length * 3)
+  const iters = Math.min(800, 120 + nodes.length * 4)
   for (let i = 0; i < iters; i++) step(nodes, edges, 1)
   for (const n of nodes) {
     n.vx = 0
@@ -223,22 +223,25 @@ function GraphView(): React.JSX.Element {
     if (!graph) return
     const cache = persistedGraphState.positions.size > 0 ? persistedGraphState.positions : undefined
     const built = buildSim(graph.nodes, graph.edges, cache)
-    const hasUncached = !cache || graph.nodes.some((n) => !cache.has(n.id))
-    const allUncached = !cache
-    if (allUncached) {
-      prewarm(built.nodes, built.edges)
-    } else if (hasUncached) {
-      // Pin cached nodes, settle just the new ones briefly so they don't pop in chaotically.
-      const newNodes = built.nodes.filter((n) => !cache!.has(n.id))
-      for (const n of built.nodes) if (!newNodes.includes(n)) n.fixed = true
-      const iters = Math.min(120, 40 + newNodes.length * 5)
-      for (let i = 0; i < iters; i++) step(built.nodes, built.edges, 1)
+    // Seed uncached nodes near a cached neighbor when possible — avoids chaotic placement on stale rings.
+    if (cache) {
       for (const n of built.nodes) {
-        n.fixed = false
-        n.vx = 0
-        n.vy = 0
+        if (cache.has(n.id)) continue
+        let anchor: SimNode | null = null
+        for (const e of built.edges) {
+          if (e.sourceNode === n && cache.has(e.targetNode.id)) { anchor = e.targetNode; break }
+          if (e.targetNode === n && cache.has(e.sourceNode.id)) { anchor = e.sourceNode; break }
+        }
+        if (anchor) {
+          n.x = anchor.x + (Math.random() - 0.5) * 60
+          n.y = anchor.y + (Math.random() - 0.5) * 60
+          n.vx = 0
+          n.vy = 0
+        }
       }
     }
+    const hasUncached = !cache || graph.nodes.some((n) => !cache.has(n.id))
+    if (hasUncached) prewarm(built.nodes, built.edges)
     stateRef.current.nodes = built.nodes
     stateRef.current.edges = built.edges
     stateRef.current.transform = { ...persistedGraphState.transform }
