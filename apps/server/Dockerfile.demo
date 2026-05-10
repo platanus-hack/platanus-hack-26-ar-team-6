@@ -1,0 +1,18 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEMO_RESET_DB=1
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir uv
+
+COPY apps/server/pyproject.toml ./
+COPY apps/server/src ./src
+COPY migrations ./migrations
+COPY seeds ./seeds
+
+RUN uv pip install --system .
+
+CMD ["sh", "-c", "if [ \"$DEMO_RESET_DB\" = \"1\" ]; then python -m relevo.seeds.demo_loader; fi; exec python -m relevo"]

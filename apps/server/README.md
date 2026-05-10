@@ -310,3 +310,51 @@ curl https://<railway-url>/health
 
 The deployed response should include a real SHA through Railway's built-in
 `RAILWAY_GIT_COMMIT_SHA`.
+
+## TMNT demo reset image
+
+For the TMNT demo database, use the demo Dockerfile:
+
+```txt
+RAILWAY_DOCKERFILE_PATH=apps/server/Dockerfile.demo
+```
+
+If the Railway service uses config-as-code, point the service at:
+
+```txt
+infra/railway.demo.json
+```
+
+`Dockerfile.demo` runs `python -m relevo.seeds.demo_loader` before starting the
+server. The loader applies migrations, wipes app data tables, and inserts the
+TMNT demo project with Leonardo, Donatello, Michelangelo, and Raphael plus
+prompt history, activity logs, task-board rows, responsibility documents, and
+agent context-exchange edges.
+
+The demo image defaults to `DEMO_RESET_DB=1`, so every container boot resets the
+database. After the first successful reset, set `DEMO_RESET_DB=0` if you want
+demo interactions to persist across restarts.
+
+Demo session tokens:
+
+```txt
+Leonardo:     rlv_demo_leonardo_session_token
+Donatello:    rlv_demo_donatello_session_token
+Michelangelo: rlv_demo_michelangelo_session_token
+Raphael:      rlv_demo_raphael_session_token
+```
+
+Legacy bearer tokens also exist for direct API calls:
+
+```txt
+demo-token-leonardo
+demo-token-donatello
+demo-token-michelangelo
+demo-token-raphael
+```
+
+Run the same reset manually from `apps/server/` with:
+
+```sh
+DATABASE_URL=postgresql://... uv run python -m relevo.seeds.demo_loader
+```
