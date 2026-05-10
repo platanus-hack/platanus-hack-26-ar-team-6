@@ -1277,7 +1277,7 @@ button {
 
 .chat-input-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
@@ -1285,7 +1285,7 @@ button {
 }
 
 .chat-actions {
-  align-self: center;
+  align-self: flex-end;
 }
 
 .chat-trace-list {
@@ -1366,6 +1366,9 @@ button {
   background: var(--input-surface);
   color: var(--text-primary);
   line-height: 1.4;
+  min-height: 36px;
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .chat-input:focus {
@@ -1411,6 +1414,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 0 0 auto;
 }
 
 .chat-new {
@@ -1458,6 +1462,10 @@ button {
 }
 
 .mention-suggestion-item:hover {
+  background: #f3f3f3;
+}
+
+.mention-suggestion-item--active {
   background: #f3f3f3;
 }
 

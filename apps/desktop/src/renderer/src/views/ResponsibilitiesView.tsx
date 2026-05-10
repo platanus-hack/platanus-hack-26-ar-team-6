@@ -204,11 +204,14 @@ function ResponsibilitiesView({
         </div>
         <button
           type="button"
-          className="settings-form__button"
+          className="pulse__btn"
           onClick={() => void refresh()}
           disabled={refreshing}
         >
-          {refreshing ? 'refreshing...' : 'refresh my doc'}
+          <span
+            className={`pulse__btn-spark${refreshing ? ' pulse__btn-spark--spin' : ''}`}
+          />
+          {refreshing ? 'refreshing' : 'refresh'}
         </button>
       </header>
 
@@ -260,11 +263,7 @@ function ResponsibilitiesView({
                 >
                   <span className="responsibilities__sidebar-dot" style={{ background: color }} />
                   <span className="responsibilities__sidebar-name">{member.display_name}</span>
-                  {member.content ? (
-                    <span className="responsibilities__sidebar-words">
-                      {member.word_count ? `${member.word_count}w` : 'doc'}
-                    </span>
-                  ) : (
+                  {!member.content && (
                     <span className="responsibilities__sidebar-empty">empty</span>
                   )}
                 </button>
