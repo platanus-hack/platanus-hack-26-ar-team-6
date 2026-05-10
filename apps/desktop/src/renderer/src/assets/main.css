@@ -3223,22 +3223,37 @@ button {
 
 /* ── Thinking indicator ──────────────────────────────────── */
 
-/* Logo in assistant message header */
+/* Logo + label grouped in assistant message header */
+.chat-msg__identity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .chat-msg__logo {
   width: 16px;
   height: 13px;
   object-fit: contain;
-  opacity: 0.55;
+  opacity: 0.5;
   flex-shrink: 0;
 }
 
-.chat-msg__logo--spin {
-  animation: chat-logo-spin 1s linear infinite;
-  opacity: 1;
+.app-shell--dark .chat-msg__logo {
+  filter: invert(1);
 }
 
-@keyframes chat-logo-spin {
-  to { transform: rotate(360deg); }
+.chat-msg__logo--active {
+  opacity: 1;
+  animation: logo-breathe 1.2s ease-in-out infinite;
+}
+
+.app-shell--dark .chat-msg__logo--active {
+  filter: invert(1);
+}
+
+@keyframes logo-breathe {
+  0%, 100% { transform: scale(1);    opacity: 0.75; }
+  50%       { transform: scale(1.2); opacity: 1; }
 }
 
 /* Cycling word during thinking */

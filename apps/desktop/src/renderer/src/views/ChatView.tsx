@@ -454,15 +454,17 @@ function ChatView({
         {messages.map((message) => (
           <div key={message.id} className={`chat-msg chat-msg--${message.role}`}>
             <div className="chat-msg__header">
-              {message.role === 'assistant' && (
-                <img
-                  src={logoSrc}
-                  alt=""
-                  aria-hidden="true"
-                  className={`chat-msg__logo${hasMcpRunning ? ' chat-msg__logo--spin' : ''}`}
-                />
-              )}
-              <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
+              <div className="chat-msg__identity">
+                {message.role === 'assistant' && (
+                  <img
+                    src={logoSrc}
+                    alt=""
+                    aria-hidden="true"
+                    className={`chat-msg__logo${hasMcpRunning ? ' chat-msg__logo--active' : ''}`}
+                  />
+                )}
+                <span className="chat-msg__role">{message.role === 'user' ? 'you' : 'omni'}</span>
+              </div>
             </div>
             <div className="chat-msg__text">
               {message.role === 'assistant' && message.text === 'thinking...' && isRunning
